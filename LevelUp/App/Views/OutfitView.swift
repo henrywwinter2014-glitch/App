@@ -4,8 +4,8 @@ import PhotosUI
 import UIKit
 
 struct OutfitView: View {
-    private enum Segment: String, CaseIterable { case score = "Score Outfit", wardrobe = "Wardrobe" }
-    @State private var segment: Segment = .score
+    private enum Segment: String, CaseIterable { case check = "Check Outfit", wardrobe = "Wardrobe" }
+    @State private var segment: Segment = .check
 
     var body: some View {
         NavigationStack {
@@ -18,7 +18,7 @@ struct OutfitView: View {
                 .padding(.top, 8)
 
                 switch segment {
-                case .score: ScoreOutfitTab()
+                case .check: CheckOutfitTab()
                 case .wardrobe: WardrobeTab()
                 }
             }
@@ -27,29 +27,35 @@ struct OutfitView: View {
     }
 }
 
-// MARK: - Score a photo
+// MARK: - Check a photo
 
-private struct ScoreOutfitTab: View {
+private struct CheckOutfitTab: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \OutfitLog.date, order: .reverse) private var logs: [OutfitLog]
-    @ObservedObject private var settings = SettingsStore.shared
 
     @State private var image: UIImage?
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showingCamera = false
-    @State private var occasion = ""
+    @State private var note = ""
     @State private var isScoring = false
     @State private var errorText: String?
-    @State private var result: OutfitScoreResult?
+    @State private var result: OutfitCheckResult?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                if !settings.isAIConfigured {
-                    Text("Add your API key in Settings to score outfits.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding()
+                if !OutfitScorer.isModelInstalled {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("No trained model installed", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.bold())
+                        Text("Train one for free with Create ML and drop it into App/Resources/OutfitScorer.mlmodel — see the README's \"Training the outfit checker\" section.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
                 }
 
                 if let image {
@@ -78,21 +84,21 @@ private struct ScoreOutfitTab: View {
                 }
                 .padding(.horizontal)
 
-                TextField("Occasion (optional, e.g. \"job interview\")", text: $occasion)
+                TextField("Note (optional, e.g. \"job interview\")", text: $note)
                     .textFieldStyle(.roundedBorder)
                     .padding(.horizontal)
 
                 Button {
-                    scoreOutfit()
+                    checkOutfit()
                 } label: {
                     if isScoring {
                         ProgressView().frame(maxWidth: .infinity)
                     } else {
-                        Text("Score This Outfit").frame(maxWidth: .infinity)
+                        Text("Check This Outfit").frame(maxWidth: .infinity)
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(image == nil || isScoring || !settings.isAIConfigured)
+                .disabled(image == nil || isScoring || !OutfitScorer.isModelInstalled)
                 .padding(.horizontal)
 
                 if let errorText {
@@ -100,12 +106,11 @@ private struct ScoreOutfitTab: View {
                 }
 
                 if let result {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 8) {
                         ScoreRingView(score: result.score, diameter: 110)
-                        Text(result.feedback).font(.subheadline).multilineTextAlignment(.center)
-                        ForEach(result.suggestions, id: \.self) { tip in
-                            Label(tip, systemImage: "arrow.up.right.circle").font(.footnote)
-                        }
+                        Text(summary(for: result.score))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                     .padding()
                     .frame(maxWidth: .infinity)
@@ -120,8 +125,8 @@ private struct ScoreOutfitTab: View {
                             HStack {
                                 Text(log.date.formatted(date: .abbreviated, time: .omitted))
                                 Spacer()
-                                if !log.occasion.isEmpty {
-                                    Text(log.occasion).font(.caption).foregroundStyle(.secondary)
+                                if !log.note.isEmpty {
+                                    Text(log.note).font(.caption).foregroundStyle(.secondary)
                                 }
                                 PointsPill(points: log.score, systemImage: "tshirt.fill", tint: .pink)
                             }
@@ -147,22 +152,25 @@ private struct ScoreOutfitTab: View {
         }
     }
 
-    private func scoreOutfit() {
+    private func summary(for score: Int) -> String {
+        switch score {
+        case 80...: "Looking great!"
+        case 60..<80: "Solid outfit."
+        case 40..<60: "Could use some tweaks."
+        default: "Might be worth a rethink."
+        }
+    }
+
+    private func checkOutfit() {
         guard let image, let data = ImageUtilities.prepareForStorageAndUpload(image) else { return }
         isScoring = true
         errorText = nil
         Task {
             defer { isScoring = false }
             do {
-                let scoreResult = try await OutfitScorer.scorePhoto(imageData: data, occasion: occasion)
-                result = scoreResult
-                context.insert(OutfitLog(
-                    imageData: data,
-                    occasion: occasion,
-                    score: scoreResult.score,
-                    feedback: scoreResult.feedback,
-                    suggestions: scoreResult.suggestions
-                ))
+                let checkResult = try await OutfitScorer.score(image: image)
+                result = checkResult
+                context.insert(OutfitLog(imageData: data, note: note, score: checkResult.score))
                 try? context.save()
             } catch {
                 errorText = error.localizedDescription
@@ -171,70 +179,25 @@ private struct ScoreOutfitTab: View {
     }
 }
 
-// MARK: - Wardrobe catalog + AI outfit maker
+// MARK: - Wardrobe catalog
 
 private struct WardrobeTab: View {
     @Query(sort: \WardrobeItem.createdAt, order: .reverse) private var items: [WardrobeItem]
     @Environment(\.modelContext) private var context
-    @ObservedObject private var settings = SettingsStore.shared
-
     @State private var showingAddItem = false
-    @State private var occasion = ""
-    @State private var isSuggesting = false
-    @State private var errorText: String?
-    @State private var suggestion: OutfitCombinationResult?
 
     private let columns = [GridItem(.adaptive(minimum: 90), spacing: 10)]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("AI Outfit Maker").font(.headline)
-                    Text("Picks the best combination from your catalog below.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("Occasion (e.g. \"weekend brunch\")", text: $occasion)
-                        .textFieldStyle(.roundedBorder)
-                    Button {
-                        suggestOutfit()
-                    } label: {
-                        if isSuggesting {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text("Suggest an Outfit").frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(items.isEmpty || isSuggesting || !settings.isAIConfigured)
-
-                    if items.isEmpty {
-                        Text("Add a few items to your wardrobe first.").font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if let errorText {
-                        Text(errorText).font(.footnote).foregroundStyle(.red)
-                    }
-                    if let suggestion {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(suggestion.chosenItemNames, id: \.self) { name in
-                                Label(name, systemImage: "checkmark.circle.fill").font(.subheadline)
-                            }
-                            Text(suggestion.reasoning).font(.footnote).foregroundStyle(.secondary)
-                            PointsPill(points: suggestion.score, systemImage: "tshirt.fill", tint: .pink)
-                        }
-                        .padding(.top, 4)
-                    }
-                }
-                .padding()
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal)
-
                 HStack {
                     Text("Catalog").font(.headline)
                     Spacer()
                     Button { showingAddItem = true } label: { Image(systemName: "plus.circle.fill") }
                 }
                 .padding(.horizontal)
+                .padding(.top, 8)
 
                 if items.isEmpty {
                     Text("No items yet. Add photos of your clothes to build your catalog.")
@@ -266,19 +229,6 @@ private struct WardrobeTab: View {
         }
         .sheet(isPresented: $showingAddItem) {
             AddWardrobeItemView()
-        }
-    }
-
-    private func suggestOutfit() {
-        isSuggesting = true
-        errorText = nil
-        Task {
-            defer { isSuggesting = false }
-            do {
-                suggestion = try await OutfitScorer.suggestCombination(items: items, occasion: occasion)
-            } catch {
-                errorText = error.localizedDescription
-            }
         }
     }
 

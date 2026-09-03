@@ -1,85 +1,94 @@
 import Foundation
+import CoreML
+import Vision
+import UIKit
 
-struct OutfitScoreResult: Codable {
-    let score: Int
-    let feedback: String
-    let suggestions: [String]
+struct OutfitCheckResult {
+    let score: Int // 0...100
 }
 
-struct OutfitCombinationResult: Codable {
-    let chosenItemNames: [String]
-    let reasoning: String
-    let score: Int
+enum OutfitCheckerError: LocalizedError {
+    case modelNotInstalled
+    case invalidImage
+    case predictionFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .modelNotInstalled:
+            "No trained outfit model is installed yet. Train one with Create ML and add OutfitScorer.mlmodel to the app — see the README's \"Training the outfit checker\" section."
+        case .invalidImage:
+            "Couldn't read that photo."
+        case .predictionFailed(let detail):
+            "Scoring failed: \(detail)"
+        }
+    }
 }
 
-/// The "outfit maker and scorer" AI feature: score a photo of a full outfit, or have the
-/// AI pick the best combination out of cataloged WardrobeItems for a given occasion.
+/// Runs a bundled, on-device Core ML model over an outfit photo — no network call, no
+/// API key, no cost. There's no such model shipped in this repo (fashion-quality scoring
+/// isn't a task with an off-the-shelf pretrained model, and it needs to reflect *your*
+/// taste), so this loads whatever `OutfitScorer.mlmodel` you train yourself and drop into
+/// `App/Resources/` — see the README for how to train one for free with Create ML.
+///
+/// Expects the model to have a single image input and a single scalar (Double/Int64, or a
+/// 1-element MLMultiArray) output representing a 0...1 quality score — exactly what
+/// Create ML's "Image Regressor" template produces. If your model's output shape differs,
+/// adjust `extractScore(from:)` below.
 enum OutfitScorer {
-    private static let scoreSystemPrompt = """
-    You are a fashion outfit scorer inside a motivation app. Respond with ONLY JSON (no \
-    markdown fences, no prose) shaped exactly like: {"score": integer 0-100, "feedback": \
-    "1-2 sentence overall assessment", "suggestions": ["short improvement tip", ...]} with \
-    0-3 suggestions. Be encouraging but honest — consider color coordination, fit, and \
-    whether the outfit suits the stated occasion (if any).
-    """
+    private static let modelFilename = "OutfitScorer"
 
-    static func scorePhoto(imageData: Data, occasion: String) async throws -> OutfitScoreResult {
-        let attachment = AIClient.ImageAttachment(base64: imageData.base64EncodedString(), mediaType: "image/jpeg")
-        let userText = occasion.isEmpty ? "Score this outfit." : "Score this outfit for this occasion: \(occasion)."
+    private static let visionModel: VNCoreMLModel? = {
+        guard let url = Bundle.main.url(forResource: modelFilename, withExtension: "mlmodelc") else {
+            return nil
+        }
+        guard let mlModel = try? MLModel(contentsOf: url), let vnModel = try? VNCoreMLModel(for: mlModel) else {
+            return nil
+        }
+        return vnModel
+    }()
 
-        let raw = try await AIClient.complete(
-            system: scoreSystemPrompt,
-            userText: userText,
-            images: [attachment],
-            maxTokens: 400
-        )
-        return try parse(raw, as: OutfitScoreResult.self, opening: "{", closing: "}")
+    static var isModelInstalled: Bool { visionModel != nil }
+
+    static func score(image: UIImage) async throws -> OutfitCheckResult {
+        guard let visionModel else { throw OutfitCheckerError.modelNotInstalled }
+        guard let cgImage = image.cgImage else { throw OutfitCheckerError.invalidImage }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let request = VNCoreMLRequest(model: visionModel) { request, error in
+                if let error {
+                    continuation.resume(throwing: OutfitCheckerError.predictionFailed(error.localizedDescription))
+                    return
+                }
+                guard let observation = request.results?.first as? VNCoreMLFeatureValueObservation,
+                      let rawValue = extractScore(from: observation.featureValue) else {
+                    continuation.resume(throwing: OutfitCheckerError.predictionFailed("unexpected model output — see extractScore(from:) in OutfitScorer.swift"))
+                    return
+                }
+                let clamped = max(0.0, min(1.0, rawValue))
+                continuation.resume(returning: OutfitCheckResult(score: Int(round(clamped * 100))))
+            }
+            request.imageCropAndScaleOption = .scaleFill
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(throwing: OutfitCheckerError.predictionFailed(error.localizedDescription))
+            }
+        }
     }
 
-    private static let combineSystemPrompt = """
-    You help pick outfit combinations from a wardrobe catalog for a motivation app. You'll \
-    be given several clothing item photos, in the same order as a numbered list of their \
-    name/category/color in the message text. Respond with ONLY JSON (no markdown fences, no \
-    prose) shaped exactly like: {"chosenItemNames": [string, ...], "reasoning": "1-2 \
-    sentences", "score": integer 0-100} — choose the item names (copied exactly from the \
-    list) that form the best coherent outfit for the requested occasion, typically 2-4 items.
-    """
-
-    /// Sends up to the first 12 wardrobe items' photos in one request — keep the catalog
-    /// reasonably sized, or this call gets slow/expensive and may hit the model's per-request
-    /// image limit.
-    static func suggestCombination(items: [WardrobeItem], occasion: String) async throws -> OutfitCombinationResult {
-        guard !items.isEmpty else {
-            throw AIClient.AIClientError.badResponse("no wardrobe items to choose from")
+    private static func extractScore(from featureValue: MLFeatureValue) -> Double? {
+        switch featureValue.type {
+        case .double:
+            return featureValue.doubleValue
+        case .int64:
+            return Double(featureValue.int64Value)
+        case .multiArray:
+            guard let array = featureValue.multiArrayValue, array.count > 0 else { return nil }
+            return array[0].doubleValue
+        default:
+            return nil
         }
-        let capped = Array(items.prefix(12))
-        let attachments = capped.map {
-            AIClient.ImageAttachment(base64: $0.imageData.base64EncodedString(), mediaType: "image/jpeg")
-        }
-        let catalog = capped.enumerated()
-            .map { index, item in "\(index + 1). \(item.name) — \(item.category.displayName), \(item.colorDescription)" }
-            .joined(separator: "\n")
-        let userText = """
-        Wardrobe items (photos attached in this order):
-        \(catalog)
-
-        Occasion: \(occasion.isEmpty ? "everyday casual" : occasion)
-        """
-
-        let raw = try await AIClient.complete(
-            system: combineSystemPrompt,
-            userText: userText,
-            images: attachments,
-            maxTokens: 400
-        )
-        return try parse(raw, as: OutfitCombinationResult.self, opening: "{", closing: "}")
-    }
-
-    private static func parse<T: Decodable>(_ raw: String, as type: T.Type, opening: Character, closing: Character) throws -> T {
-        guard let start = raw.firstIndex(of: opening), let end = raw.lastIndex(of: closing), start < end else {
-            throw AIClient.AIClientError.badResponse("no JSON object found in reply")
-        }
-        let data = Data(raw[start...end].utf8)
-        return try JSONDecoder().decode(T.self, from: data)
     }
 }

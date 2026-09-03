@@ -6,7 +6,6 @@ struct ChoreListView: View {
     @Environment(\.modelContext) private var context
     @EnvironmentObject private var gameTimeBank: GameTimeBank
     @State private var showingAddChore = false
-    @State private var showingSuggestions = false
 
     private var active: [Chore] { chores.filter { !$0.isArchived } }
 
@@ -39,19 +38,9 @@ struct ChoreListView: View {
                         Image(systemName: "plus")
                     }
                 }
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        showingSuggestions = true
-                    } label: {
-                        Label("Suggest Chores", systemImage: "sparkles")
-                    }
-                }
             }
             .sheet(isPresented: $showingAddChore) {
                 AddChoreView()
-            }
-            .sheet(isPresented: $showingSuggestions) {
-                SuggestChoresView()
             }
         }
     }

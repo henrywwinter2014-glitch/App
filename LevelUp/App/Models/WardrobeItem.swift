@@ -32,9 +32,7 @@ enum WardrobeCategory: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// A single cataloged piece of clothing. The AI Outfit Maker picks combinations of these
-/// (see OutfitScorer.suggestCombination) rather than requiring a full outfit photo every
-/// time.
+/// A single cataloged piece of clothing, organized in the Outfits tab's Wardrobe catalog.
 @Model
 final class WardrobeItem {
     var name: String

@@ -2,7 +2,13 @@
 
 An iOS app that gates your (or your kid's) game/social apps behind chores and a daily
 fitness score. Finish chores and hit fitness targets → earn points → redeem points for
-game time → apps unlock for exactly that long, then re-lock automatically.
+game time → apps unlock for exactly that long, then re-lock automatically. Includes an
+outfit checker that scores a photo of your outfit using a Core ML model that runs
+entirely on-device.
+
+**No AI APIs, no accounts, no ongoing cost.** Nothing in this app calls out to any
+network service — Screen Time, HealthKit, and the outfit checker are all local to the
+device.
 
 ## How it fits together
 
@@ -12,11 +18,7 @@ game time → apps unlock for exactly that long, then re-lock automatically.
 | Fitness scorer + corrections | HealthKit | `App/Services/HealthKitManager.swift`, `FitnessScorer.swift` |
 | Chore / daily task tracker | SwiftData | `App/Models/Chore.swift`, `App/Views/ChoreListView.swift` |
 | Game time economy | Custom (points ledger) | `App/Services/GameTimeBank.swift`, `App/Views/GameTimeView.swift` |
-| AI coach chat | Claude API | `App/Services/AIClient.swift`, `App/Views/CoachChatView.swift` |
-| AI chore suggestions | Claude API | `App/Services/ChoreSuggestionService.swift`, `App/Views/SuggestChoresView.swift` |
-| AI weekly fitness insights | Claude API | `App/Services/FitnessInsightService.swift` (card in `FitnessView`) |
-| AI game-time tip | Claude API | `App/Services/CoachTipService.swift`, `App/Views/Components/CoachTipCard.swift` |
-| Outfit maker & scorer | Claude API (vision) | `App/Services/OutfitScorer.swift`, `App/Views/OutfitView.swift` |
+| Outfit checker | Core ML + Vision (on-device) | `App/Services/OutfitScorer.swift`, `App/Views/OutfitView.swift` |
 
 **The enforcement loop:** `ScreenTimeSetupView` lets you pick apps/categories with
 `FamilyActivityPicker`. `ShieldController` shields them by default via a named
@@ -28,30 +30,43 @@ window elapses, and again every midnight. Points come from `PointsTransaction` r
 written whenever a chore is completed or a day's `FitnessSnapshot` is scored — the
 balance is just the sum, so it can't drift out of sync.
 
-## AI features
+## Training the outfit checker
 
-Every AI feature (Coach chat, chore suggestions, weekly fitness insight, the game-time
-tip, and the outfit scorer/maker) calls the Anthropic Messages API **directly from the
-device** — there is no backend server. To use any of it:
+The **Outfits** tab's "Check Outfit" screen scores a photo of an outfit 0-100 using a
+Core ML model that runs entirely on-device — no network call, no API key, nothing to
+pay for. There's no pretrained model shipped here, because "is this a good outfit" isn't
+a standard task with an off-the-shelf model the way "identify a cat" is, and it should
+reflect *your* taste anyway. You train it yourself, for free, with **Create ML**
+(bundled with Xcode — no code, no Python, no external tools):
 
-1. Get an API key at [console.anthropic.com](https://console.anthropic.com).
-2. Open the **Settings** tab in the app and paste it in.
+1. **Gather photos.** Take 100+ photos of full outfits (mirror selfies work fine — more
+   photos and more variety in lighting/background make for a better model, but even a
+   few dozen is enough to experiment with). Put them all in one folder.
+2. **Score them yourself.** For each photo, decide a score from 0-100 reflecting how
+   good you think that outfit is. Be consistent — the model can only learn the pattern
+   you actually label.
+3. **Open Create ML.** In Xcode: **Xcode → Open Developer Tool → Create ML** (or launch
+   the Create ML app directly from Spotlight). Create a new project, choose the
+   **Image Regressor** template.
+4. **Add your training data.** Create ML's UI lets you point it at your image folder and
+   pick (or import) the numeric score for each image — the exact import flow varies
+   slightly by Xcode version, so follow Create ML's own prompts; the key idea is each
+   image needs a matching numeric label. Create ML automatically splits off a validation
+   set and trains using transfer learning (fast, and works with a relatively small
+   dataset since it's fine-tuning an existing vision model, not training from scratch).
+5. **Train, then export.** Once training finishes, export the model as `OutfitScorer.mlmodel`.
+6. **Add it to Xcode.** Drag `OutfitScorer.mlmodel` into the `LevelUp/App/Resources/`
+   folder in Finder, then in Xcode drag it into the project navigator under the `App`
+   group and make sure it's checked for the **LevelUp** target (the main app target only
+   — not the extensions). Xcode compiles it into the app bundle automatically.
+7. Re-run the app. The "no trained model installed" banner on the Check Outfit screen
+   disappears once the model loads successfully.
 
-The key is stored in the iOS Keychain (`App/Services/KeychainHelper.swift`), never in
-`UserDefaults` or anywhere synced/backed-up in plaintext, and is only ever sent in the
-`x-api-key` header of requests to `api.anthropic.com` (see `App/Services/AIClient.swift`).
-Every feature is written to fail gracefully with a "add your API key in Settings" prompt
-if it's missing.
-
-**Cost/privacy note:** since this is bring-your-own-key with no backend, usage is billed
-to your own Anthropic account, and whatever context each feature sends (today's chore
-titles, fitness numbers, chat messages, wardrobe/outfit photos) goes to Anthropic's API
-like any other Claude API call. Nothing is sent anywhere else. The outfit scorer/maker
-sends photos as images to the API to score them — don't feed it anything you wouldn't
-want processed by a third-party API call.
-
-You can pick between Sonnet (default), Opus, or Haiku per your speed/cost/quality
-preference in Settings — see `AIModel` in `SettingsStore.swift`.
+`OutfitScorer.swift` expects a single image input and a single scalar 0...1 output
+(exactly what an Image Regressor produces) — if you use a different Create ML template
+or a custom-trained model with a different output shape, adjust
+`OutfitScorer.extractScore(from:)` to match. You can retrain and re-export any time your
+taste changes or you have more data — just replace the `.mlmodel` file and rebuild.
 
 ## Requirements
 
@@ -89,7 +104,11 @@ In Xcode:
    shield-config extensions have **Family Controls**. Xcode usually adds these
    automatically from the entitlements file XcodeGen generates, but double-check.
 4. Build and run on your device. On first launch you'll be asked for HealthKit and
-   Screen Time (Family Controls) permission.
+   Screen Time (Family Controls) permission, and (only if you take an outfit photo
+   in-app) Camera permission.
+5. Train and add `OutfitScorer.mlmodel` per the section above whenever you want the
+   outfit checker to actually score things — the app works fine without it, that one
+   screen just shows a "no trained model installed" banner instead of scoring.
 
 ## Known limitations / things to double-check against current Apple docs
 
@@ -115,16 +134,12 @@ shape of the APIs, but since I can't compile/run this in the environment I built
   device.
 - App icon: `Assets.xcassets/AppIcon.appiconset` is an empty slot — drop in a 1024x1024
   icon before archiving for TestFlight/App Store.
-- **AI JSON parsing**: features that need structured output (chore suggestions, outfit
-  scoring/combinations) ask the model to respond with JSON-only and parse it by slicing
-  from the first `{`/`[` to the last matching `}`/`]` (see e.g. `ChoreSuggestionService.parse`,
-  `OutfitScorer.parse`). This is a pragmatic approach, not a strict schema — if a model
-  response wraps JSON in prose despite instructions, parsing throws and the UI surfaces
-  the error rather than crashing. If this proves flaky in practice, switch those calls to
-  Claude's structured output / tool-use mode instead of prompt-only JSON.
-- **Outfit Maker image limit**: `OutfitScorer.suggestCombination` caps at the first 12
-  wardrobe items per request (all sent as images in one call) to keep requests reasonably
-  sized — trim your catalog or add pagination if you outgrow that.
+- **Outfit model output shape**: `OutfitScorer.extractScore(from:)` handles Double,
+  Int64, and single-element MLMultiArray outputs, which covers what Create ML's Image
+  Regressor produces. I couldn't test this against a real trained model in the
+  environment I built this in — if scoring throws an "unexpected model output" error
+  once you've added your `.mlmodel`, inspect the model's actual output type in Xcode's
+  model preview and adjust that function.
 
 ## Tuning the economy
 

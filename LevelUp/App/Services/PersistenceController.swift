@@ -10,8 +10,6 @@ enum PersistenceController {
         ChoreCompletion.self,
         FitnessSnapshot.self,
         PointsTransaction.self,
-        ChatMessage.self,
-        FitnessInsight.self,
         WardrobeItem.self,
         OutfitLog.self
     ])

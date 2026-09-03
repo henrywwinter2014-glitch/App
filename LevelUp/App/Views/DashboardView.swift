@@ -49,8 +49,6 @@ struct DashboardView: View {
                     }
                     .padding(.horizontal)
 
-                    CoachTipCard()
-
                     if let snapshot = latestSnapshot, !snapshot.corrections.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Today's corrections").font(.headline)
