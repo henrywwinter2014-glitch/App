@@ -25,6 +25,8 @@ struct GameTimeView: View {
                     }
                     .padding(.top)
 
+                    CoachTipCard()
+
                     if gameTimeBank.isUnlocked, let expires = gameTimeBank.unlockExpiresAt {
                         VStack(spacing: 8) {
                             Label("Unlocked", systemImage: "lock.open.fill")

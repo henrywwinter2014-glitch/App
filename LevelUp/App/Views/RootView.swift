@@ -27,8 +27,17 @@ struct MainTabView: View {
             GameTimeView()
                 .tabItem { Label("Game Time", systemImage: "gamecontroller.fill") }
 
+            CoachChatView()
+                .tabItem { Label("Coach", systemImage: "sparkles") }
+
+            OutfitView()
+                .tabItem { Label("Outfits", systemImage: "tshirt.fill") }
+
             ScreenTimeSetupView()
                 .tabItem { Label("Screen Time", systemImage: "hourglass") }
+
+            SettingsView()
+                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
     }
 }

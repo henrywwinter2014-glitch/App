@@ -27,6 +27,7 @@ targets:
         UILaunchScreen: {}
         NSHealthShareUsageDescription: "LevelUp reads your steps, exercise, stand hours and sleep to calculate your daily Fitness Score."
         NSHealthUpdateUsageDescription: "LevelUp does not write health data. This is required by HealthKit even for read-only access."
+        NSCameraUsageDescription: "LevelUp uses the camera to photograph a wardrobe item or today's outfit for AI scoring."
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
     entitlements:

@@ -9,7 +9,11 @@ enum PersistenceController {
         Chore.self,
         ChoreCompletion.self,
         FitnessSnapshot.self,
-        PointsTransaction.self
+        PointsTransaction.self,
+        ChatMessage.self,
+        FitnessInsight.self,
+        WardrobeItem.self,
+        OutfitLog.self
     ])
 
     static func makeContainer() -> ModelContainer {
