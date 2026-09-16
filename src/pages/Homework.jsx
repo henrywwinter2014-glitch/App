@@ -41,6 +41,17 @@ export default function Homework() {
       <h1>Homework</h1>
 
       <section className="card">
+        <a
+          className="quick-link"
+          href="https://www.satchelone.com/login"
+          target="_blank"
+          rel="noreferrer"
+        >
+          📘 Open Satchel One
+        </a>
+      </section>
+
+      <section className="card">
         <h2>Add homework</h2>
         <form className="inline-form" onSubmit={addItem}>
           <input
