@@ -328,3 +328,7 @@ body {
   flex-direction: column;
   gap: 8px;
 }
+
+.card > .list + .quick-link {
+  margin-top: 12px;
+}

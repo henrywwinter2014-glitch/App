@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { loadState, saveState } from '../storage.js'
+import { parseICS, icsDateToISO } from '../ics.js'
 
 const HOMEWORK_KEY = 'henry.homework'
+const SATCHEL_URL_KEY = 'henry.homework.satchelUrl'
+const SATCHEL_ITEMS_KEY = 'henry.homework.satchelItems'
+const SATCHEL_SYNCED_KEY = 'henry.homework.satchelSyncedAt'
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10)
@@ -12,7 +16,14 @@ export default function Homework() {
   const [subject, setSubject] = useState('')
   const [dueDate, setDueDate] = useState(todayISO())
 
+  const [satchelUrl, setSatchelUrl] = useState(() => loadState(SATCHEL_URL_KEY, ''))
+  const [satchelItems, setSatchelItems] = useState(() => loadState(SATCHEL_ITEMS_KEY, []))
+  const [syncedAt, setSyncedAt] = useState(() => loadState(SATCHEL_SYNCED_KEY, ''))
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState('')
+
   const sorted = [...items].sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  const sortedSatchel = [...satchelItems].sort((a, b) => a.dueDate.localeCompare(b.dueDate))
   const today = todayISO()
 
   function addItem(e) {
@@ -36,11 +47,83 @@ export default function Homework() {
     saveState(HOMEWORK_KEY, next)
   }
 
+  function updateSatchelUrl(value) {
+    setSatchelUrl(value)
+    saveState(SATCHEL_URL_KEY, value)
+  }
+
+  async function syncSatchel() {
+    if (!satchelUrl.trim()) return
+    setSyncing(true)
+    setSyncError('')
+    try {
+      const res = await fetch(satchelUrl.trim())
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const text = await res.text()
+      const events = parseICS(text)
+      const next = events
+        .map((ev) => ({
+          id: ev.uid || crypto.randomUUID(),
+          subject: ev.summary || 'Homework',
+          dueDate: icsDateToISO(ev.dtstart),
+        }))
+        .filter((item) => item.dueDate)
+      setSatchelItems(next)
+      saveState(SATCHEL_ITEMS_KEY, next)
+      const now = new Date().toISOString()
+      setSyncedAt(now)
+      saveState(SATCHEL_SYNCED_KEY, now)
+    } catch {
+      setSyncError(
+        "Couldn't load the feed directly — your browser probably blocked it for cross-site security (Satchel One's server doesn't allow other sites to read it). Try the calendar feed in your phone's Calendar app instead, or use \"Open Satchel One\" below.",
+      )
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="page">
       <h1>Homework</h1>
 
       <section className="card">
+        <h2>Satchel One sync</h2>
+        <p className="empty-note">
+          Paste your personal calendar feed link (Satchel One → Settings → Calendar sync → long-press
+          "Sync my calendar" → Copy Link). Stays only on this device.
+        </p>
+        <div className="inline-form">
+          <input
+            type="url"
+            placeholder="https://api.satchelone.com/icalendars.ics?token=..."
+            value={satchelUrl}
+            onChange={(e) => updateSatchelUrl(e.target.value)}
+          />
+          <button type="button" onClick={syncSatchel} disabled={syncing || !satchelUrl.trim()}>
+            {syncing ? 'Syncing…' : 'Sync now'}
+          </button>
+        </div>
+        {syncError && <p className="homework-overdue">{syncError}</p>}
+        {syncedAt && !syncError && (
+          <p className="empty-note">Last synced {new Date(syncedAt).toLocaleString()}</p>
+        )}
+
+        {sortedSatchel.length > 0 && (
+          <ul className="list">
+            {sortedSatchel.map((item) => {
+              const overdue = item.dueDate < today
+              return (
+                <li key={item.id} className="list-row">
+                  <span className={overdue ? 'homework-overdue' : ''}>
+                    {item.subject}
+                    <span className="fixture-meta"> · due {item.dueDate}{overdue ? ' (overdue)' : ''}</span>
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
         <a
           className="quick-link"
           href="https://www.satchelone.com/login"
