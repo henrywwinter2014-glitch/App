@@ -52,14 +52,25 @@ export default function Homework() {
     saveState(SATCHEL_URL_KEY, value)
   }
 
+  async function fetchICSText(url) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return await res.text()
+    } catch {
+      const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+      const res = await fetch(proxied)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      return await res.text()
+    }
+  }
+
   async function syncSatchel() {
     if (!satchelUrl.trim()) return
     setSyncing(true)
     setSyncError('')
     try {
-      const res = await fetch(satchelUrl.trim())
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const text = await res.text()
+      const text = await fetchICSText(satchelUrl.trim())
       const events = parseICS(text)
       const next = events
         .map((ev) => ({
@@ -75,7 +86,7 @@ export default function Homework() {
       saveState(SATCHEL_SYNCED_KEY, now)
     } catch {
       setSyncError(
-        "Couldn't load the feed directly — your browser probably blocked it for cross-site security (Satchel One's server doesn't allow other sites to read it). Try the calendar feed in your phone's Calendar app instead, or use \"Open Satchel One\" below.",
+        "Couldn't load the feed, even via a fallback proxy — Satchel One's server may be down, or the link may have expired. Try re-copying the link from Satchel One, or use \"Open Satchel One\" below.",
       )
     } finally {
       setSyncing(false)
@@ -90,7 +101,8 @@ export default function Homework() {
         <h2>Satchel One sync</h2>
         <p className="empty-note">
           Paste your personal calendar feed link (Satchel One → Settings → Calendar sync → long-press
-          "Sync my calendar" → Copy Link). Stays only on this device.
+          "Sync my calendar" → Copy Link). Stays only on this device — but since Satchel One blocks
+          direct requests, syncing sends the link through a free public relay (allorigins.win) to fetch it.
         </p>
         <div className="inline-form">
           <input
