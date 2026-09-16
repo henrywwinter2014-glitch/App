@@ -1,0 +1,296 @@
+:root {
+  --green: #4caf50;
+  --green-dark: #2e7d32;
+  --bg: #f4f7f4;
+  --card-bg: #ffffff;
+  --text: #1b1f1b;
+  --muted: #6b756b;
+  --border: #e1e6e1;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--bg);
+}
+
+.app-content {
+  flex: 1;
+  padding: 20px 16px 90px;
+}
+
+.page h1 {
+  font-size: 1.5rem;
+  margin: 4px 0 16px;
+}
+
+.welcome-header {
+  margin-bottom: 20px;
+}
+
+.welcome-header h1 {
+  color: var(--green-dark);
+  margin-bottom: 12px;
+}
+
+.welcome-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stat-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--green);
+  color: white;
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.stat-pill-static {
+  background: var(--green-dark);
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  font-size: 1.05rem;
+  margin: 0 0 12px;
+}
+
+.day-picker {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  overflow-x: auto;
+}
+
+.day-chip {
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.day-chip-active {
+  background: var(--green);
+  border-color: var(--green);
+  color: white;
+}
+
+.timetable-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timetable-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.timetable-period {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.timetable-input,
+.inline-form input,
+.park-notes {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  width: 100%;
+  font-family: inherit;
+}
+
+.quick-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-link {
+  text-decoration: none;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  font-weight: 600;
+}
+
+.stat-row {
+  display: flex;
+  gap: 16px;
+}
+
+.stat-box {
+  flex: 1;
+  text-align: center;
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 10px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--green-dark);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.inline-form button {
+  border: none;
+  background: var(--green);
+  color: white;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+.fixture-row {
+  align-items: flex-start;
+}
+
+.fixture-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trick-done {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.link-button {
+  border: none;
+  background: none;
+  color: #c62828;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.empty-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.row-highlight {
+  background: rgba(76, 175, 80, 0.12);
+  font-weight: 700;
+}
+
+.nav-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  background: white;
+  border-top: 1px solid var(--border);
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.nav-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 0 14px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.nav-icon {
+  font-size: 1.3rem;
+}
+
+.nav-tab-active {
+  color: var(--green-dark);
+  font-weight: 700;
+}
