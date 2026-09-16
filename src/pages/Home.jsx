@@ -89,6 +89,8 @@ export default function Home() {
           <Link className="quick-link" to="/sleep">😴 Sleep tracker</Link>
           <Link className="quick-link" to="/football">⚽ Arsenal &amp; football</Link>
           <Link className="quick-link" to="/tricks">🛴 Trick list</Link>
+          <Link className="quick-link" to="/homework">📚 Homework</Link>
+          <Link className="quick-link" to="/more">➕ More</Link>
         </div>
       </section>
     </div>

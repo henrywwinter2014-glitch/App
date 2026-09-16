@@ -4,6 +4,7 @@ import { loadState, saveState } from '../storage.js'
 const TRICKS_KEY = 'henry.tricks'
 const DREAM_KEY = 'henry.tricks.dream'
 const PARK_KEY = 'henry.tricks.park'
+const VIDEOS_KEY = 'henry.tricks.videos'
 
 const STARTER_TRICKS = [
   { name: 'Bunny hop', done: false },
@@ -19,6 +20,8 @@ export default function Tricks() {
   const [newTrick, setNewTrick] = useState('')
   const [newDream, setNewDream] = useState('')
   const [park, setPark] = useState(() => loadState(PARK_KEY, ''))
+  const [videos, setVideos] = useState(() => loadState(VIDEOS_KEY, []))
+  const [newVideo, setNewVideo] = useState('')
 
   const doneCount = tricks.filter((t) => t.done).length
 
@@ -61,6 +64,21 @@ export default function Tricks() {
   function updatePark(value) {
     setPark(value)
     saveState(PARK_KEY, value)
+  }
+
+  function addVideo(e) {
+    e.preventDefault()
+    if (!newVideo.trim()) return
+    const next = [...videos, newVideo.trim()]
+    setVideos(next)
+    saveState(VIDEOS_KEY, next)
+    setNewVideo('')
+  }
+
+  function removeVideo(index) {
+    const next = videos.filter((_, i) => i !== index)
+    setVideos(next)
+    saveState(VIDEOS_KEY, next)
   }
 
   return (
@@ -110,6 +128,33 @@ export default function Tricks() {
             placeholder="Add a dream trick"
             value={newDream}
             onChange={(e) => setNewDream(e.target.value)}
+          />
+          <button type="submit">Add</button>
+        </form>
+      </section>
+
+      <section className="card">
+        <h2>Video recommendations</h2>
+        <ul className="list">
+          {videos.map((video, i) => (
+            <li key={video + i} className="list-row">
+              {/^https?:\/\//.test(video) ? (
+                <a href={video} target="_blank" rel="noreferrer">{video}</a>
+              ) : (
+                <span>🎬 {video}</span>
+              )}
+              <button className="link-button" onClick={() => removeVideo(i)} type="button">
+                Remove
+              </button>
+            </li>
+          ))}
+          {videos.length === 0 && <p className="empty-note">Save trick tutorial links or titles here.</p>}
+        </ul>
+        <form className="inline-form" onSubmit={addVideo}>
+          <input
+            placeholder="Paste a video link or title"
+            value={newVideo}
+            onChange={(e) => setNewVideo(e.target.value)}
           />
           <button type="submit">Add</button>
         </form>

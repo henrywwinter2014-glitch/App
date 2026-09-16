@@ -5,6 +5,7 @@ const TABS = [
   { to: '/sleep', label: 'Sleep', icon: '😴' },
   { to: '/football', label: 'Football', icon: '⚽' },
   { to: '/tricks', label: 'Tricks', icon: '🛴' },
+  { to: '/more', label: 'More', icon: '➕' },
 ]
 
 export default function NavBar() {
