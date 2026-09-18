@@ -2,22 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loadState, saveState } from '../storage.js'
 import { putFile, getFile, deleteFile } from '../idb.js'
+import { DAYS, mergedDay, COLOUR_LABELS } from '../timetableData.js'
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-const PERIODS = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', 'Period 6']
-
-const TIMETABLE_KEY = 'henry.timetable'
 const SLEEP_KEY = 'henry.sleep.log'
 const TIMETABLE_FILE_ID = 'timetableFile'
 const TIMETABLE_FILE_META_KEY = 'henry.timetableFile.meta'
-
-function defaultTimetable() {
-  const table = {}
-  DAYS.forEach((day) => {
-    table[day] = PERIODS.map(() => '')
-  })
-  return table
-}
+const WEEK_KEY = 'henry.timetable.week'
 
 function todayName() {
   const idx = new Date().getDay() // 0 Sun ... 6 Sat
@@ -26,8 +16,8 @@ function todayName() {
 }
 
 export default function Home() {
-  const [timetable, setTimetable] = useState(() => loadState(TIMETABLE_KEY, defaultTimetable()))
   const [activeDay, setActiveDay] = useState(todayName())
+  const [week, setWeek] = useState(() => loadState(WEEK_KEY, 'A'))
 
   const sleepLog = loadState(SLEEP_KEY, [])
   const lastNightHours = useMemo(() => {
@@ -57,11 +47,12 @@ export default function Home() {
     }
   }, [fileMeta])
 
-  function updatePeriod(day, index, value) {
-    const next = { ...timetable, [day]: timetable[day].map((v, i) => (i === index ? value : v)) }
-    setTimetable(next)
-    saveState(TIMETABLE_KEY, next)
+  function changeWeek(next) {
+    setWeek(next)
+    saveState(WEEK_KEY, next)
   }
+
+  const daySlots = useMemo(() => mergedDay(week, activeDay), [week, activeDay])
 
   async function handleTimetableFile(e) {
     const file = e.target.files[0]
@@ -121,7 +112,19 @@ export default function Home() {
       </section>
 
       <section className="card">
-        <h2>Timetable today</h2>
+        <h2>Timetable</h2>
+        <div className="day-picker">
+          {['A', 'B'].map((w) => (
+            <button
+              key={w}
+              className={'day-chip' + (w === week ? ' day-chip-active' : '')}
+              onClick={() => changeWeek(w)}
+              type="button"
+            >
+              Week {w}
+            </button>
+          ))}
+        </div>
         <div className="day-picker">
           {DAYS.map((day) => (
             <button
@@ -135,16 +138,19 @@ export default function Home() {
           ))}
         </div>
         <div className="timetable-grid">
-          {PERIODS.map((period, i) => (
-            <div className="timetable-row" key={period}>
-              <span className="timetable-period">{period}</span>
-              <input
-                className="timetable-input"
-                placeholder="Class / room"
-                value={timetable[activeDay][i]}
-                onChange={(e) => updatePeriod(activeDay, i, e.target.value)}
-              />
+          {daySlots.map((slot, i) => (
+            <div className={`timetable-slot tt-${slot.colour}`} key={i}>
+              <span className="timetable-slot-time">{slot.start}–{slot.end}</span>
+              <span className="timetable-slot-subject">{slot.subject}</span>
+              {slot.teacher && (
+                <span className="timetable-slot-meta">{slot.teacher} · {slot.room}</span>
+              )}
             </div>
+          ))}
+        </div>
+        <div className="tt-legend">
+          {Object.entries(COLOUR_LABELS).map(([key, label]) => (
+            <span className={`tt-legend-item tt-${key}`} key={key}>{label}</span>
           ))}
         </div>
       </section>

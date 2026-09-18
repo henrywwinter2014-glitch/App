@@ -110,19 +110,51 @@ body {
 .timetable-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
-.timetable-row {
+.timetable-slot {
   display: grid;
   grid-template-columns: 90px 1fr;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
 }
 
-.timetable-period {
-  font-size: 0.85rem;
+.timetable-slot-time {
+  font-size: 0.78rem;
   color: var(--muted);
+}
+
+.timetable-slot-subject {
+  font-weight: 600;
+}
+
+.timetable-slot-meta {
+  grid-column: 2;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.tt-duncan { background: #bfe8c2; }
+.tt-etienne { background: #fff0a8; }
+.tt-none { background: #ffcf9e; }
+.tt-other { background: #e4e8e4; }
+
+.tt-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tt-legend-item {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 600;
 }
 
 .timetable-input,
