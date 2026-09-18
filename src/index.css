@@ -54,6 +54,12 @@ body {
   flex-wrap: wrap;
 }
 
+.today-summary {
+  margin: 12px 0 0;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
 .stat-pill {
   display: flex;
   align-items: center;
@@ -190,17 +196,8 @@ body {
 .quick-link + .quick-link,
 .inline-form + .quick-link,
 .list + .quick-link,
-p + .quick-link,
-.timetable-photo + .quick-link,
-input[type="file"] + .quick-link {
+p + .quick-link {
   margin-top: 12px;
-}
-
-.timetable-photo {
-  display: block;
-  width: 100%;
-  border-radius: 10px;
-  margin-top: 10px;
 }
 
 .stat-row {

@@ -1,18 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loadState, saveState } from '../storage.js'
-import { putFile, getFile, deleteFile } from '../idb.js'
 import { DAYS, ROW_TIMES, WEEKS, COLOUR_LABELS } from '../timetableData.js'
 
 const SLEEP_KEY = 'henry.sleep.log'
-const TIMETABLE_FILE_ID = 'timetableFile'
-const TIMETABLE_FILE_META_KEY = 'henry.timetableFile.meta'
 const WEEK_KEY = 'henry.timetable.week'
+const FILLER_SUBJECTS = ['Registration', 'Break', 'Lunch', 'Assembly']
 
 function todayName() {
   const idx = new Date().getDay() // 0 Sun ... 6 Sat
   const map = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday' }
   return map[idx] || 'Monday'
+}
+
+function humanList(items) {
+  if (items.length === 0) return 'nothing on'
+  if (items.length === 1) return items[0]
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
 export default function Home() {
@@ -25,28 +29,6 @@ export default function Home() {
     return [...sleepLog].sort((a, b) => b.date.localeCompare(a.date))[0].hours
   }, [sleepLog])
 
-  const [fileMeta, setFileMeta] = useState(() => loadState(TIMETABLE_FILE_META_KEY, null))
-  const [fileUrl, setFileUrl] = useState(null)
-
-  useEffect(() => {
-    let objectUrl = null
-    let cancelled = false
-    if (fileMeta) {
-      getFile(TIMETABLE_FILE_ID).then((blob) => {
-        if (blob && !cancelled) {
-          objectUrl = URL.createObjectURL(blob)
-          setFileUrl(objectUrl)
-        }
-      })
-    } else {
-      setFileUrl(null)
-    }
-    return () => {
-      cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [fileMeta])
-
   function changeWeek(next) {
     setWeek(next)
     saveState(WEEK_KEY, next)
@@ -57,20 +39,10 @@ export default function Home() {
     [week, activeDay],
   )
 
-  async function handleTimetableFile(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    await putFile(TIMETABLE_FILE_ID, file)
-    const meta = { name: file.name, type: file.type }
-    setFileMeta(meta)
-    saveState(TIMETABLE_FILE_META_KEY, meta)
-  }
-
-  async function removeTimetableFile() {
-    await deleteFile(TIMETABLE_FILE_ID)
-    setFileMeta(null)
-    saveState(TIMETABLE_FILE_META_KEY, null)
-  }
+  const todaySubjects = useMemo(() => {
+    const list = WEEKS[week][todayName()].map((s) => s.subject).filter((s) => !FILLER_SUBJECTS.includes(s))
+    return [...new Set(list)]
+  }, [week])
 
   return (
     <div className="page">
@@ -86,33 +58,8 @@ export default function Home() {
             <span>Messages</span>
           </span>
         </div>
+        <p className="today-summary">Today you have {humanList(todaySubjects)}.</p>
       </header>
-
-      <section className="card">
-        <h2>My timetable file</h2>
-        <p className="empty-note">
-          Upload a photo or PDF of your real school timetable to check anytime.
-        </p>
-        <input
-          type="file"
-          accept="image/*,application/pdf"
-          onChange={handleTimetableFile}
-        />
-        {fileMeta && fileUrl && (
-          <>
-            {fileMeta.type === 'application/pdf' ? (
-              <a className="quick-link" href={fileUrl} target="_blank" rel="noreferrer">
-                📄 View {fileMeta.name}
-              </a>
-            ) : (
-              <img className="timetable-photo" src={fileUrl} alt="My timetable" />
-            )}
-            <button className="link-button" onClick={removeTimetableFile} type="button">
-              Remove file
-            </button>
-          </>
-        )}
-      </section>
 
       <section className="card">
         <h2>Timetable</h2>
