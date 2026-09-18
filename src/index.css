@@ -311,6 +311,141 @@ p + .quick-link {
   font-weight: 700;
 }
 
+.chat-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: 999px;
+  background: var(--green);
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.chat-friend-list {
+  gap: 4px;
+}
+
+.chat-friend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-friend-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-friend-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-friend-name {
+  font-weight: 600;
+}
+
+.chat-friend-preview {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.chat-header-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  justify-content: center;
+}
+
+.chat-header-name h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  min-height: 120px;
+}
+
+.chat-bubble-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-bubble {
+  background: var(--green);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 16px 16px 4px 16px;
+  max-width: 75%;
+  font-size: 0.92rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-bubble-time {
+  align-self: flex-end;
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 2px;
+}
+
+.chat-compose {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-compose input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+}
+
+.chat-send {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: none;
+  background: var(--green);
+  color: white;
+  font-size: 1.1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 .nav-bar {
   position: sticky;
   bottom: 0;

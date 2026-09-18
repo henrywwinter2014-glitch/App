@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { loadState, saveState } from '../storage.js'
 
 const FRIENDS_KEY = 'henry.messages.friends'
+
+function logKey(friendId) {
+  return `henry.messages.log.${friendId}`
+}
 
 function isIOS() {
   return typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
@@ -14,14 +18,29 @@ function smsHref(phone, body) {
   return `sms:${cleanPhone}${separator}body=${encodeURIComponent(body)}`
 }
 
+function initials(name) {
+  return name.trim().charAt(0).toUpperCase() || '?'
+}
+
+function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
 export default function Messages() {
   const [friends, setFriends] = useState(() => loadState(FRIENDS_KEY, []))
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [activeId, setActiveId] = useState(null)
   const [draft, setDraft] = useState('')
+  const [log, setLog] = useState([])
 
   const active = friends.find((f) => f.id === activeId) || null
+
+  useEffect(() => {
+    if (activeId) {
+      setLog(loadState(logKey(activeId), []))
+    }
+  }, [activeId])
 
   function addFriend(e) {
     e.preventDefault()
@@ -40,38 +59,71 @@ export default function Messages() {
     if (activeId === id) setActiveId(null)
   }
 
+  function lastMessagePreview(friendId) {
+    const entries = loadState(logKey(friendId), [])
+    if (entries.length === 0) return null
+    return entries[entries.length - 1]
+  }
+
+  function send() {
+    if (!draft.trim() || !active) return
+    const text = draft.trim()
+    const next = [...log, { text, at: new Date().toISOString() }]
+    setLog(next)
+    saveState(logKey(active.id), next)
+    setDraft('')
+    window.location.href = smsHref(active.phone, text)
+  }
+
   if (active) {
     return (
       <div className="page">
-        <button className="link-button back-link" onClick={() => setActiveId(null)} type="button">
-          ← Back
-        </button>
-        <h1>{active.name}</h1>
-        <p className="empty-note">Opens the Messages app on your iPhone to actually send it.</p>
-
-        <section className="card">
-          <a className="quick-link" href={smsHref(active.phone, '')}>
-            💬 Open chat with {active.name}
+        <div className="chat-header">
+          <button className="link-button back-link" onClick={() => setActiveId(null)} type="button">
+            ← Back
+          </button>
+          <div className="chat-header-name">
+            <span className="chat-avatar">{initials(active.name)}</span>
+            <h1>{active.name}</h1>
+          </div>
+          <a className="link-button" href={smsHref(active.phone, '')}>
+            Open in Messages
           </a>
-        </section>
+        </div>
 
-        <section className="card">
-          <h2>Quick message</h2>
-          <textarea
-            className="park-notes"
-            placeholder="Type a message..."
+        <p className="empty-note">
+          Shows what you've sent from here — for their replies and the full conversation, check the
+          Messages app.
+        </p>
+
+        <div className="chat-log">
+          {log.length === 0 && <p className="empty-note">No messages sent from here yet.</p>}
+          {log.map((m, i) => (
+            <div className="chat-bubble-row" key={i}>
+              <div className="chat-bubble">
+                {m.text}
+                <span className="chat-bubble-time">{formatTime(m.at)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <form
+          className="chat-compose"
+          onSubmit={(e) => {
+            e.preventDefault()
+            send()
+          }}
+        >
+          <input
+            placeholder="Text message"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            rows={3}
           />
-          <a
-            className="quick-link send-link"
-            href={smsHref(active.phone, draft)}
-            onClick={() => setDraft('')}
-          >
-            Send via Messages
-          </a>
-        </section>
+          <button className="chat-send" type="submit" aria-label="Send">
+            ➤
+          </button>
+        </form>
       </div>
     )
   }
@@ -79,24 +131,28 @@ export default function Messages() {
   return (
     <div className="page">
       <h1>Messages</h1>
-      <p className="empty-note">Links out to your iPhone's Messages app to send real texts.</p>
+      <p className="empty-note">Sending goes through your iPhone's real Messages app.</p>
 
       <section className="card">
         <h2>Friends</h2>
-        <ul className="list">
-          {friends.map((f) => (
-            <li key={f.id} className="list-row">
-              <button className="quick-link thread-link" onClick={() => setActiveId(f.id)} type="button">
-                {f.name}
-              </button>
-              <a className="link-button" href={smsHref(f.phone, '')}>
-                Message
-              </a>
-              <button className="link-button" onClick={() => removeFriend(f.id)} type="button">
-                Remove
-              </button>
-            </li>
-          ))}
+        <ul className="list chat-friend-list">
+          {friends.map((f) => {
+            const last = lastMessagePreview(f.id)
+            return (
+              <li key={f.id} className="chat-friend-row">
+                <button className="chat-friend-button" onClick={() => setActiveId(f.id)} type="button">
+                  <span className="chat-avatar">{initials(f.name)}</span>
+                  <span className="chat-friend-info">
+                    <span className="chat-friend-name">{f.name}</span>
+                    <span className="chat-friend-preview">{last ? last.text : 'No messages yet'}</span>
+                  </span>
+                </button>
+                <button className="link-button" onClick={() => removeFriend(f.id)} type="button">
+                  Remove
+                </button>
+              </li>
+            )
+          })}
           {friends.length === 0 && <p className="empty-note">Add a friend's number to message them.</p>}
         </ul>
         <form className="inline-form" onSubmit={addFriend}>
