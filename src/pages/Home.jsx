@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loadState, saveState } from '../storage.js'
 import { putFile, getFile, deleteFile } from '../idb.js'
-import { DAYS, mergedDay, COLOUR_LABELS } from '../timetableData.js'
+import { DAYS, ROW_TIMES, WEEKS, COLOUR_LABELS } from '../timetableData.js'
 
 const SLEEP_KEY = 'henry.sleep.log'
 const TIMETABLE_FILE_ID = 'timetableFile'
@@ -52,7 +52,10 @@ export default function Home() {
     saveState(WEEK_KEY, next)
   }
 
-  const daySlots = useMemo(() => mergedDay(week, activeDay), [week, activeDay])
+  const daySlots = useMemo(
+    () => WEEKS[week][activeDay].map((slot, i) => ({ ...slot, start: ROW_TIMES[i][0], end: ROW_TIMES[i][1] })),
+    [week, activeDay],
+  )
 
   async function handleTimetableFile(e) {
     const file = e.target.files[0]

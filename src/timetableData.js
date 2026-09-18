@@ -182,27 +182,6 @@ export const WEEKS = {
   },
 }
 
-export function mergedDay(week, day) {
-  const slots = WEEKS[week][day]
-  const merged = []
-  slots.forEach((slot, i) => {
-    const [start, end] = ROW_TIMES[i]
-    const last = merged[merged.length - 1]
-    if (
-      last &&
-      last.subject === slot.subject &&
-      last.teacher === slot.teacher &&
-      last.room === slot.room &&
-      last.colour === slot.colour
-    ) {
-      last.end = end
-    } else {
-      merged.push({ ...slot, start, end })
-    }
-  })
-  return merged
-}
-
 export const COLOUR_LABELS = {
   duncan: 'Duncan',
   etienne: 'Etienne',
