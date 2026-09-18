@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { loadState, saveState } from '../storage.js'
+import { putFile, getFile, deleteFile } from '../idb.js'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 const PERIODS = ['Period 1', 'Period 2', 'Period 3', 'Period 4', 'Period 5', 'Period 6']
 
 const TIMETABLE_KEY = 'henry.timetable'
 const SLEEP_KEY = 'henry.sleep.log'
+const TIMETABLE_FILE_ID = 'timetableFile'
+const TIMETABLE_FILE_META_KEY = 'henry.timetableFile.meta'
 
 function defaultTimetable() {
   const table = {}
@@ -32,10 +35,47 @@ export default function Home() {
     return [...sleepLog].sort((a, b) => b.date.localeCompare(a.date))[0].hours
   }, [sleepLog])
 
+  const [fileMeta, setFileMeta] = useState(() => loadState(TIMETABLE_FILE_META_KEY, null))
+  const [fileUrl, setFileUrl] = useState(null)
+
+  useEffect(() => {
+    let objectUrl = null
+    let cancelled = false
+    if (fileMeta) {
+      getFile(TIMETABLE_FILE_ID).then((blob) => {
+        if (blob && !cancelled) {
+          objectUrl = URL.createObjectURL(blob)
+          setFileUrl(objectUrl)
+        }
+      })
+    } else {
+      setFileUrl(null)
+    }
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [fileMeta])
+
   function updatePeriod(day, index, value) {
     const next = { ...timetable, [day]: timetable[day].map((v, i) => (i === index ? value : v)) }
     setTimetable(next)
     saveState(TIMETABLE_KEY, next)
+  }
+
+  async function handleTimetableFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    await putFile(TIMETABLE_FILE_ID, file)
+    const meta = { name: file.name, type: file.type }
+    setFileMeta(meta)
+    saveState(TIMETABLE_FILE_META_KEY, meta)
+  }
+
+  async function removeTimetableFile() {
+    await deleteFile(TIMETABLE_FILE_ID)
+    setFileMeta(null)
+    saveState(TIMETABLE_FILE_META_KEY, null)
   }
 
   return (
@@ -53,6 +93,32 @@ export default function Home() {
           </span>
         </div>
       </header>
+
+      <section className="card">
+        <h2>My timetable file</h2>
+        <p className="empty-note">
+          Upload a photo or PDF of your real school timetable to check anytime.
+        </p>
+        <input
+          type="file"
+          accept="image/*,application/pdf"
+          onChange={handleTimetableFile}
+        />
+        {fileMeta && fileUrl && (
+          <>
+            {fileMeta.type === 'application/pdf' ? (
+              <a className="quick-link" href={fileUrl} target="_blank" rel="noreferrer">
+                📄 View {fileMeta.name}
+              </a>
+            ) : (
+              <img className="timetable-photo" src={fileUrl} alt="My timetable" />
+            )}
+            <button className="link-button" onClick={removeTimetableFile} type="button">
+              Remove file
+            </button>
+          </>
+        )}
+      </section>
 
       <section className="card">
         <h2>Timetable today</h2>

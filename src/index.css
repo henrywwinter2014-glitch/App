@@ -158,8 +158,17 @@ body {
 .quick-link + .quick-link,
 .inline-form + .quick-link,
 .list + .quick-link,
-p + .quick-link {
+p + .quick-link,
+.timetable-photo + .quick-link,
+input[type="file"] + .quick-link {
   margin-top: 12px;
+}
+
+.timetable-photo {
+  display: block;
+  width: 100%;
+  border-radius: 10px;
+  margin-top: 10px;
 }
 
 .stat-row {
