@@ -54,12 +54,12 @@ export default function Homework() {
 
   async function fetchICSText(url) {
     try {
-      const res = await fetch(url)
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       return await res.text()
     } catch {
       const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-      const res = await fetch(proxied)
+      const res = await fetch(proxied, { signal: AbortSignal.timeout(10000) })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       return await res.text()
     }

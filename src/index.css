@@ -143,6 +143,7 @@ body {
 }
 
 .quick-link {
+  display: block;
   text-decoration: none;
   color: var(--text);
   background: var(--bg);
@@ -150,6 +151,15 @@ body {
   border-radius: 10px;
   padding: 12px;
   font-weight: 600;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.quick-link + .quick-link,
+.inline-form + .quick-link,
+.list + .quick-link,
+p + .quick-link {
+  margin-top: 12px;
 }
 
 .stat-row {
@@ -329,6 +339,3 @@ body {
   gap: 8px;
 }
 
-.card > .list + .quick-link {
-  margin-top: 12px;
-}
