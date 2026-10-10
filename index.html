@@ -51,6 +51,7 @@
         <strong id="hdrWorth" class="num">-</strong>
         <span id="hdrChange" class="num small"></span>
       </div>
+      <button class="btn btn-ghost help-btn" id="helpBtn" type="button">Help</button>
       <button class="acct" id="acctBtn" type="button" aria-haspopup="dialog"><span class="acct-txt"><b>Sign in</b></span></button>
     </div>
     <div class="skip-panel" id="skipPanel" hidden>
@@ -451,6 +452,34 @@
   </div>
 </div>
 
+<!-- Help -->
+<div class="backdrop" id="helpModal" hidden>
+  <div class="sheet help-sheet" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="acct-head"><span class="eyebrow">Help</span><button class="btn btn-ghost" id="helpClose" type="button">Close</button></div>
+    <h2 id="helpTitle">New to investing?</h2>
+    <p class="note">Bullpen is a practice market with pretend money. Take the tour to see how everything works, or look up a word below.</p>
+    <button class="btn btn-primary" id="helpTour" type="button">Take the tour</button>
+    <dl class="glossary" id="helpList"></dl>
+  </div>
+</div>
+
+<!-- Guided tour -->
+<div class="tour" id="tour" hidden>
+  <div class="tour-hole" id="tourHole"></div>
+  <div class="tour-card" id="tourCard" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+    <div class="tour-top"><span class="eyebrow" id="tourCount"></span><button class="btn btn-ghost" id="tourSkip" type="button">Skip tour</button></div>
+    <h2 id="tourTitle"></h2>
+    <p id="tourText"></p>
+    <div class="tour-foot">
+      <div class="tour-dots" id="tourDots" aria-hidden="true"></div>
+      <div class="tour-btns">
+        <button class="btn" id="tourBack" type="button">Back</button>
+        <button class="btn btn-primary" id="tourNext" type="button">Next</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="js/data.js"></script>
@@ -460,5 +489,6 @@
 <script src="js/firebase-config.js"></script>
 <script src="js/cloud.js"></script>
 <script src="js/app.js"></script>
+<script src="js/tour.js"></script>
 </body>
 </html>

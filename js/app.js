@@ -394,7 +394,7 @@
   }
 
   /* ---------- security sheet ---------- */
-  function openSheet(t) {
+  function openSheet(t, noFocus) {
     if (!E.BY[t]) return;
     ui.sheet = t;
     ui.side = S().holdings[t] && ui.side === 'sell' ? 'sell' : 'buy';
@@ -406,7 +406,7 @@
     $('sheet').hidden = false;
     document.body.style.overflow = 'hidden';
     renderSheet(true);
-    setTimeout(() => $('ordQty').focus({ preventScroll: true }), 30);
+    if (!noFocus) setTimeout(() => $('ordQty').focus({ preventScroll: true }), 30);
   }
   function closeSheet() {
     ui.sheet = null;
@@ -1329,4 +1329,13 @@
   }
 
   boot();
+
+  // Small surface for the guided tour.
+  window.App = {
+    showTab,
+    openSheet: (t, quiet) => openSheet(t, quiet),
+    closeSheet,
+    sheetOpen: () => !!ui.sheet,
+    sheetTicker: () => ui.sheet,
+  };
 })();
