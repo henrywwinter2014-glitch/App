@@ -105,6 +105,7 @@
     else if (m.q === 1) m.exMonths = [hh % 12];
     else m.exMonths = [];
     m.payLag = m.cur === 'GBP' ? 20 : 10;
+    m.exWd = 1 + ((hh >>> 5) % 5);   // weekday used when dividends are paid weekly
     m.earnOff = hh % 63;
     m.divOff = (hh >>> 3) % TD;
     m.hasEarnings = ['Stock', 'REIT', 'BDC', 'MLP', 'International', 'UK Share', 'Penny Stock'].includes(m.type);
@@ -230,7 +231,7 @@
       nw: [],                  // net worth history {d, v, b}
       watch: ['AAPL', 'KO', 'O', 'SCHD', 'VOO', 'JEPI'],
       custom: [],
-      settings: { commission: 0, stamp: true, fractional: true, drip: false },
+      settings: { commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal' },
       nextId: 1,
       realized: 0,
       feesPaid: 0,
@@ -282,8 +283,7 @@
   function initSecState(m, bf) {
     const hist = backfill(m, bf);
     const st = { h: hist, dps: m.q ? (m.base * m.y / 100) / m.q : 0, lx: '' };
-    const d = parseISO(S.date);
-    if (m.exMonths.includes(d.getUTCMonth()) && d.getUTCDate() >= m.exDom) st.lx = S.date.slice(0, 7);
+    st.lx = exKeyOn(m, S.date) || '';
     S.sec[m.t] = st;
   }
 
@@ -320,7 +320,7 @@
 
   function load(saved) {
     S = saved;
-    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false }, S.settings);
+    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal' }, S.settings);
     build(S.custom);
     ensureAllSecStates();
     return S;
@@ -336,24 +336,75 @@
   function holdingValue(t) { const h = S.holdings[t]; return h ? h.qty * priceUSD(t) : 0; }
   function marketValue() { let v = 0; for (const t in S.holdings) v += holdingValue(t); return v; }
   function netWorth() { return S.cash + marketValue(); }
+  // st.dps is the per-payment amount on the security's real schedule (m.q payments a year).
   function annualDps(t) { const m = BY[t]; return S.sec[t].dps * m.q; }
   function fwdYield(t) { const p = price(t); return p > 0 ? annualDps(t) / p : 0; }
+
+  /* ---------- dividend speed ----------
+   * 'normal' keeps each security's real schedule. 'monthly' and 'weekly' pay the same
+   * yearly dividend in smaller, more frequent instalments with a shorter wait to be paid. */
+  const DIV_SPEEDS = { normal: { per: 0, lag: 0 }, monthly: { per: 12, lag: 5 }, weekly: { per: 52, lag: 1 } };
+  function divSpeed() { return DIV_SPEEDS[S.settings.divSpeed] ? S.settings.divSpeed : 'normal'; }
+  function payoutsPerYear(m) { return DIV_SPEEDS[divSpeed()].per || m.q; }
+  function perPayment(t) { const m = BY[t]; return m.q ? annualDps(t) / payoutsPerYear(m) : 0; }
+  function payLagOf(m) { return DIV_SPEEDS[divSpeed()].lag || m.payLag; }
+
+  // Returns the schedule key (month or week) if `ds` falls on or after this period's ex-date.
+  function exKeyOn(m, ds) {
+    if (!m.q) return null;
+    const d = parseISO(ds);
+    const mode = divSpeed();
+    if (mode === 'weekly') {
+      const wd = d.getUTCDay();
+      if (wd < m.exWd) return null;
+      const mon = new Date(d); mon.setUTCDate(d.getUTCDate() - (wd - 1));
+      return 'W' + iso(mon);
+    }
+    if (mode === 'normal' && !m.exMonths.includes(d.getUTCMonth())) return null;
+    if (d.getUTCDate() < m.exDom) return null;
+    return ds.slice(0, 7);
+  }
+
+  /*
+   * Projected ex-dividend dates, pay dates and earnings days for the given tickers,
+   * from the day after today up to and including `toISO`.
+   */
+  function futureEvents(tickers, toISO, opts = {}) {
+    const ms = tickers.map((t) => BY[t]).filter(Boolean);
+    const lx = {};
+    for (const m of ms) lx[m.t] = S.sec[m.t].lx;
+    const out = [];
+    let d = S.date, di = S.day;
+    for (;;) {
+      d = nextTradingDay(d); di++;
+      if (d > toISO) break;
+      for (const m of ms) {
+        if (opts.earnings !== false && m.hasEarnings && di % 63 === m.earnOff) out.push({ d, t: m.t, kind: 'earn' });
+        if (!m.q || S.sec[m.t].dps <= 0) continue;
+        const key = exKeyOn(m, d);
+        if (!key || key === lx[m.t]) continue;
+        lx[m.t] = key;
+        const dps = perPayment(m.t);
+        out.push({ d, t: m.t, kind: 'ex', dps });
+        out.push({ d: addTradingDays(d, payLagOf(m)), t: m.t, kind: 'pay', dps, ex: d, est: true });
+      }
+      if (opts.first && out.some((e) => e.kind === 'ex')) break;
+    }
+    return out;
+  }
 
   function nextExDate(t) {
     const m = BY[t];
     if (!m.q || !S.sec[t].dps) return null;
-    const d = parseISO(S.date);
-    for (let k = 0; k < 14; k++) {
-      const y = d.getUTCFullYear(), mo = d.getUTCMonth() + k;
-      const cand = new Date(Date.UTC(y, mo, m.exDom));
-      while (cand.getUTCDay() === 0 || cand.getUTCDay() === 6) cand.setUTCDate(cand.getUTCDate() + 1);
-      const ci = iso(cand);
-      if (!m.exMonths.includes(cand.getUTCMonth())) continue;
-      if (ci <= S.date) continue;
-      if (S.sec[t].lx === ci.slice(0, 7)) continue;
-      return ci;
-    }
-    return null;
+    const limit = iso(new Date(parseISO(S.date).getTime() + 400 * 864e5));
+    const ev = futureEvents([t], limit, { earnings: false, first: true }).find((e) => e.kind === 'ex');
+    return ev ? ev.d : null;
+  }
+
+  // Number of trading-day steps needed to reach the last trading day on or before `target`.
+  function tradingDaysUntil(target) {
+    let d = S.date, n = 0;
+    for (;;) { const nx = nextTradingDay(d); if (nx > target) return n; d = nx; n++; if (n > 30000) return n; }
   }
 
   /* ---------- news ---------- */
@@ -452,22 +503,21 @@
   }
 
   function processDividends(events) {
-    const d = parseISO(S.date);
-    const mo = d.getUTCMonth(), dom = d.getUTCDate(), key = S.date.slice(0, 7);
-
     for (const m of U) {
       const st = S.sec[m.t];
       // Annual dividend review: raise, hold, cut, or start paying.
       if (S.day > 0 && S.day % TD === m.divOff) reviewDividend(m, st);
       if (!m.q || st.dps <= 0) continue;
-      if (!m.exMonths.includes(mo) || dom < m.exDom || st.lx === key) continue;
+      const key = exKeyOn(m, S.date);
+      if (!key || st.lx === key) continue;
       st.lx = key;
       // Ex-dividend: price drops by the dividend; holders today get paid later.
+      const dps = perPayment(m.t);
       const last = st.h.length - 1;
-      st.h[last] = Math.max(round(st.h[last] - st.dps), round(st.h[last] * 0.5));
+      st.h[last] = Math.max(round(st.h[last] - dps), round(st.h[last] * 0.5));
       const h = S.holdings[m.t];
       if (h && h.qty > 0) {
-        S.pending.push({ id: S.nextId++, t: m.t, qty: h.qty, dps: st.dps, ex: S.date, pay: addTradingDays(S.date, m.payLag) });
+        S.pending.push({ id: S.nextId++, t: m.t, qty: h.qty, dps, ex: S.date, pay: addTradingDays(S.date, payLagOf(m)) });
       }
     }
 
@@ -480,7 +530,7 @@
       const amt = p.qty * p.dps * fxOf(m);
       const h = S.holdings[p.t];
       const drip = h ? (h.drip ?? S.settings.drip) : false;
-      const entry = { id: S.nextId++, d: S.date, t: p.t, qty: p.qty, dps: p.dps, cur: m.cur, amt, drip: false };
+      const entry = { id: S.nextId++, d: S.date, ex: p.ex, t: p.t, qty: p.qty, dps: p.dps, cur: m.cur, amt, drip: false };
       if (drip) {
         const px = priceUSD(p.t);
         const sh = amt / px;
@@ -675,6 +725,7 @@
     get S() { return S; },
     newGame, load, step, execute, quote, placeOrder, cancelOrder, setDrip, addCustom, serialize,
     price, prevClose, priceUSD, fxOf, netWorth, marketValue, holdingValue, annualDps, fwdYield, nextExDate,
-    addTradingDays, parseISO, addNews,
+    addTradingDays, nextTradingDay, parseISO, addNews,
+    perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,
   };
 })();

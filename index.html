@@ -25,19 +25,26 @@
       <div class="clock-date"><span id="simDate">-</span><span class="clock-day" id="simDay"></span></div>
       <div class="controls">
         <button class="btn btn-play" id="playBtn" type="button" aria-pressed="false">Play</button>
-        <label class="sr" for="speedSel">Speed</label>
-        <select id="speedSel" class="select-sm">
-          <option value="3000">1 day / 3 s</option>
-          <option value="1000" selected>1 day / s</option>
-          <option value="250">4 days / s</option>
-          <option value="80">12 days / s</option>
-        </select>
-        <div class="seg" role="group" aria-label="Skip ahead">
-          <button type="button" data-adv="1">+1D</button>
-          <button type="button" data-adv="5">+1W</button>
-          <button type="button" data-adv="21">+1M</button>
-          <button type="button" data-adv="252">+1Y</button>
+        <div class="seg speed" id="speedSeg" role="group" aria-label="Speed (trading days per second)">
+          <button type="button" data-speed="0.5">&frac12;&times;</button>
+          <button type="button" data-speed="1" class="on">1&times;</button>
+          <button type="button" data-speed="2">2&times;</button>
+          <button type="button" data-speed="5">5&times;</button>
+          <button type="button" data-speed="10">10&times;</button>
+          <button type="button" data-speed="25">25&times;</button>
+          <button type="button" data-speed="100">100&times;</button>
         </div>
+      </div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Skip ahead">
+          <button type="button" data-skip="1d" title="Skip 1 trading day">+1D</button>
+          <button type="button" data-skip="1w" title="Skip 1 week">+1W</button>
+          <button type="button" data-skip="1m" title="Skip 1 month">+1M</button>
+          <button type="button" data-skip="3m" title="Skip 3 months">+3M</button>
+          <button type="button" data-skip="1y" title="Skip 1 year">+1Y</button>
+        </div>
+        <button class="btn" id="nextPayBtn" type="button" title="Skip until your next dividend is paid">Next payout</button>
+        <button class="btn btn-ghost" id="skipMoreBtn" type="button" aria-expanded="false" aria-controls="skipPanel">Skip to&hellip;</button>
       </div>
     </div>
 
@@ -45,6 +52,26 @@
       <span class="eyebrow">Net worth</span>
       <strong id="hdrWorth" class="num">-</strong>
       <span id="hdrChange" class="num small"></span>
+    </div>
+    <div class="skip-panel" id="skipPanel" hidden>
+      <form class="skip-row" id="skipNForm">
+        <label class="sr" for="skipN">Amount</label>
+        <input id="skipN" type="number" min="1" max="100" step="1" value="2" inputmode="numeric">
+        <label class="sr" for="skipUnit">Unit</label>
+        <select id="skipUnit"><option value="d">trading days</option><option value="w" selected>weeks</option><option value="m">months</option><option value="y">years</option></select>
+        <button class="btn btn-primary" type="submit">Skip</button>
+      </form>
+      <form class="skip-row" id="skipDateForm">
+        <label for="skipDate" class="skip-lbl">Go to date</label>
+        <input id="skipDate" type="date">
+        <button class="btn btn-primary" type="submit">Go</button>
+      </form>
+      <p class="note" id="skipNote">Time only moves forward. Dividends, earnings and orders all happen along the way.</p>
+    </div>
+    <div class="skip-progress" id="skipProgress" hidden>
+      <div class="bar-track"><div class="bar-fill" id="skipBar"></div></div>
+      <span id="skipText" class="num small"></span>
+      <button class="btn btn-ghost" id="skipStop" type="button">Stop</button>
     </div>
   </header>
 
@@ -54,6 +81,7 @@
     <button role="tab" type="button" data-tab="markets" aria-selected="true">Markets</button>
     <button role="tab" type="button" data-tab="portfolio">Portfolio</button>
     <button role="tab" type="button" data-tab="dividends">Dividends</button>
+    <button role="tab" type="button" data-tab="calendar">Calendar</button>
     <button role="tab" type="button" data-tab="orders">Orders <span class="count" id="orderCount" hidden></span></button>
     <button role="tab" type="button" data-tab="activity">News &amp; activity</button>
     <button role="tab" type="button" data-tab="settings">Settings</button>
@@ -122,6 +150,12 @@
 
     <!-- Dividends -->
     <section class="panel" id="tab-dividends" hidden>
+      <div class="card divspeed-card">
+        <div class="divspeed"><span class="eyebrow">Dividend speed</span><div class="seg" role="group" aria-label="Dividend speed">
+            <button type="button" data-divspeed="normal">Real schedule</button><button type="button" data-divspeed="monthly">Every month</button><button type="button" data-divspeed="weekly">Every week</button>
+          </div></div>
+        <p class="note divspeed-note"></p>
+      </div>
       <div class="tiles" id="divTiles"></div>
       <div class="card">
         <div class="card-head"><h2>Dividends received by month</h2></div>
@@ -137,6 +171,35 @@
           <h2>Payment history</h2>
           <div class="table-wrap"><table class="grid"><thead><tr><th>Date</th><th>Security</th><th class="r">Per share</th><th class="r">Amount</th><th class="r">Reinvested</th></tr></thead><tbody id="divHistBody"></tbody></table></div>
         </div>
+      </div>
+    </section>
+
+    <!-- Calendar -->
+    <section class="panel" id="tab-calendar" hidden>
+      <div class="card">
+        <div class="cal-top">
+          <div class="cal-nav">
+            <button class="btn btn-ghost" id="calPrev" type="button" aria-label="Previous month">&lsaquo;</button>
+            <h2 id="calTitle">-</h2>
+            <button class="btn btn-ghost" id="calNext" type="button" aria-label="Next month">&rsaquo;</button>
+            <button class="btn" id="calToday" type="button">Today</button>
+          </div>
+          <div class="divspeed"><span class="eyebrow">Dividend speed</span><div class="seg" role="group" aria-label="Dividend speed">
+            <button type="button" data-divspeed="normal">Real schedule</button><button type="button" data-divspeed="monthly">Every month</button><button type="button" data-divspeed="weekly">Every week</button>
+          </div></div>
+        </div>
+        <div class="cal-legend">
+          <span><i class="ev-dot ev-pay"></i>Payday</span>
+          <span><i class="ev-dot ev-paid"></i>Paid</span>
+          <span><i class="ev-dot ev-ex"></i>Ex-dividend (own it before this day)</span>
+          <span><i class="ev-dot ev-earn"></i>Earnings</span>
+          <label class="check"><input type="checkbox" id="calWatch"> Include watchlist</label>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+      </div>
+      <div class="two">
+        <div class="card" id="calDay"></div>
+        <div class="card" id="calMonth"></div>
       </div>
     </section>
 
@@ -178,6 +241,13 @@
             <label class="check"><input id="setFractional" type="checkbox"> Allow fractional shares</label>
             <label class="check"><input id="setDrip" type="checkbox"> Reinvest dividends automatically (DRIP) for new holdings</label>
             <label class="check"><input id="setStamp" type="checkbox"> Charge 0.5% UK stamp duty on London share purchases</label>
+            <label class="field"><span>Dividend speed</span>
+              <select id="setDivSpeed">
+                <option value="normal">Real schedule (monthly, quarterly, twice a year or yearly)</option>
+                <option value="monthly">Every month: same yearly dividend in 12 payments</option>
+                <option value="weekly">Every week: same yearly dividend in 52 payments</option>
+              </select>
+            </label>
           </div>
           <h2 class="mt">New game</h2>
           <div class="form">

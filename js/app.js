@@ -61,7 +61,8 @@
     tab: 'markets', filter: 'all', sector: '', exch: '', q: '', sort: 'default', asc: false, limit: 120,
     nwRange: 0, newsFilter: 'all',
     sheet: null, side: 'buy', unit: 'shares', range: 260,
-    playing: false, timer: null, speed: 1000,
+    playing: false, timer: null, speed: 1, skip: null,
+    calMonth: null, calSel: null, calFollow: true, calWatch: false,
   };
 
   const S = () => E.S;
@@ -98,7 +99,8 @@
   function renderHeader() {
     const s = S();
     $('simDate').textContent = longDate(s.date);
-    $('simDay').textContent = `Day ${s.day + 1}`;
+    const ds = E.divSpeed();
+    $('simDay').textContent = `Day ${s.day + 1}${ds !== 'normal' ? ` · dividends ${ds}` : ''}`;
     const nw = E.netWorth();
     $('hdrWorth').textContent = money(nw);
     const prev = s.nw.length > 1 ? s.nw[s.nw.length - 2].v : s.startCash;
@@ -343,7 +345,7 @@
     const horizon = E.addTradingDays(s.date, 63);
     for (const r of rows) {
       const ex = E.nextExDate(r.t);
-      if (ex && ex <= horizon) up.push({ t: r.t, status: 'Ex-date (est.)', date: ex, amt: r.h.qty * S().sec[r.t].dps * E.fxOf(r.m) });
+      if (ex && ex <= horizon) up.push({ t: r.t, status: 'Ex-date (est.)', date: ex, amt: r.h.qty * E.perPayment(r.t) * E.fxOf(r.m) });
     }
     up.sort((a, b) => (a.date < b.date ? -1 : 1));
     $('upcomingBody').innerHTML = up.length ? up.map((u) => `<tr data-open="${u.t}"><td><b class="num">${esc(u.t)}</b></td><td class="${u.firm ? 'up' : 'muted'}">${u.status}</td><td class="r">${C.shortDate(u.date)}</td><td class="r">${money(u.amt)}</td></tr>`).join('')
@@ -459,9 +461,9 @@
       ['1-year return', `<span class="${cls(p / h[0] - 1)}">${pct(p / h[0] - 1)}</span>`],
       ['Dividend / share', ann > 0 ? `${money(ann, m.cur, ann < 1 ? 4 : 2)} a year` : 'None'],
       ['Dividend yield', ann > 0 ? ((ann / p) * 100).toFixed(2) + '%' : '-'],
-      ['Pays', ann > 0 ? FREQ[m.q] : '-'],
+      ['Pays', ann > 0 ? (E.divSpeed() === 'normal' ? FREQ[m.q] : `${E.divSpeed() === 'weekly' ? 'Weekly' : 'Monthly'} (sped up)`) : '-'],
       ['Next ex-dividend', ex ? C.shortDate(ex) + ' (est.)' : '-'],
-      ['Per payment', ann > 0 ? money(st.dps, m.cur, 4) : '-'],
+      ['Per payment', ann > 0 ? money(E.perPayment(t), m.cur, 4) : '-'],
       m.track ? ['Tracks', `${m.lev > 0 ? m.lev + 'x' : m.lev + 'x'} ${m.track} daily`] : ['Beta', m.beta.toFixed(2)],
       ['Volatility (3M)', (realizedVol(h) * 100).toFixed(1) + '%'],
       ['Exchange', m.exch],
@@ -600,7 +602,16 @@
         else toast(`Order for ${o.t} cancelled: ${ev.res.msg}`);
       }
       if (ev.kind === 'split' && S().holdings[ev.t]) toast(`${ev.t} split ${ev.r >= 1 ? ev.r + '-for-1' : '1-for-10'}. Your share count was adjusted.`);
-      if (ev.kind === 'macro' && ui.playing && ui.speed >= 1000) toast(ev.text);
+      if (ev.kind === 'macro' && ui.playing && ui.speed <= 1) toast(ev.text);
+    }
+    if (divAmt > 0 && ui.playing && ui.speed > 2) {
+      // At high speed, collect dividend payments into one toast every few seconds.
+      const acc = ui.divAcc || (ui.divAcc = { amt: 0, t: new Set(), at: Date.now() });
+      acc.amt += divAmt;
+      divT.forEach((t) => acc.t.add(t));
+      if (Date.now() - acc.at < 3000) return;
+      divAmt = acc.amt; divT.clear(); acc.t.forEach((t) => divT.add(t));
+      ui.divAcc = null;
     }
     if (divAmt > 0) {
       const list = [...divT];
@@ -624,12 +635,260 @@
     refresh();
   }
 
+  // ui.speed is trading days per second. Fast speeds run several days per tick so the page keeps up.
   function setPlaying(on) {
+    if (on && ui.skip) return;
     ui.playing = on;
     clearInterval(ui.timer);
     $('playBtn').textContent = on ? 'Pause' : 'Play';
     $('playBtn').setAttribute('aria-pressed', String(on));
-    if (on) ui.timer = setInterval(() => advance(1), ui.speed);
+    if (!on) return;
+    const interval = Math.max(1000 / ui.speed, 60);
+    const perTick = (ui.speed * interval) / 1000;
+    let acc = 0;
+    ui.timer = setInterval(() => {
+      acc += perTick;
+      const n = Math.floor(acc + 1e-9);
+      if (n > 0) { acc -= n; advance(n); }
+    }, interval);
+  }
+
+  function setSpeed(x) {
+    ui.speed = x;
+    uiPref('speedx', x);
+    document.querySelectorAll('#speedSeg button').forEach((b) => b.classList.toggle('on', +b.dataset.speed === x));
+    if (ui.playing) setPlaying(true);
+  }
+
+  function addCalendar(isoDate, unit, n) {
+    const d = E.parseISO(isoDate);
+    if (unit === 'w') { d.setUTCDate(d.getUTCDate() + 7 * n); return d.toISOString().slice(0, 10); }
+    // Months and years land on the same day of the month, or the month's last day (31 Jan + 1M = 28 Feb).
+    const months = unit === 'y' ? 12 * n : n;
+    const y = d.getUTCFullYear(), mo = d.getUTCMonth() + months, day = d.getUTCDate();
+    const last = new Date(Date.UTC(y, mo + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, mo, Math.min(day, last))).toISOString().slice(0, 10);
+  }
+
+  const MAX_SKIP = 252 * 25;
+  function skipBy(n, unit) {
+    const steps = unit === 'd' ? n : E.tradingDaysUntil(addCalendar(S().date, unit, n));
+    runSkip(steps);
+  }
+
+  // Runs many trading days in small chunks so the page stays responsive and shows progress.
+  function runSkip(steps, opts = {}) {
+    if (ui.skip) return;
+    steps = Math.min(steps, MAX_SKIP);
+    if (steps <= 0) { toast('That date is not after the current market day.'); return; }
+    setPlaying(false);
+    const s = S();
+    const job = ui.skip = { done: 0, total: steps, stop: false, found: false, events: [], from: s.date, nw: E.netWorth(), divs: s.divLog.length };
+    const showBar = steps > 25;
+    $('skipProgress').hidden = !showBar;
+    const tick = () => {
+      const t0 = performance.now();
+      while (job.done < job.total && !job.stop && performance.now() - t0 < 40) {
+        const ev = E.step();
+        job.done++;
+        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div') job.events.push(e);
+        if (opts.untilPay && ev.some((e) => e.kind === 'div')) { job.found = true; job.stop = true; }
+      }
+      if (showBar) {
+        $('skipBar').style.width = ((job.done / job.total) * 100).toFixed(1) + '%';
+        $('skipText').textContent = `${C.shortDate(S().date)} · ${job.done}/${job.total} days`;
+        renderHeader();
+      }
+      if (job.done < job.total && !job.stop) setTimeout(tick, 0);
+      else finishSkip(job, opts);
+    };
+    tick();
+  }
+
+  function finishSkip(job, opts) {
+    ui.skip = null;
+    $('skipProgress').hidden = true;
+    const s = S();
+    if (job.done === 1 && !opts.untilPay) {
+      reportEvents(job.events);
+    } else {
+      reportEvents(job.events.filter((e) => e.kind !== 'div').slice(-3));
+      const newDivs = s.divLog.slice(0, s.divLog.length - job.divs);
+      const divAmt = newDivs.reduce((a, d) => a + d.amt, 0);
+      const change = E.netWorth() - job.nw;
+      let text = `Skipped ${job.done} trading day${job.done === 1 ? '' : 's'} to ${longDate(s.date)}. Net worth ${signedMoney(change)}.`;
+      if (newDivs.length) text += ` ${newDivs.length} dividend payment${newDivs.length === 1 ? '' : 's'}: ${money(divAmt)}.`;
+      if (opts.untilPay && !job.found) text += ' No dividend was paid in that time.';
+      toast(text);
+    }
+    if (ui.calFollow) { ui.calMonth = s.date.slice(0, 7); ui.calSel = s.date; }
+    $('skipDate').min = E.nextTradingDay(s.date);
+    if ($('skipDate').value <= s.date) $('skipDate').value = addCalendar(s.date, 'm', 1);
+    save();
+    refresh();
+  }
+
+  function skipToNextPayout() {
+    const s = S();
+    const payers = Object.keys(s.holdings).some((t) => E.annualDps(t) > 0);
+    if (!payers && !s.pending.length) { toast('You do not own any dividend payers yet. Buy one first, for example KO, O or SCHD.'); return; }
+    runSkip(400, { untilPay: true });
+  }
+
+  function setDivSpeed(mode) {
+    S().settings.divSpeed = mode;
+    save();
+    renderDivSpeed();
+    refresh();
+  }
+
+  const DIVSPEED_NOTE = {
+    normal: 'Every security pays on its real schedule: monthly, quarterly, twice a year or yearly. US payments arrive about 2 weeks after the ex-date, UK about 4 weeks.',
+    monthly: 'Sped up: every dividend payer pays once a month, 5 trading days after the ex-date. The yearly amount is the same, split into 12 payments.',
+    weekly: 'Sped up: every dividend payer pays once a week, the trading day after the ex-date. The yearly amount is the same, split into 52 payments.',
+  };
+  function renderDivSpeed() {
+    const mode = E.divSpeed();
+    document.querySelectorAll('[data-divspeed]').forEach((b) => b.classList.toggle('on', b.dataset.divspeed === mode));
+    document.querySelectorAll('.divspeed-note').forEach((n) => { n.textContent = DIVSPEED_NOTE[mode]; });
+    $('setDivSpeed').value = mode;
+  }
+
+  /* ---------- calendar ---------- */
+  function calEvents(fromISO, toISO) {
+    const s = S();
+    const held = Object.keys(s.holdings);
+    const tickers = ui.calWatch ? [...new Set([...held, ...s.watch])] : held;
+    const ev = [];
+    const within = (d) => d && d >= fromISO && d <= toISO;
+    for (const d of s.divLog) {
+      if (d.d < fromISO && (!d.ex || d.ex < fromISO)) break;   // divLog is newest first
+      if (within(d.d)) ev.push({ d: d.d, t: d.t, kind: 'paid', amt: d.amt, dps: d.dps, cur: d.cur, qty: d.qty, drip: d.drip });
+      if (within(d.ex)) ev.push({ d: d.ex, t: d.t, kind: 'ex', past: true, dps: d.dps, cur: d.cur, qty: d.qty });
+    }
+    for (const p of s.pending) {
+      const m = E.BY[p.t]; if (!m) continue;
+      const amt = p.qty * p.dps * E.fxOf(m);
+      if (within(p.pay)) ev.push({ d: p.pay, t: p.t, kind: 'pay', firm: true, amt, dps: p.dps, cur: m.cur, qty: p.qty });
+      if (within(p.ex)) ev.push({ d: p.ex, t: p.t, kind: 'ex', past: true, dps: p.dps, cur: m.cur, qty: p.qty });
+    }
+    if (toISO > s.date && tickers.length) {
+      for (const e of E.futureEvents(tickers, toISO)) {
+        if (!within(e.d)) continue;
+        const m = E.BY[e.t], h = s.holdings[e.t];
+        const qty = h ? h.qty : 0;
+        ev.push(Object.assign({}, e, { cur: m.cur, qty, amt: e.dps != null ? qty * e.dps * E.fxOf(m) : 0 }));
+      }
+    }
+    const order = { paid: 0, pay: 1, ex: 2, earn: 3 };
+    ev.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : order[a.kind] - order[b.kind] || b.amt - a.amt));
+    return ev;
+  }
+
+  function calMove(delta) {
+    const [y, m] = ui.calMonth.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+    const next = d.toISOString().slice(0, 7);
+    const limit = addCalendar(S().date, 'y', 3).slice(0, 7);
+    if (next > limit) { toast('The calendar looks ahead up to 3 years.'); return; }
+    ui.calMonth = next;
+    ui.calFollow = false;
+    ui.calSel = null;
+    renderCalendar();
+  }
+
+  function renderCalendar() {
+    const s = S();
+    if (!ui.calMonth) ui.calMonth = s.date.slice(0, 7);
+    const [y, mo] = ui.calMonth.split('-').map(Number);
+    const first = new Date(Date.UTC(y, mo - 1, 1));
+    const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const lead = (first.getUTCDay() + 6) % 7;
+    const from = `${ui.calMonth}-01`, to = `${ui.calMonth}-${String(days).padStart(2, '0')}`;
+    $('calTitle').textContent = first.toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const ev = calEvents(from, to);
+    const byDay = {};
+    for (const e of ev) (byDay[e.d] = byDay[e.d] || []).push(e);
+    if (!ui.calSel || !ui.calSel.startsWith(ui.calMonth)) {
+      ui.calSel = s.date.startsWith(ui.calMonth) ? s.date : (ev.find((e) => e.kind === 'pay' || e.kind === 'paid') || {}).d || from;
+    }
+
+    let html = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => `<div class="cal-h${i > 4 ? ' wk' : ''}">${d}</div>`).join('');
+    for (let i = 0; i < lead; i++) html += '<div class="cal-cell blank"></div>';
+    for (let dnum = 1; dnum <= days; dnum++) {
+      const ds = `${ui.calMonth}-${String(dnum).padStart(2, '0')}`;
+      const wd = (lead + dnum - 1) % 7;
+      const list = byDay[ds] || [];
+      const cash = list.filter((e) => e.kind === 'pay' || e.kind === 'paid').reduce((a, e) => a + e.amt, 0);
+      const cls2 = ['cal-cell', wd > 4 ? 'wk' : '', ds === s.date ? 'today' : '', ds < s.date ? 'past' : '', ds === ui.calSel ? 'sel' : ''].filter(Boolean).join(' ');
+      const shown = list.slice(0, 3).map((e) => `<span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${esc(e.t)}${e.kind === 'ex' ? ' ex' : e.kind === 'earn' ? ' earns' : ''}</span>`).join('');
+      const dots = [...new Set(list.map((e) => e.kind))].map((k) => `<i class="ev-dot ev-${k}"></i>`).join('');
+      html += `<button type="button" class="${cls2}" data-day="${ds}" aria-label="${longDate(ds)}${list.length ? `, ${list.length} events` : ''}">
+        <span class="cal-num">${dnum}${ds === s.date ? '<em>today</em>' : ''}</span>
+        ${cash > 0 ? `<span class="cal-cash">${compact(cash)}</span>` : ''}
+        <span class="cal-evs">${shown}${list.length > 3 ? `<span class="ev more">+${list.length - 3} more</span>` : ''}</span>
+        <span class="cal-dots">${dots}</span>
+      </button>`;
+    }
+    $('calGrid').innerHTML = html;
+    renderCalDay(byDay[ui.calSel] || []);
+    renderCalMonth(ev, from, to);
+  }
+
+  function evText(e) {
+    const m = E.BY[e.t];
+    const per = e.dps != null ? money(e.dps, e.cur, 4) + ' a share' : '';
+    switch (e.kind) {
+      case 'paid': return `<b>${money(e.amt)}</b> paid (${per} on ${qtyFmt(+e.qty.toFixed(4))} shares)${e.drip ? ', reinvested' : ''}`;
+      case 'pay': return e.firm
+        ? `<b>${money(e.amt)}</b> on the way. Declared and locked in (${qtyFmt(+e.qty.toFixed(4))} shares).`
+        : e.qty ? `About <b>${money(e.amt)}</b> if you still own ${qtyFmt(+e.qty.toFixed(4))} shares on ${C.shortDate(e.ex)}` : `Pays ${per}. Own shares on ${C.shortDate(e.ex)} to get it.`;
+      case 'ex': return e.past ? `Went ex-dividend: ${per}` : `Ex-dividend day: ${per}. You must own the shares <b>before</b> this day.`;
+      case 'earn': return `Quarterly earnings. ${m && m.vol > 0.45 ? 'Expect a big move either way.' : 'The price can jump either way.'}`;
+    }
+    return '';
+  }
+  const EV_LABEL = { paid: 'Paid', pay: 'Payday', ex: 'Ex-dividend', earn: 'Earnings' };
+
+  function renderCalDay(list) {
+    const s = S();
+    const ds = ui.calSel;
+    const wd = E.parseISO(ds).getUTCDay();
+    let body = list.length
+      ? `<ul class="cal-list">${list.map((e) => `<li data-open="${e.t}"><span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${EV_LABEL[e.kind]}${e.est ? ' (est.)' : ''}</span><span><b class="num">${esc(e.t)}</b> <span class="muted">${esc(E.BY[e.t] ? E.BY[e.t].n : '')}</span><br>${evText(e)}</span></li>`).join('')}</ul>`
+      : `<p class="muted">${ds < s.date ? 'Nothing happened for your holdings on this day.' : 'Nothing scheduled for your holdings on this day.'}</p>`;
+    let action = '';
+    if (ds > s.date) {
+      const n = E.tradingDaysUntil(ds);
+      action = n > 0
+        ? `<button class="btn btn-primary" type="button" data-skipto="${ds}">Skip to this day</button> <span class="muted small">${n} trading day${n === 1 ? '' : 's'} ahead${wd === 0 || wd === 6 ? '. Markets are shut at weekends, so time stops on the Friday before.' : ''}</span>`
+        : `<span class="muted small">Markets are shut at weekends. The next trading day is ${C.shortDate(E.nextTradingDay(s.date))}.</span>`;
+    } else if (ds === s.date) action = '<span class="muted small">This is today in the simulation.</span>';
+    $('calDay').innerHTML = `<h2>${longDate(ds)}</h2>${body}<div class="cal-action">${action}</div>`;
+  }
+
+  function renderCalMonth(ev, from, to) {
+    const s = S();
+    const exp = ev.filter((e) => e.kind === 'pay').reduce((a, e) => a + e.amt, 0);
+    const got = ev.filter((e) => e.kind === 'paid').reduce((a, e) => a + e.amt, 0);
+    const paydays = {};
+    for (const e of ev) if ((e.kind === 'pay' || e.kind === 'paid') && e.amt > 0) paydays[e.d] = (paydays[e.d] || 0) + e.amt;
+    const rows = Object.entries(paydays);
+    const title = E.parseISO(from).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
+    let html = `<h2>${title} at a glance</h2>
+      <div class="cal-sum">
+        <div><span class="eyebrow">Received</span><b class="num up">${money(got)}</b></div>
+        <div><span class="eyebrow">Still to come</span><b class="num">${money(exp)}</b></div>
+        <div><span class="eyebrow">Ex-dividend days</span><b class="num">${ev.filter((e) => e.kind === 'ex').length}</b></div>
+      </div>`;
+    if (rows.length) {
+      html += `<div class="table-wrap"><table class="grid"><thead><tr><th>Payday</th><th class="r">Amount</th><th></th></tr></thead><tbody>${rows.map(([d, a]) => `<tr><td class="num">${longDate(d)}</td><td class="r ${d <= s.date ? 'up' : ''}">${money(a)}</td><td class="r">${d > s.date ? `<button class="btn btn-ghost" type="button" data-skipto="${d}">Skip here</button>` : '<span class="muted small">Paid</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+    } else if (!Object.keys(s.holdings).length) {
+      html += '<p class="muted">Your calendar fills up once you own dividend payers. Try a monthly payer like O or JEPI, or a quarterly one like KO or SCHD.</p>';
+    } else {
+      html += `<p class="muted">No dividend paydays for your holdings this month.${E.divSpeed() === 'normal' ? ' Switch dividend speed to Every month or Every week to get paid more often.' : ''}</p>`;
+    }
+    $('calMonth').innerHTML = html;
   }
 
   /* ---------- refresh ---------- */
@@ -640,6 +899,7 @@
     if (ui.tab === 'portfolio') renderPortfolio();
     if (ui.tab === 'dividends') renderDividends();
     if (ui.tab === 'orders') renderOrders();
+    if (ui.tab === 'calendar') { if (ui.calFollow) ui.calMonth = S().date.slice(0, 7); renderCalendar(); }
     if (ui.tab === 'activity') renderActivity();
     if (ui.sheet) renderSheet(false);
   }
@@ -651,6 +911,7 @@
     document.querySelectorAll('main .panel').forEach((p) => { p.hidden = p.id !== 'tab-' + tab; });
     if (tab === 'markets') renderChips();
     if (tab === 'settings') renderSettings();
+    if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
     refresh();
   }
 
@@ -688,8 +949,45 @@
     });
 
     $('playBtn').addEventListener('click', () => setPlaying(!ui.playing));
-    $('speedSel').addEventListener('change', (e) => { ui.speed = +e.target.value; uiPref('speed', ui.speed); if (ui.playing) setPlaying(true); });
-    document.querySelectorAll('[data-adv]').forEach((b) => b.addEventListener('click', () => advance(+b.dataset.adv)));
+    $('speedSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-speed]'); if (b) setSpeed(+b.dataset.speed); });
+    const SKIPS = { '1d': [1, 'd'], '1w': [1, 'w'], '1m': [1, 'm'], '3m': [3, 'm'], '1y': [1, 'y'] };
+    document.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('click', () => skipBy(...SKIPS[b.dataset.skip])));
+    $('nextPayBtn').addEventListener('click', skipToNextPayout);
+    $('skipMoreBtn').addEventListener('click', () => {
+      const open = $('skipPanel').hidden;
+      $('skipPanel').hidden = !open;
+      $('skipMoreBtn').setAttribute('aria-expanded', String(open));
+      if (open) {
+        const nx = E.nextTradingDay(S().date);
+        $('skipDate').min = nx;
+        if (!$('skipDate').value || $('skipDate').value <= S().date) $('skipDate').value = addCalendar(S().date, 'm', 1);
+      }
+    });
+    $('skipNForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const n = Math.max(1, Math.floor(+$('skipN').value || 1));
+      skipBy(n, $('skipUnit').value);
+    });
+    $('skipDateForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const d = $('skipDate').value;
+      if (!d || d <= S().date) { $('skipNote').textContent = `Pick a date after ${longDate(S().date)}. Time only moves forward.`; return; }
+      runSkip(E.tradingDaysUntil(d));
+    });
+    $('skipStop').addEventListener('click', () => { if (ui.skip) ui.skip.stop = true; });
+    document.addEventListener('click', (e) => {
+      const ds = e.target.closest('[data-divspeed]');
+      if (ds) { setDivSpeed(ds.dataset.divspeed); return; }
+      const sk = e.target.closest('[data-skipto]');
+      if (sk) { ui.calFollow = true; runSkip(E.tradingDaysUntil(sk.dataset.skipto)); return; }
+      const day = e.target.closest('[data-day]');
+      if (day) { ui.calSel = day.dataset.day; renderCalendar(); }
+    });
+    $('calPrev').addEventListener('click', () => calMove(-1));
+    $('calNext').addEventListener('click', () => calMove(1));
+    $('calToday').addEventListener('click', () => { ui.calFollow = true; ui.calMonth = S().date.slice(0, 7); ui.calSel = S().date; renderCalendar(); });
+    $('calWatch').addEventListener('change', (e) => { ui.calWatch = e.target.checked; renderCalendar(); });
+    $('setDivSpeed').addEventListener('change', (e) => setDivSpeed(e.target.value));
 
     let qTimer;
     $('search').addEventListener('input', (e) => {
@@ -832,8 +1130,8 @@
     if (!restored) {
       E.newGame(100000);
     }
-    const sp = +uiPref('speed');
-    if (sp) { ui.speed = sp; $('speedSel').value = String(sp); }
+    const sp = +uiPref('speedx');
+    setSpeed(sp > 0 ? sp : 1);
     $('search').placeholder = `Search ${E.U.length} securities by ticker or name`;
     renderSelects();
     bind();

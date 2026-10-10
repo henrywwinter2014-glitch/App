@@ -34,7 +34,9 @@ Anything missing can be added under **Settings → List a new security**.
 - Annual dividend raises and cuts, quarterly earnings surprises, stock splits and reverse splits, and macro news (rate decisions, oil shocks, crashes).
 - GBP/USD exchange rate and 0.5% UK stamp duty for London shares.
 - Portfolio net worth chart against an S&P 500 benchmark, allocation by type and sector.
-- Play/pause at several speeds, or skip ahead a day, week, month or year.
+- Play at ½× to 100× speed (trading days per second), skip ahead 1 day, 1 week, 1 month, 3 months or 1 year, skip any number of days/weeks/months/years, jump to a date, or skip straight to your next dividend payout.
+- Dividend speed: keep real schedules, or pay every dividend monthly or weekly (same yearly amount, more often).
+- Calendar of ex-dividend days, paydays, dividends received and earnings for your holdings (and watchlist), with one-click "skip to this day".
 - Saves automatically to the browser's local storage.
 
 Prices start near recent real-world levels and are then simulated with a factor model (market, sector, interest rates, region, currency, plus company-specific noise). They are not live market data.
