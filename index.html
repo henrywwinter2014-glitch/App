@@ -84,8 +84,7 @@
     <button role="tab" type="button" data-tab="dividends">Dividends</button>
     <button role="tab" type="button" data-tab="calendar">Calendar</button>
     <button role="tab" type="button" data-tab="calculator">Calculator</button>
-    <button role="tab" type="button" data-tab="learn">Learn</button>
-    <button role="tab" type="button" data-tab="academy">Quant Academy</button>
+    <button role="tab" type="button" data-tab="academy">Learn</button>
     <button role="tab" type="button" data-tab="orders">Orders <span class="count" id="orderCount" hidden></span></button>
     <button role="tab" type="button" data-tab="activity">Activity</button>
     <button role="tab" type="button" data-tab="settings">Settings</button>
@@ -325,15 +324,7 @@
       </div>
     </section>
 
-    <!-- Learn -->
-    <section class="panel" id="tab-learn" hidden>
-      <div class="learn">
-        <nav class="card learn-nav" id="learnNav" aria-label="Lessons"></nav>
-        <article class="card learn-body" id="learnBody"></article>
-      </div>
-    </section>
-
-    <!-- Quant Academy -->
+    <!-- Learn: Quant Academy -->
     <section class="panel" id="tab-academy" hidden>
       <div class="academy">
         <div class="ac-path" id="acPath"></div>
@@ -539,6 +530,7 @@
   <div class="acad-top">
     <button type="button" class="focus-x" id="acClose" aria-label="Quit">&times;</button>
     <div class="acad-prog"><i id="acBar"></i></div>
+    <span class="acad-combo" id="acCombo" hidden></span>
     <span id="acHearts"></span>
     <span class="acad-timer" id="acTimer" hidden></span>
   </div>

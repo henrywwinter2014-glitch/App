@@ -73,16 +73,10 @@
       text: 'Paydays and ex-dividend days for your stocks, month by month. Click a day and press <b>Skip to this day</b> to jump straight to a payday.',
     },
     {
-      tab: 'learn',
-      target: '[data-tab="learn"]',
-      title: 'Learn to read charts',
-      text: 'Short lessons on uptrends, downtrends, support and resistance, moving averages and more, each with a quick quiz. Then practise spotting trends on real charts.',
-    },
-    {
       tab: 'academy',
       target: '[data-tab="academy"]',
-      title: 'Quant Academy',
-      text: 'Want to go further? Bite-sized daily lessons train you to think like a quant: probability, statistics, options, interview puzzles and more, with streaks, XP, revision and exams.',
+      title: 'Learn, Duolingo style',
+      text: 'Bite-sized daily lessons, from reading charts and spotting uptrends to the maths, probability and options a quant uses. Earn XP, keep your streak, finish daily quests and pass exams.',
     },
     {
       tab: 'calculator',

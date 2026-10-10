@@ -1317,7 +1317,6 @@
     if (tab === 'markets') renderChips();
     if (tab === 'settings') renderSettings();
     if (tab === 'calculator') renderCalc();
-    if (tab === 'learn' && window.Learn) window.Learn.render();
     if (tab === 'academy' && window.Academy) window.Academy.render();
     if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
     refresh();
@@ -1445,9 +1444,8 @@
       renderMainChart();
     });
     $('chTrend').addEventListener('click', () => {
-      const tr = window.Learn.trendOf(S().sec[chartTicker()].h.slice(-126));
-      showTab('learn');
-      window.Learn.show(tr && tr.kind === 'down' ? 'downtrend' : tr && tr.kind === 'sideways' ? 'sideways' : 'uptrend');
+      showTab('academy');
+      window.Academy.openGuideById('charts');
     });
     $('chFull').addEventListener('click', openFocus);
     $('mainChart').addEventListener('dblclick', openFocus);

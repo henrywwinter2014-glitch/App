@@ -7,9 +7,6 @@
   'use strict';
 
   const E = window.Engine;
-  const DONE_KEY = 'bullpen-learn';
-  const SCORE_KEY = 'bullpen-learn-score';
-  const $ = (id) => document.getElementById(id);
 
   /* ---------- trend detection (shared with the main chart) ---------- */
   function sma(values, n) {
@@ -277,7 +274,8 @@
     candle(w * 0.64, false);
   }
 
-  function drawFigure(canvas, fig) {
+  function drawFigure(canvas, fig, opts) {
+    const plain = opts && opts.plain;
     if (fig.custom === 'anatomy') return drawAnatomy(canvas);
     const T = tokens();
     const d = fig.make();
@@ -333,7 +331,7 @@
     }
 
     // horizontal levels
-    (fig.hlines || []).forEach((l) => {
+    (plain ? [] : fig.hlines || []).forEach((l) => {
       const x1 = l.from != null ? x(l.from) : L, x2 = l.to != null ? x(l.to) : R;
       const yy = Math.round(y(l.p)) + 0.5;
       ctx.strokeStyle = C(l.color); ctx.lineWidth = 2; ctx.setLineDash(l.dash ? [6, 4] : []);
@@ -344,7 +342,7 @@
     });
 
     // trend lines
-    (fig.lines || []).forEach((l) => {
+    (plain ? [] : fig.lines || []).forEach((l) => {
       const slope = (l.b[1] - l.a[1]) / (l.b[0] - l.a[0]);
       const endI = l.b[0] + (l.extend || 0);
       ctx.strokeStyle = C(l.color); ctx.lineWidth = 2; ctx.setLineDash([7, 5]);
@@ -354,7 +352,7 @@
     });
 
     // swing labels
-    (fig.marks || []).forEach(([i, label, pos]) => {
+    (plain ? [] : fig.marks || []).forEach(([i, label, pos]) => {
       const above = pos === 'up';
       const p = fig.type === 'candles' ? (above ? d.h[i] : d.l[i]) : d.c[i];
       pill(ctx, T, x(i), y(p) + (above ? -16 : 16), label, C(fig.markColor || 'accent'));
@@ -381,146 +379,33 @@
     }
   }
 
-  /* ---------- state ---------- */
-  function done() { try { return JSON.parse(localStorage.getItem(DONE_KEY)) || {}; } catch (e) { return {}; } }
-  function markDone(id) { const d = done(); d[id] = 1; try { localStorage.setItem(DONE_KEY, JSON.stringify(d)); } catch (e) { /* storage blocked */ } }
-  function score() { try { return JSON.parse(localStorage.getItem(SCORE_KEY)) || { right: 0, total: 0 }; } catch (e) { return { right: 0, total: 0 }; } }
-  function saveScore(s) { try { localStorage.setItem(SCORE_KEY, JSON.stringify(s)); } catch (e) { /* storage blocked */ } }
+  /* ---------- chart questions for Quant Academy ---------- */
+  const FIGS = Object.fromEntries(LESSONS.map((l) => [l.id, l.figure]));
 
-  const ui = { cur: 'candles', practice: null };
-
-  /* ---------- rendering ---------- */
-  function renderNav() {
-    const d = done();
-    const count = LESSONS.filter((l) => d[l.id]).length;
-    $('learnNav').innerHTML = `
-      <div class="learn-progress"><span class="eyebrow">Chart school</span><b>${count} of ${LESSONS.length} lessons done</b>
-        <div class="bar-track"><div class="bar-fill" style="width:${(count / LESSONS.length) * 100}%"></div></div></div>
-      <ol class="learn-list">${LESSONS.map((l, i) => `<li><button type="button" data-lesson="${l.id}" class="${ui.cur === l.id ? 'on' : ''}">
-        <span class="ll-n${d[l.id] ? ' done' : ''}">${d[l.id] ? '✓' : i + 1}</span><span>${l.title}</span><small>${l.mins} min</small></button></li>`).join('')}
-      </ol>
-      <button type="button" class="learn-practice${ui.cur === 'practice' ? ' on' : ''}" data-lesson="practice"><b>Practice: spot the trend</b><span>Guess the trend on real charts from the simulator</span></button>`;
-  }
-
-  function renderLesson(id) {
-    const idx = LESSONS.findIndex((l) => l.id === id);
-    const l = LESSONS[idx];
-    const prev = LESSONS[idx - 1], next = LESSONS[idx + 1];
-    $('learnBody').innerHTML = `
-      <span class="eyebrow">Lesson ${idx + 1} of ${LESSONS.length} · ${l.mins} min read</span>
-      <h2 class="learn-title">${l.title}</h2>
-      <figure class="learn-fig"><canvas id="learnCanvas" height="${l.figure.custom ? 240 : 280}"></canvas></figure>
-      <div class="learn-text">${l.body}</div>
-      <div class="learn-points"><span class="eyebrow">Remember</span><ul>${l.points.map((p) => `<li>${p}</li>`).join('')}</ul></div>
-      <div class="learn-quiz" id="learnQuiz">
-        <span class="eyebrow">Quick check</span>
-        <p class="lq-q">${l.quiz.q}</p>
-        <div class="lq-opts">${l.quiz.options.map((o, i) => `<button type="button" class="lq-opt" data-ans="${i}">${o}</button>`).join('')}</div>
-        <p class="lq-why" id="lqWhy" hidden></p>
-      </div>
-      <div class="learn-foot">
-        ${prev ? `<button type="button" class="btn" data-lesson="${prev.id}">← ${prev.title}</button>` : '<span></span>'}
-        ${next ? `<button type="button" class="btn btn-primary" data-lesson="${next.id}" data-complete="${l.id}">Next: ${next.title} →</button>`
-          : `<button type="button" class="btn btn-primary" data-lesson="practice" data-complete="${l.id}">Practise spotting trends →</button>`}
-      </div>`;
-    drawFigure($('learnCanvas'), l.figure);
-  }
-
-  function pickPractice() {
+  // A "what is the trend?" question built from a real product's last six months in the simulator.
+  function trendQuestion(r) {
     const s = E.S;
-    // Skip near-cash funds: their tiny steady drift makes a confusing example.
+    const rand = r || Math.random;
     const pool = E.U.filter((m) => ['Stock', 'ETF', 'REIT', 'International', 'UK Share'].includes(m.type) && !m.track && m.vol >= 0.1);
-    const want = ['up', 'down', 'sideways'][Math.floor(Math.random() * 3)];
-    for (let tries = 0; tries < 400; tries++) {
-      const m = pool[Math.floor(Math.random() * pool.length)];
+    const want = ['up', 'down', 'sideways'][Math.floor(rand() * 3)];
+    let found = null;
+    for (let tries = 0; tries < 400 && !found; tries++) {
+      const m = pool[Math.floor(rand() * pool.length)];
       const h = s.sec[m.t].h.slice(-126);
       const t = trendOf(h);
       if (!t) continue;
       const clear = t.kind === 'sideways' ? Math.abs(t.z) < 0.35 : Math.abs(t.z) > 1.4 && Math.abs(t.ret) > 0.08;
-      if (clear && (t.kind === want || tries > 250)) return { m, h, t };
+      if (clear && (t.kind === want || tries > 250)) found = { m, h, t };
     }
-    const m = E.BY.SPY; const h = s.sec.SPY.h.slice(-126);
-    return { m, h, t: trendOf(h) };
+    if (!found) { const h = s.sec.SPY.h.slice(-126); found = { m: E.BY.SPY, h, t: trendOf(h) }; }
+    const order = ['up', 'sideways', 'down'];
+    return {
+      q: 'Six months of a real product from the simulator. What is its trend?',
+      chart: found.h,
+      opts: ['Uptrend', 'Sideways', 'Downtrend'], a: order.indexOf(found.t.kind),
+      why: `This is ${found.m.t} (${found.m.n}). ${trendText(found.t)}`,
+    };
   }
 
-  function renderPractice(fresh) {
-    if (fresh || !ui.practice) ui.practice = Object.assign(pickPractice(), { answered: null });
-    const p = ui.practice, sc = score();
-    $('learnBody').innerHTML = `
-      <span class="eyebrow">Practice · Score ${sc.right} / ${sc.total}</span>
-      <h2 class="learn-title">Spot the trend</h2>
-      <p class="learn-lead">Here are the last 6 months of a real product from the simulator, name hidden. Is it in an uptrend, a downtrend, or moving sideways?</p>
-      <figure class="learn-fig"><canvas id="learnCanvas" height="280"></canvas></figure>
-      <div class="lq-opts lq-trend">
-        <button type="button" class="lq-opt" data-guess="up">↗ Uptrend</button>
-        <button type="button" class="lq-opt" data-guess="sideways">→ Sideways</button>
-        <button type="button" class="lq-opt" data-guess="down">↘ Downtrend</button>
-      </div>
-      <div class="lq-result" id="lqResult" hidden></div>
-      <p class="note">Tip: look for the staircase. Are the peaks and dips getting higher, lower, or staying level? The orange line is the 50-day average.</p>`;
-    const c = p.h;
-    drawFigure($('learnCanvas'), {
-      make: () => ({ c, overlays: [{ v: sma(c, 50), color: 'sell', label: '50-day average' }] }), type: 'line',
-    });
-    if (p.answered) showPracticeResult(p.answered, false);
-  }
-
-  function showPracticeResult(guess, count) {
-    const p = ui.practice;
-    const right = guess === p.t.kind;
-    if (count) { const sc = score(); sc.total++; if (right) sc.right++; saveScore(sc); }
-    p.answered = guess;
-    document.querySelectorAll('[data-guess]').forEach((b) => {
-      b.disabled = true;
-      b.classList.toggle('right', b.dataset.guess === p.t.kind);
-      b.classList.toggle('wrong', b.dataset.guess === guess && !right);
-    });
-    const r = $('lqResult');
-    r.hidden = false;
-    r.innerHTML = `<p><b class="${right ? 'up' : 'down'}">${right ? 'Correct!' : 'Not quite.'}</b> This is <b>${p.m.t}</b> (${p.m.n}), in ${p.t.kind === 'up' ? 'an uptrend' : p.t.kind === 'down' ? 'a downtrend' : 'a sideways market'}. ${trendText(p.t)}</p>
-      <div class="learn-foot"><button type="button" class="btn" data-open-chart="${p.m.t}">Open ${p.m.t} in the chart</button><button type="button" class="btn btn-primary" data-next-practice>Next chart →</button></div>`;
-    const sc = score();
-    const eb = document.querySelector('#learnBody > .eyebrow');
-    if (eb) eb.textContent = `Practice · Score ${sc.right} / ${sc.total}`;
-  }
-
-  function show(id) {
-    ui.cur = id || ui.cur;
-    renderNav();
-    if (ui.cur === 'practice') renderPractice(false); else renderLesson(ui.cur);
-    const body = $('learnBody');
-    if (body.getBoundingClientRect().top < 0) body.scrollIntoView({ block: 'start' });
-  }
-
-  function render() { show(ui.cur); }
-
-  function bind() {
-    $('tab-learn').addEventListener('click', (e) => {
-      const ls = e.target.closest('[data-lesson]');
-      if (ls) { if (ls.dataset.complete) markDone(ls.dataset.complete); show(ls.dataset.lesson); return; }
-      const ans = e.target.closest('[data-ans]');
-      if (ans) {
-        const l = LESSONS.find((x) => x.id === ui.cur);
-        const pick = +ans.dataset.ans, ok = pick === l.quiz.answer;
-        document.querySelectorAll('#learnQuiz [data-ans]').forEach((b) => {
-          b.classList.toggle('right', +b.dataset.ans === l.quiz.answer && ok);
-          b.classList.toggle('wrong', +b.dataset.ans === pick && !ok);
-        });
-        const why = $('lqWhy');
-        why.hidden = false;
-        why.innerHTML = ok ? `<b class="up">Correct.</b> ${l.quiz.why}` : '<b class="down">Not quite.</b> Have another look and try again.';
-        if (ok) { markDone(l.id); renderNav(); }
-        return;
-      }
-      const g = e.target.closest('[data-guess]');
-      if (g && !g.disabled) { showPracticeResult(g.dataset.guess, true); return; }
-      if (e.target.closest('[data-next-practice]')) { renderPractice(true); return; }
-      const oc = e.target.closest('[data-open-chart]');
-      if (oc && window.App) { window.App.showTab('markets'); window.App.pickChart(oc.dataset.openChart); }
-    });
-    window.addEventListener('resize', () => { if (!$('tab-learn').hidden) { const c = $('learnCanvas'); if (c) render(); } });
-  }
-
-  bind();
-  window.Learn = { render, show, trendOf, sma, TREND_LABEL };
+  window.Learn = { trendOf, sma, TREND_LABEL, FIGS, LESSONS, drawFigure, trendQuestion, trendText };
 })();
