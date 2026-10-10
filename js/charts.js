@@ -10,8 +10,13 @@
 
   function setup(canvas) {
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || canvas.parentNode.clientWidth;
-    const h = +canvas.getAttribute('height') || 200;
+    // Remember the CSS height from the markup once: setting canvas.height below rewrites the
+    // attribute to the device-pixel size, and reading that back would grow the chart on every redraw.
+    if (!canvas.dataset.h) canvas.dataset.h = +canvas.getAttribute('height') || 200;
+    const h = +canvas.dataset.h;
+    const cs = getComputedStyle(canvas);
+    const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const w = (canvas.clientWidth || canvas.parentNode.clientWidth) - padX;
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);

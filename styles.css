@@ -486,7 +486,7 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-r
 .pane-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .pane-tools .btn-primary { margin-left: auto; }
 .ch-stats { font-size: 12px; color: var(--muted); }
-.pane-chart .chart { padding: 6px 8px 4px; }
+.pane-chart .chart { margin: 6px 8px 4px; width: calc(100% - 16px); }
 .pane-list .filters { padding: 10px 12px 0; margin-bottom: 10px; }
 .pane-list .table-wrap { border: 0; border-top: 1px solid var(--line); border-radius: 0; }
 .pane-list .more { padding-bottom: 12px; }
