@@ -39,7 +39,8 @@ Anything missing can be added under **Settings → List a new security**.
 - Calendar of ex-dividend days, paydays, dividends received and earnings for your holdings (and watchlist), with one-click "skip to this day".
 - Dividend calculator: projects yearly income, final value and annualised return (after tax and fees) from a ticker, your portfolio, or your own numbers, with dividend growth, DRIP, account-specific tax, fund fees and inflation.
 - Real-world costs: bid/ask spreads by liquidity (no spread on mutual funds), commission, UK stamp duty, and dividend tax by account type (US taxable 15%/24%, IRA, UK ISA with 15% US withholding, UK general account with the £500 allowance).
-- A guided tour for beginners on first visit, and a Help panel with a plain-English glossary (and a button to replay the tour).
+- A welcome screen on first visit: choose light or dark mode, starting money ($1,000 to $1,000,000 or any amount), and whether to take the tutorial.
+- A guided tour for beginners, and a Help panel with a plain-English glossary (and a button to replay the tour).
 - Saves automatically in the browser, and to your account when signed in (see below), so progress follows you between devices.
 
 Prices start near recent real-world levels and are then simulated with a factor model (market, sector, interest rates, region, currency, plus company-specific noise). They are not live market data.
@@ -79,3 +80,4 @@ Saves are compressed and stored in a few chunks, with a small summary document w
 - `js/cloud.js`, `js/firebase-config.js`: sign-in and cloud saves
 - `js/app.js`: the user interface
 - `js/tour.js`: beginner tour and help glossary
+- `js/setup.js`: first-run welcome screen

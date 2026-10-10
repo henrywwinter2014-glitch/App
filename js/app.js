@@ -1155,6 +1155,8 @@
     $('calToday').addEventListener('click', () => { ui.calFollow = true; ui.calMonth = S().date.slice(0, 7); ui.calSel = S().date; renderCalendar(); });
     $('calWatch').addEventListener('change', (e) => { ui.calWatch = e.target.checked; renderCalendar(); });
     $('setDivSpeed').addEventListener('change', (e) => setDivSpeed(e.target.value));
+    $('setTheme').value = getTheme();
+    $('setTheme').addEventListener('change', (e) => setTheme(e.target.value));
     $('setAccount').addEventListener('change', (e) => { S().settings.account = e.target.value; save(); toast(`Account set to ${E.ACCOUNTS[e.target.value]}. New dividends are taxed accordingly.`); });
     bindCalc();
 
@@ -1251,14 +1253,10 @@
         return;
       }
       clearTimeout(armTimer);
-      setPlaying(false);
-      E.newGame(+$('setStart').value);
+      startNewGame(+$('setStart').value);
       b.classList.remove('armed');
       b.textContent = 'Start a new game';
       $('resetNote').textContent = 'New game started.';
-      save();
-      renderSelects();
-      showTab('markets');
       toast(`New game started with ${money(+$('setStart').value, 'USD', 0)}`);
     });
     $('customForm').addEventListener('submit', (e) => {
@@ -1288,7 +1286,29 @@
   }
 
   /* ---------- boot ---------- */
+  /* ---------- theme ---------- */
+  function getTheme() { const t = uiPref('theme'); return t === 'light' || t === 'dark' ? t : 'system'; }
+  function setTheme(t) {
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    else document.documentElement.removeAttribute('data-theme');
+    uiPref('theme', t);
+    if ($('setTheme')) $('setTheme').value = t;
+    if (E.S) refresh();
+  }
+
+  function startNewGame(cash) {
+    setPlaying(false);
+    if (ui.sheet) closeSheet();
+    E.newGame(cash);
+    ui.calMonth = null; ui.calSel = null; ui.calFollow = true;
+    save();
+    renderSelects();
+    showTab('markets');
+  }
+
   function boot() {
+    const th = getTheme();
+    if (th !== 'system') document.documentElement.setAttribute('data-theme', th);
     const saved = loadSaved();
     let restored = false;
     if (saved) {
@@ -1337,5 +1357,9 @@
     closeSheet,
     sheetOpen: () => !!ui.sheet,
     sheetTicker: () => ui.sheet,
+    isFresh: () => S().day === 0 && !S().tx.length,
+    netWorth: () => E.netWorth(),
+    newGame: startNewGame,
+    getTheme, setTheme,
   };
 })();

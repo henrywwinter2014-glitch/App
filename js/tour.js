@@ -222,7 +222,10 @@
 
   function maybeAutoStart() {
     let done = false;
-    try { done = localStorage.getItem(DONE_KEY) === '1'; } catch (e) { done = true; }
+    try {
+      done = localStorage.getItem(DONE_KEY) === '1'
+        || localStorage.getItem('bullpen-setup-done') !== '1';   // the welcome screen offers the tour instead
+    } catch (e) { done = true; }
     if (done) return;
     // Wait for any account prompt (e.g. choosing which saved game to keep) to close first.
     const tryStart = () => {

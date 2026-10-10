@@ -325,6 +325,9 @@
             <label class="field"><span>Account type (sets dividend tax)</span>
               <select id="setAccount"></select>
             </label>
+            <label class="field"><span>Appearance</span>
+              <select id="setTheme"><option value="system">Match my device</option><option value="light">Light</option><option value="dark">Dark</option></select>
+            </label>
             <label class="field"><span>Dividend speed</span>
               <select id="setDivSpeed">
                 <option value="normal">Real schedule (monthly, quarterly, twice a year or yearly)</option>
@@ -463,6 +466,41 @@
   </div>
 </div>
 
+<!-- First-run setup -->
+<div class="setup" id="setup" hidden>
+  <form class="setup-card" id="setupForm" role="dialog" aria-modal="true" aria-labelledby="setupTitle">
+    <div class="brand"><svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><rect x="1" y="11" width="4" height="8" rx="0.5"/><rect x="8" y="6" width="4" height="13" rx="0.5"/><rect x="15" y="1" width="4" height="18" rx="0.5"/></svg><span class="brand-name">Bullpen</span></div>
+    <h1 id="setupTitle">Welcome. Let&rsquo;s set up your game.</h1>
+    <p class="note">A practice stock market with pretend money. You can change any of this later in Settings.</p>
+
+    <fieldset>
+      <legend>Light or dark mode?</legend>
+      <div class="opts opts-3">
+        <button type="button" class="opt" data-setup-theme="light"><span class="swatch sw-light"></span><b>Light</b></button>
+        <button type="button" class="opt" data-setup-theme="dark"><span class="swatch sw-dark"></span><b>Dark</b></button>
+        <button type="button" class="opt" data-setup-theme="system"><span class="swatch sw-auto"></span><b>Match my device</b></button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>How much pretend money do you want to start with?</legend>
+      <div class="opts opts-cash" id="setupCash"></div>
+      <label class="setup-custom" id="setupCustomWrap"><span>Or enter your own amount ($)</span><input id="setupCustom" type="number" min="100" max="1000000000" step="100" inputmode="numeric" placeholder="e.g. 25000"></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Would you like a quick tutorial?</legend>
+      <div class="opts opts-2">
+        <button type="button" class="opt" data-setup-tour="yes"><b>Yes, show me around</b><span>About a minute. Great if you&rsquo;re new to investing.</span></button>
+        <button type="button" class="opt" data-setup-tour="no"><b>No thanks</b><span>I&rsquo;ll explore. Help is always in the top corner.</span></button>
+      </div>
+    </fieldset>
+
+    <p class="note setup-note" id="setupNote" role="status"></p>
+    <button class="btn btn-primary btn-block" id="setupGo" type="submit">Start</button>
+  </form>
+</div>
+
 <!-- Guided tour -->
 <div class="tour" id="tour" hidden>
   <div class="tour-hole" id="tourHole"></div>
@@ -490,5 +528,6 @@
 <script src="js/cloud.js"></script>
 <script src="js/app.js"></script>
 <script src="js/tour.js"></script>
+<script src="js/setup.js"></script>
 </body>
 </html>
