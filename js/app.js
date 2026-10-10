@@ -766,6 +766,8 @@
     clearInterval(ui.timer);
     $('playBtn').textContent = on ? 'Pause' : 'Play';
     $('playBtn').setAttribute('aria-pressed', String(on));
+    $('fcPlay').textContent = on ? 'Pause' : 'Play';
+    $('fcPlay').setAttribute('aria-pressed', String(on));
     if (!on) return;
     const interval = Math.max(1000 / ui.speed, 60);
     const perTick = (ui.speed * interval) / 1000;
@@ -1179,6 +1181,101 @@
     $('calMonth').innerHTML = html;
   }
 
+
+  /* ---------- full-screen chart ---------- */
+  function openFocus() {
+    ui.focus = true;
+    $('focus').hidden = false;
+    document.body.style.overflow = 'hidden';
+    const el = $('focus');
+    // Real full screen where the browser allows it; the overlay already fills the window otherwise.
+    try { const r = el.requestFullscreen && el.requestFullscreen(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* not allowed */ }
+    renderFocus();
+    $('fcPlay').focus({ preventScroll: true });
+  }
+
+  function closeFocus() {
+    if (!ui.focus) return;
+    ui.focus = false;
+    hideQuick();
+    $('focus').hidden = true;
+    document.body.style.overflow = '';
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    renderWorkspace();
+  }
+
+  function renderFocus() {
+    if (!ui.focus) return;
+    const t = chartTicker(), m = E.BY[t], s = S();
+    const p = E.price(t), pc = E.prevClose(t), chg = p / pc - 1;
+    const q = E.quote(t, 'buy', 1);
+    $('fcT').textContent = t;
+    $('fcName').textContent = m.n;
+    $('fcPrice').textContent = money(p, m.cur);
+    $('fcChg').innerHTML = `<span class="${cls(chg)}">${signedMoney(p - pc, m.cur)} (${pct(chg)})</span>`;
+    const own = s.holdings[t];
+    $('fcMeta').textContent = `${longDate(s.date)}${own ? ` · You own ${qtyFmt(+own.qty.toFixed(4))}` : ''} · Cash ${money(s.cash, 'USD', 0)}`;
+    $('fcSellPx').innerHTML = priceHTML(q.bid, m.cur);
+    $('fcBuyPx').innerHTML = priceHTML(q.ask, m.cur);
+    const canvas = $('focusChart');
+    const avail = $('focus').clientHeight - document.querySelector('.focus-bar').offsetHeight - 16;
+    canvas.dataset.h = Math.max(220, Math.round(avail));
+    C.candles(canvas, Object.assign(ohlcFor(t, ui.chartRange), { type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    if (!$('quickTicket').hidden) renderQuick();
+  }
+
+  function showQuick(side) {
+    ui.qside = side;
+    const t = chartTicker(), s = S();
+    const own = s.holdings[t];
+    let def;
+    if (side === 'buy') {
+      const unit = E.quote(t, 'buy', 1).total;
+      def = Math.max(0, Math.min(10, Math.floor((s.cash - (+s.settings.commission || 0)) / unit)));
+    } else {
+      def = own ? +own.qty.toFixed(4) : 0;
+    }
+    $('qtQty').value = def || '';
+    $('qtMsg').textContent = ''; $('qtMsg').className = 'msg';
+    $('quickTicket').hidden = false;
+    renderQuick();
+    setTimeout(() => $('qtQty').select(), 30);
+  }
+
+  function hideQuick() { $('quickTicket').hidden = true; }
+
+  function renderQuick() {
+    const t = chartTicker(), m = E.BY[t], s = S(), side = ui.qside;
+    const own = s.holdings[t];
+    const qty = parseFloat($('qtQty').value) || 0;
+    const q = E.quote(t, side, qty || 0);
+    $('qtTitle').textContent = `${side === 'buy' ? 'Buy' : 'Sell'} ${t}`;
+    $('qtLabel').textContent = side === 'buy' ? `Shares to buy at ${money(q.px, m.cur)}` : `Shares to sell at ${money(q.px, m.cur)}`;
+    const opts = side === 'buy' ? [1, 10, 100] : own ? [['Half', own.qty / 2], ['All', own.qty]] : [];
+    $('qtQuick').innerHTML = opts.map((o) => Array.isArray(o)
+      ? `<button type="button" data-qq="${+o[1].toFixed(4)}">${o[0]}</button>`
+      : `<button type="button" data-qq="${o}">${o}</button>`).join('');
+    $('qtEst').innerHTML = side === 'buy'
+      ? `Cost <b>${qty ? money(q.total) : '-'}</b> · Cash ${money(s.cash)}`
+      : own ? `You get <b>${qty ? money(q.total) : '-'}</b> · You own ${qtyFmt(+own.qty.toFixed(4))}` : 'You do not own any of this yet.';
+    const go = $('qtGo');
+    go.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} ${qty ? qtyFmt(qty) + ' ' : ''}${t}`;
+    go.className = `btn btn-block ${side}`;
+    go.disabled = side === 'sell' && !own;
+  }
+
+  function submitQuick(e) {
+    e.preventDefault();
+    const t = chartTicker();
+    const qty = parseFloat($('qtQty').value);
+    const res = E.execute(t, ui.qside, qty);
+    if (!res.ok) { $('qtMsg').textContent = res.msg; $('qtMsg').className = 'msg err'; return; }
+    toast(`${ui.qside === 'buy' ? 'Bought' : 'Sold'} ${qtyFmt(qty)} ${t} for ${money(Math.abs(res.q.total))}`);
+    hideQuick();
+    save();
+    refresh();
+  }
+
   /* ---------- refresh ---------- */
   function refresh() {
     renderHeader();
@@ -1190,6 +1287,7 @@
     if (ui.tab === 'calendar') { if (ui.calFollow) ui.calMonth = S().date.slice(0, 7); renderCalendar(); }
     if (ui.tab === 'activity') renderActivity();
     if (ui.sheet) renderSheet(false);
+    if (ui.focus) renderFocus();
   }
 
   function showTab(tab) {
@@ -1320,6 +1418,24 @@
       renderMainChart();
     });
     $('chTrade').addEventListener('click', () => openSheet(chartTicker(), false, 'buy'));
+    $('chFull').addEventListener('click', openFocus);
+    $('mainChart').addEventListener('dblclick', openFocus);
+    $('fcClose').addEventListener('click', closeFocus);
+    $('fcPlay').addEventListener('click', () => setPlaying(!ui.playing));
+    $('fcSell').addEventListener('click', () => showQuick('sell'));
+    $('fcBuy').addEventListener('click', () => showQuick('buy'));
+    $('qtClose').addEventListener('click', hideQuick);
+    $('qtQty').addEventListener('input', renderQuick);
+    $('qtQuick').addEventListener('click', (e) => { const b = e.target.closest('[data-qq]'); if (b) { $('qtQty').value = b.dataset.qq; renderQuick(); } });
+    $('quickTicket').addEventListener('submit', submitQuick);
+    document.addEventListener('fullscreenchange', () => {
+      // Leaving the browser's full screen (e.g. with Esc) also leaves the full-screen chart.
+      if (!document.fullscreenElement && ui.focus) closeFocus(); else if (ui.focus) setTimeout(renderFocus, 50);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (!ui.focus) return;
+      if (e.key === 'Escape') { e.preventDefault(); if (!$('quickTicket').hidden) hideQuick(); else closeFocus(); }
+    });
     $('chSell').addEventListener('click', () => openSheet(chartTicker(), false, 'sell'));
     $('chBuy').addEventListener('click', () => openSheet(chartTicker(), false, 'buy'));
     $('chWatch').addEventListener('click', () => toggleWatch(chartTicker()));
@@ -1417,6 +1533,7 @@
     });
 
     window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(refresh, 150); });
+    window.addEventListener('resize', () => { if (ui.focus) renderFocus(); });
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     if (mq.addEventListener) mq.addEventListener('change', refresh);
     document.addEventListener('visibilitychange', () => {

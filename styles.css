@@ -266,7 +266,7 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .msg.ok { color: var(--gain); }
 
 /* ---------- toasts ---------- */
-.toasts { position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 60; display: grid; gap: 8px; max-width: min(360px, calc(100% - 40px)); }
+.toasts { position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 100; display: grid; gap: 8px; max-width: min(360px, calc(100% - 40px)); }
 .toast { background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 6px; box-shadow: var(--shadow); font-size: 13px; animation: rise 0.2s ease-out; }
 @keyframes rise { from { transform: translateY(6px); opacity: 0.4; } to { transform: none; opacity: 1; } }
 
@@ -563,6 +563,56 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
   .mini-q { flex: 1; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) { .flash-up .pq-p, .flash-down .pq-p { animation: none; } }
+
+
+/* ---------- full-screen chart ---------- */
+.pane-chart .chart { cursor: crosshair; }
+.focus { position: fixed; inset: 0; z-index: 85; background: var(--bg); display: flex; flex-direction: column; }
+.focus-bar {
+  display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
+}
+.focus-id { display: flex; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; min-width: 0; }
+.focus-id b { font-size: 20px; font-weight: 600; }
+.focus-name, .focus-meta { color: var(--muted); font-size: 13px; }
+.focus-price { font-size: 20px; font-weight: 500; }
+.focus-btns { display: flex; gap: 8px; margin-left: auto; }
+.fbtn {
+  border: 0; border-radius: 6px; cursor: pointer; color: #fff; font-weight: 600; min-width: 112px; padding: 7px 16px;
+  display: grid; justify-items: center; line-height: 1.2;
+}
+.fbtn:hover { filter: brightness(1.1); }
+.fbtn.sell { background: var(--sell); }
+.fbtn.buy { background: var(--buy); }
+.fbtn.play { background: var(--surface-2); color: var(--fg); border: 1px solid var(--line-strong); min-width: 88px; font-size: 14px; }
+.fbtn.play[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.fb-l { font-size: 10px; letter-spacing: 0.08em; opacity: 0.9; }
+.fb-p { font-size: 17px; font-weight: 500; font-variant-numeric: proportional-nums; }
+.focus-x { border: 0; background: transparent; color: var(--muted); font-size: 26px; line-height: 1; width: 36px; height: 36px; border-radius: 6px; cursor: pointer; }
+.focus-x:hover { background: var(--surface-2); color: var(--fg); }
+.focus-x.small { font-size: 20px; width: 28px; height: 28px; }
+.focus-body { position: relative; flex: 1 1 auto; min-height: 0; }
+#focusChart { width: calc(100% - 24px); margin: 10px 12px 0; cursor: crosshair; }
+.qt {
+  position: absolute; top: 14px; right: 16px; width: min(300px, calc(100% - 32px)); background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: 8px; box-shadow: var(--shadow); padding: 12px 14px; display: grid; gap: 10px; z-index: 2;
+}
+.qt-head { display: flex; justify-content: space-between; align-items: center; margin: -4px -6px -4px 0; }
+.qt-head b { font-size: 15px; }
+.qt-est { margin: 0; font-size: 13px; color: var(--muted); }
+.qt-est b { color: var(--fg); }
+#qtGo.buy { background: var(--buy); color: #fff; border-color: var(--buy); }
+#qtGo.sell { background: var(--sell); color: #fff; border-color: var(--sell); }
+@media (max-width: 600px) {
+  .focus-bar { padding-inline: 12px; }
+  .focus-id b, .focus-price { font-size: 17px; }
+  .focus-name { display: none; }
+  .focus-btns { order: 3; width: 100%; margin-left: 0; }
+  .fbtn { flex: 1; min-width: 0; padding: 7px 8px; }
+  .focus-id { flex: 1 1 0; }
+  .focus-x { order: 2; align-self: flex-start; }
+  .qt { top: auto; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: 12px; width: calc(100% - 24px); }
+}
 
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {

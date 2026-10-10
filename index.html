@@ -118,6 +118,7 @@
             </div>
             <span class="ch-stats" id="chStats"></span>
             <button type="button" class="btn btn-ghost" id="chWatch">Watch</button>
+            <button type="button" class="btn" id="chFull" title="Full-screen chart (or double-click the chart)">&#x26F6; Full screen</button>
             <button type="button" class="btn btn-primary" id="chTrade">Trade</button>
           </div>
           <canvas id="mainChart" class="chart" height="380"></canvas>
@@ -480,6 +481,36 @@
         <p class="msg" id="tradeMsg" role="status"></p>
       </form>
     </div>
+  </div>
+</div>
+
+<!-- Full-screen chart -->
+<div class="focus" id="focus" hidden role="dialog" aria-modal="true" aria-labelledby="fcT">
+  <div class="focus-bar">
+    <div class="focus-id">
+      <b id="fcT"></b>
+      <span class="focus-name" id="fcName"></span>
+      <span class="focus-price" id="fcPrice"></span>
+      <span id="fcChg"></span>
+      <span class="focus-meta" id="fcMeta"></span>
+    </div>
+    <div class="focus-btns">
+      <button type="button" class="fbtn play" id="fcPlay" aria-pressed="false">Play</button>
+      <button type="button" class="fbtn sell" id="fcSell"><span class="fb-l">SELL</span><span class="fb-p" id="fcSellPx"></span></button>
+      <button type="button" class="fbtn buy" id="fcBuy"><span class="fb-l">BUY</span><span class="fb-p" id="fcBuyPx"></span></button>
+    </div>
+    <button type="button" class="focus-x" id="fcClose" aria-label="Exit full screen" title="Exit full screen (Esc)">&times;</button>
+  </div>
+  <div class="focus-body">
+    <canvas id="focusChart" class="chart"></canvas>
+    <form class="qt" id="quickTicket" hidden autocomplete="off">
+      <div class="qt-head"><b id="qtTitle"></b><button type="button" class="focus-x small" id="qtClose" aria-label="Cancel">&times;</button></div>
+      <label class="field"><span id="qtLabel">Shares</span><input id="qtQty" type="number" min="0" step="any" inputmode="decimal"></label>
+      <div class="quick" id="qtQuick"></div>
+      <p class="qt-est" id="qtEst"></p>
+      <button type="submit" class="btn btn-block" id="qtGo"></button>
+      <p class="msg" id="qtMsg" role="status"></p>
+    </form>
   </div>
 </div>
 
