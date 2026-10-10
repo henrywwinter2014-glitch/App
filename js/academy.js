@@ -339,7 +339,7 @@
     const gens = unitGens(u);
     while (keys.length < TEST_LEN) keys.push(gens.length ? genKey(gens[keys.length % gens.length]) : shuffle(UNITS[u].lessons.flatMap((_, l) => curatedKeys(u, l)))[0]);
     begin({ kind: 'test', u, testOut, title: `Unit ${u + 1} test · ${UNITS[u].title}`, items: shuffle(keys).map(item).filter(Boolean), exam: true,
-      intro: { title: `${testOut ? 'Test out of' : 'Unit test:'} ${UNITS[u].title}`, say: 'Exam time. You’ve got this!', html: `<p>${TEST_LEN} questions covering the whole unit. Score <b>${PASS * 100}%</b> or more to pass${testOut ? ' and skip ahead to this unit' : ' and unlock the next unit'}.</p><p>Like a real exam, you won’t see answers until the end. No hearts are used.</p>` } });
+      intro: { title: `${testOut ? 'Test out of' : 'Unit test:'} ${UNITS[u].title}`, say: 'Exam time. You’ve got this!', html: `${CALC_RULE}<p>${TEST_LEN} questions covering the whole unit. Score <b>${PASS * 100}%</b> or more to pass${testOut ? ' and skip ahead to this unit' : ' and unlock the next unit'}.</p><p>Like a real exam, you won’t see answers until the end. No hearts are used.</p>` } });
   }
 
   function startFinal() {
@@ -348,7 +348,7 @@
     const gens = shuffle(Object.keys(GEN));
     while (keys.length < FINAL_LEN) keys.push(genKey(gens[keys.length % gens.length]));
     begin({ kind: 'final', title: 'Final certification exam', items: shuffle(keys).slice(0, FINAL_LEN).map(item).filter(Boolean), exam: true, timer: FINAL_SECS,
-      intro: { title: 'Final certification exam', say: 'This is the big one. Deep breath!', html: `<p>${FINAL_LEN} questions from every unit, with a <b>${FINAL_SECS / 60}-minute</b> time limit. Score <b>${PASS * 100}%</b> to earn your Bullpen Certified Analyst certificate.</p><p>Answers are shown at the end. You can retake it as many times as you like.</p>` } });
+      intro: { title: 'Final certification exam', say: 'This is the big one. Deep breath!', html: `${CALC_RULE}<p>${FINAL_LEN} questions from every unit, with a <b>${FINAL_SECS / 60}-minute</b> time limit. Score <b>${PASS * 100}%</b> to earn your Bullpen Certified Analyst certificate.</p><p>Answers are shown at the end. You can retake it as many times as you like.</p>` } });
   }
 
   function startReview() {
@@ -377,7 +377,7 @@
 
   function startSprint() {
     begin({ kind: 'sprint', title: 'Ratio sprint', items: [], timer: SPRINT_SECS, score: 0, attempts: 0,
-      intro: { title: 'Ratio sprint', say: 'Speed round! Calculator away!', html: `<p>Work out as many P/E ratios, yields, payout ratios, margins and growth rates as you can in <b>${SPRINT_SECS / 60} minutes</b>. Analysts do these in their heads while skimming a results release.</p><p>Type the answer and press Enter. Your best so far: <b>${A().sprintBest}</b>.</p>` } });
+      intro: { title: 'Ratio sprint', say: 'Speed round! Calculator away!', html: `<p>Work out as many P/E ratios, yields, payout ratios, margins and growth rates as you can in <b>${SPRINT_SECS / 60} minutes</b>. Analysts do these in their heads while skimming a results release.</p><p><b>No calculator</b> in the sprint.</p><p>Type the answer and press Enter. Your best so far: <b>${A().sprintBest}</b>.</p>` } });
   }
 
   function begin(s) {
@@ -580,6 +580,47 @@
     return `<div class="ac-matchgrid"><div>${col('l', it.left)}</div><div>${col('r', it.right)}</div></div>`;
   }
 
+  /* ---------- calculator ---------- */
+  const CALC_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="8" y="6" width="8" height="3" fill="currentColor"/><circle cx="9" cy="13" r="1.2" fill="currentColor"/><circle cx="12" cy="13" r="1.2" fill="currentColor"/><circle cx="15" cy="13" r="1.2" fill="currentColor"/><circle cx="9" cy="17" r="1.2" fill="currentColor"/><circle cx="12" cy="17" r="1.2" fill="currentColor"/><circle cx="15" cy="17" r="1.2" fill="currentColor"/></svg>';
+  // Number questions are mental maths unless marked calc. The sprint never allows one.
+  const CALC_RULE = '<p class="ac-calcrule">' + '<b>Calculator rules:</b> each number question says whether a calculator is allowed. When it is, use the built-in one. The rest are mental maths.</p>';
+  const calcAllowed = (q) => !!q.calc && ses.kind !== 'sprint';
+
+  // Evaluates + − × ÷ ^ √ ( ) and % on numbers, without eval. Returns null if it can't.
+  function calcEval(src) {
+    const s = String(src).replace(/,/g, '').replace(/×|x|\*/gi, '*').replace(/÷/g, '/').replace(/−|–/g, '-').replace(/sqrt/gi, '√').replace(/\s+/g, '');
+    if (!s || /[^0-9.+\-*/^()%√]/.test(s)) return null;
+    let i = 0;
+    const peek = () => s[i];
+    function expr() { let v = term(); while (peek() === '+' || peek() === '-') { const op = s[i++]; const w = term(); v = op === '+' ? v + w : v - w; } return v; }
+    function term() { let v = unary(); while (peek() === '*' || peek() === '/') { const op = s[i++]; const w = unary(); v = op === '*' ? v * w : v / w; } return v; }
+    function unary() { if (peek() === '-') { i++; return -unary(); } if (peek() === '+') { i++; return unary(); } return power(); }
+    function power() { const b = root(); if (peek() === '^') { i++; return Math.pow(b, unary()); } return b; }
+    function root() { if (peek() === '√') { i++; return Math.sqrt(root()); } return post(); }
+    function post() { let v = atom(); while (peek() === '%') { i++; v /= 100; } return v; }
+    function atom() {
+      if (peek() === '(') { i++; const v = expr(); if (s[i++] !== ')') throw 0; return v; }
+      const m = /^\d*\.?\d+|^\d+\./.exec(s.slice(i));
+      if (!m) throw 0;
+      i += m[0].length; return parseFloat(m[0]);
+    }
+    try { const v = expr(); return i === s.length && isFinite(v) ? v : null; } catch (e) { return null; }
+  }
+  const calcFmt = (v) => String(+v.toPrecision(10));
+  function calcUpdate() {
+    const v = calcEval($('acCalc').value);
+    $('acCalcOut').textContent = v == null ? ($('acCalc').value.trim() ? '= …' : '= ') : '= ' + (Math.abs(v) < 1e15 ? v.toLocaleString('en-US', { maximumFractionDigits: 8 }) : calcFmt(v));
+    $('acCalcUse').disabled = v == null;
+    return v;
+  }
+  function calcUse() {
+    const v = calcEval($('acCalc').value);
+    if (v == null || !$('acInput') || $('acInput').disabled) return;
+    $('acInput').value = calcFmt(v);
+    $('acCheck').disabled = false;
+    $('acInput').focus();
+  }
+
   function renderQuestion(keepFlash) {
     const it = currentItem();
     const q = it.q;
@@ -588,7 +629,12 @@
     let body;
     if (q.match) body = matchHTML(it);
     else if (q.opts) body = `<div class="ac-opts${q.opts.length === 3 && isChart(q) ? ' three' : ''}">${it.opts.map((o, i) => `<button type="button" class="ac-opt${ses.sel === i ? ' sel' : ''}" data-opt="${i}"><kbd>${i + 1}</kbd><span>${esc(o)}</span></button>`).join('')}</div>`;
-    else body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a % or a decimal, e.g. 12.5% or 0.125' : 'Fractions like 1/6 are fine'}</span></div>`;
+    else {
+      const calc = calcAllowed(q);
+      body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a % or a decimal, e.g. 12.5% or 0.125' : 'Fractions like 1/6 are fine'}</span></div>
+        <div class="ac-calcrow"><span class="ac-calcchip ${calc ? 'yes' : 'no'}">${calc ? CALC_SVG : CALC_SVG.replace('</svg>', '<path d="M3 3l18 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>')}${calc ? 'Calculator allowed' : 'No calculator: mental maths'}</span>${calc ? '<button type="button" class="btn btn-ghost small" id="acCalcBtn" aria-expanded="false">Open calculator</button>' : ''}</div>
+        ${calc ? `<div class="ac-calc" id="acCalcBox" hidden><input id="acCalc" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Type a sum, e.g. 3.75 / 75 * 100" aria-label="Calculator"><div class="ac-calc-keys">${['(', ')', '^', '√', '÷', '×', '−', '+'].map((k) => `<button type="button" class="btn btn-ghost small" data-ck="${k}">${k}</button>`).join('')}</div><div class="ac-calc-out"><span id="acCalcOut" aria-live="polite">= </span><button type="button" class="btn small" id="acCalcUse" disabled>Use this answer</button></div></div>` : ''}`;
+    }
     $('acMain').innerHTML = `<div class="ac-card">
       <span class="ac-eyebrow">${n}${it.again ? ' · Try again' : ''}${q.match ? ' · New word pairs' : ''}</span>
       <h2 class="ac-q">${esc(q.q)}</h2>
@@ -638,6 +684,7 @@
       if (i === it.ans) b.classList.add('right');
       else if (i === ses.sel) b.classList.add('wrong');
     });
+    if ($('acCalcBox')) { $('acCalc').disabled = true; $('acCalcUse').disabled = true; document.querySelectorAll('[data-ck], #acCalcBtn').forEach((b) => { b.disabled = true; }); }
     if ($('acInput')) { $('acInput').disabled = true; $('acInput').classList.add(ses.lastOk ? 'right' : 'wrong'); }
     const ok = ses.lastOk;
     let head;
@@ -863,6 +910,7 @@
       if (e.target.id === 'acSound') { A().sound = e.target.checked; save(); if (A().sound) sfx('ok'); }
     });
 
+    $('acad').addEventListener('input', (e) => { if (e.target.id === 'acCalc') calcUpdate(); });
     $('acad').addEventListener('click', (e) => {
       if (!ses) return;
       const ml = e.target.closest('[data-ml]'), mr = e.target.closest('[data-mr]');
@@ -875,7 +923,24 @@
         $('acCheck').disabled = false;
         return;
       }
+      const ck = e.target.closest('[data-ck]');
+      if (ck && $('acCalc')) {
+        const c = $('acCalc'), k = ck.dataset.ck, a = c.selectionStart ?? c.value.length, b = c.selectionEnd ?? c.value.length;
+        c.value = c.value.slice(0, a) + k + c.value.slice(b);
+        c.focus(); c.setSelectionRange(a + k.length, a + k.length);
+        calcUpdate();
+        return;
+      }
       const id = e.target.closest('button') && e.target.closest('button').id;
+      if (id === 'acCalcBtn') {
+        const open = $('acCalcBox').hidden;
+        $('acCalcBox').hidden = !open;
+        e.target.closest('button').setAttribute('aria-expanded', String(open));
+        e.target.closest('button').textContent = open ? 'Hide calculator' : 'Open calculator';
+        if (open) $('acCalc').focus();
+        return;
+      }
+      if (id === 'acCalcUse') { calcUse(); return; }
       if (id === 'acGo') beginQuestions();
       else if (id === 'acCheck') submit();
       else if (id === 'acNext') advance();
@@ -889,12 +954,13 @@
     document.addEventListener('keydown', (e) => {
       if ($('acad').hidden || !ses) return;
       if (e.key === 'Escape') { e.preventDefault(); askQuit(); return; }
+      if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'acCalc') { e.preventDefault(); calcUse(); return; }
       if (e.key === 'Enter') {
         const btn = $('acNext') || $('acGo') || $('acDone') || ($('acCheck') && !$('acCheck').disabled ? $('acCheck') : null);
         if (btn) { e.preventDefault(); btn.click(); }
         return;
       }
-      if (ses.phase === 'q' && !ses.checked && /^[1-4]$/.test(e.key) && document.activeElement.id !== 'acInput') {
+      if (ses.phase === 'q' && !ses.checked && /^[1-4]$/.test(e.key) && document.activeElement.tagName !== 'INPUT') {
         const b = document.querySelector(`.ac-opt[data-opt="${+e.key - 1}"]`);
         if (b) b.click();
       }
@@ -926,5 +992,5 @@
   }
 
   bind();
-  window.Academy = { _session: () => ses, render: renderPage, A, startLesson, startTest, startReview, startSprint, startFinal, startCharts, openGuideById, checkNum, parseAnswer, getQ, rankOf, BADGES };
+  window.Academy = { _session: () => ses, render: renderPage, A, startLesson, startTest, startReview, startSprint, startFinal, startCharts, openGuideById, calcEval, checkNum, parseAnswer, getQ, rankOf, BADGES };
 })();
