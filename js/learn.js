@@ -379,7 +379,7 @@
     }
   }
 
-  /* ---------- chart questions for Quant Academy ---------- */
+  /* ---------- chart questions for the Learn course ---------- */
   const FIGS = Object.fromEntries(LESSONS.map((l) => [l.id, l.figure]));
 
   // A "what is the trend?" question built from a real product's last six months in the simulator.

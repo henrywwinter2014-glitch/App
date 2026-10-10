@@ -1,15 +1,26 @@
 /*
- * Learn: Quant Academy, a Duolingo-style course for becoming a quant.
+ * Learn: a Duolingo-style course in fundamental stock analysis.
  * A path of units and lessons with teaching cards, multiple-choice, number, chart and
  * match-the-pairs questions; XP, streaks, hearts, ranks, daily quests and achievements;
- * spaced-repetition revision, unit tests, a timed final exam and a mental-maths sprint.
+ * spaced-repetition revision, unit tests, a timed final exam and a ratio sprint.
  * Progress lives in the game state (Engine.S.academy), so it saves and syncs with the game.
  */
 (function () {
   'use strict';
 
   const E = window.Engine;
-  const { UNITS, GEN, RANKS, SPRINT_GENS } = window.AcademyContent;
+  const { UNITS, GEN, RANKS, SPRINT_GENS, COURSE } = window.AcademyContent;
+
+  // When the course changes, drop progress on lessons that no longer exist. XP, streaks and badges stay.
+  function migrateCourse(a) {
+    const ids = new Set(UNITS.map((u) => u.id));
+    for (const k of Object.keys(a.lessons)) if (!ids.has(k.split(':')[0])) delete a.lessons[k];
+    for (const k of Object.keys(a.tests)) if (!ids.has(k)) delete a.tests[k];
+    for (const k of Object.keys(a.review)) { const p = k.split(':'); if (p[0] === 'g' ? !GEN[p[1]] : !ids.has(p[1])) delete a.review[k]; }
+    a.final = { passed: false, best: 0, date: '' };
+    a.sprintBest = 0;
+    a.course = COURSE;
+  }
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -30,6 +41,7 @@
       quests: { d: '', list: [] }, badges: {}, counts: { correct: 0, lessons: 0, perfect: 0, reviews: 0, bestCombo: 0, charts: 0 }, sound: true,
     };
     for (const k in defaults) if (a[k] === undefined) a[k] = defaults[k];
+    if (a.course !== COURSE) migrateCourse(a);
     regenHearts(a);
     return a;
   }
@@ -81,7 +93,7 @@
     { id: 'combo10', text: 'Get 10 correct in a row', goal: 10, ev: 'combo', max: true },
     { id: 'correct20', text: 'Answer 20 questions correctly', goal: 20, ev: 'correct' },
     { id: 'review', text: 'Finish a revision set', goal: 1, ev: 'review' },
-    { id: 'sprint15', text: 'Score 15+ in the interview sprint', goal: 15, ev: 'sprint', max: true },
+    { id: 'sprint15', text: 'Score 15+ in the ratio sprint', goal: 15, ev: 'sprint', max: true },
     { id: 'chart3', text: 'Read 3 charts correctly', goal: 3, ev: 'chart' },
   ];
   // Three quests a day, picked from the date so everyone's day is stable.
@@ -126,11 +138,11 @@
     { id: 'xp500', name: 'Quick study', desc: 'Earn 500 XP', test: (a) => a.xp >= 500 },
     { id: 'xp2000', name: 'Scholar', desc: 'Earn 2,000 XP', test: (a) => a.xp >= 2000 },
     { id: 'unit1', name: 'Number cruncher', desc: 'Pass your first unit test', test: (a) => Object.values(a.tests).some((t) => t.passed) },
-    { id: 'units6', name: 'Halfway quant', desc: 'Pass 6 unit tests', test: (a) => Object.values(a.tests).filter((t) => t.passed).length >= 6 },
+    { id: 'units6', name: 'Halfway there', desc: 'Pass 6 unit tests', test: (a) => Object.values(a.tests).filter((t) => t.passed).length >= 6 },
     { id: 'chartist', name: 'Chartist', desc: 'Read 10 charts correctly', test: (a) => a.counts.charts >= 10 },
     { id: 'reviewer', name: 'Spaced out', desc: 'Finish 5 revision sets', test: (a) => a.counts.reviews >= 5 },
     { id: 'sprint20', name: 'Human calculator', desc: 'Score 20+ in the sprint', test: (a) => a.sprintBest >= 20 },
-    { id: 'cert', name: 'Certified quant', desc: 'Pass the final exam', test: (a) => a.final.passed },
+    { id: 'cert', name: 'Certified analyst', desc: 'Pass the final exam', test: (a) => a.final.passed },
   ];
   function checkBadges() {
     const a = A(), fresh = [];
@@ -336,7 +348,7 @@
     const gens = shuffle(Object.keys(GEN));
     while (keys.length < FINAL_LEN) keys.push(genKey(gens[keys.length % gens.length]));
     begin({ kind: 'final', title: 'Final certification exam', items: shuffle(keys).slice(0, FINAL_LEN).map(item).filter(Boolean), exam: true, timer: FINAL_SECS,
-      intro: { title: 'Final certification exam', say: 'This is the big one. Deep breath!', html: `<p>${FINAL_LEN} questions from every unit, with a <b>${FINAL_SECS / 60}-minute</b> time limit. Score <b>${PASS * 100}%</b> to earn your Bullpen Quant certificate.</p><p>Answers are shown at the end. You can retake it as many times as you like.</p>` } });
+      intro: { title: 'Final certification exam', say: 'This is the big one. Deep breath!', html: `<p>${FINAL_LEN} questions from every unit, with a <b>${FINAL_SECS / 60}-minute</b> time limit. Score <b>${PASS * 100}%</b> to earn your Bullpen Certified Analyst certificate.</p><p>Answers are shown at the end. You can retake it as many times as you like.</p>` } });
   }
 
   function startReview() {
@@ -364,8 +376,8 @@
   }
 
   function startSprint() {
-    begin({ kind: 'sprint', title: 'Mental maths sprint', items: [], timer: SPRINT_SECS, score: 0, attempts: 0,
-      intro: { title: 'Mental maths sprint', say: 'Speed round! Fingers ready?', html: `<p>Answer as many arithmetic questions as you can in <b>${SPRINT_SECS / 60} minutes</b>. Trading firms use tests like this (often 80 questions in 8 minutes) to screen applicants.</p><p>Type the answer and press Enter. Your best so far: <b>${A().sprintBest}</b>.</p>` } });
+    begin({ kind: 'sprint', title: 'Ratio sprint', items: [], timer: SPRINT_SECS, score: 0, attempts: 0,
+      intro: { title: 'Ratio sprint', say: 'Speed round! Calculator away!', html: `<p>Work out as many P/E ratios, yields, payout ratios, margins and growth rates as you can in <b>${SPRINT_SECS / 60} minutes</b>. Analysts do these in their heads while skimming a results release.</p><p>Type the answer and press Enter. Your best so far: <b>${A().sprintBest}</b>.</p>` } });
   }
 
   function begin(s) {
@@ -545,7 +557,7 @@
   }
 
   function renderIntro() {
-    $('acMain').innerHTML = `<div class="ac-card ac-intro">${speech('happy', ses.intro.say || 'Let’s go!')}<span class="ac-eyebrow">${ses.kind === 'lesson' ? 'New concept' : ses.kind === 'review' ? 'Revision' : ses.kind === 'sprint' ? 'Interview prep' : ses.kind === 'charts' ? 'Practice' : 'Exam'}</span><h2>${esc(ses.intro.title)}</h2><div class="ac-tip">${ses.intro.html}</div></div>`;
+    $('acMain').innerHTML = `<div class="ac-card ac-intro">${speech('happy', ses.intro.say || 'Let’s go!')}<span class="ac-eyebrow">${ses.kind === 'lesson' ? 'New concept' : ses.kind === 'review' ? 'Revision' : ses.kind === 'sprint' ? 'Speed round' : ses.kind === 'charts' ? 'Practice' : 'Exam'}</span><h2>${esc(ses.intro.title)}</h2><div class="ac-tip">${ses.intro.html}</div></div>`;
     $('acFoot').className = 'ac-foot';
     $('acFoot').innerHTML = `<span></span><button type="button" class="chunky" id="acGo">${ses.kind === 'lesson' ? 'Start lesson' : ses.kind === 'sprint' ? 'Start sprint' : ses.kind === 'review' ? 'Start revision' : ses.kind === 'charts' ? 'Start' : 'Start exam'}</button>`;
     $('acGo').focus();
@@ -658,7 +670,7 @@
       if (ses.newBest) mood = 'wow';
     } else if (ses.exam) {
       const pct = Math.round(ses.acc * 100);
-      head = ses.passed ? (ses.kind === 'final' ? 'You are a certified Bullpen Quant!' : 'Unit test passed!') : 'Not quite this time';
+      head = ses.passed ? (ses.kind === 'final' ? 'You are a Bullpen Certified Analyst!' : 'Unit test passed!') : 'Not quite this time';
       mood = ses.passed ? 'wow' : 'sad';
       sub = ses.passed ? (ses.kind === 'final' ? 'You passed the final exam. Your certificate is on the Learn page.' : ses.testOut ? 'You tested out and skipped ahead.' : 'The next unit is unlocked.') : `You need ${PASS * 100}% to pass. Review the questions below, revise, and try again.`;
       tiles = [['Score', pct + '%'], ['Correct', `${ses.firstTry}/${ses.total}`], ['Time', fmtSecs(ses.secs)], ['XP', `+<span data-count="${ses.xpGained}">0</span>`]];
@@ -756,7 +768,7 @@
     html += `<section class="ac-unit final${fOpen ? '' : ' locked'}"><header class="ac-unit-head"><div><span class="ac-eyebrow">Final</span><h3>Certification exam</h3><p>${FINAL_LEN} timed questions across all ${UNITS.length} units. ${fOpen ? 'Score 80% to earn your certificate.' : 'Pass all the unit tests to unlock it.'}</p></div>
       <div class="ac-unit-btns"><button type="button" class="chunky small" data-final${fOpen ? '' : ' disabled'}>${A().final.passed ? 'Retake exam' : 'Take the exam'}</button></div></header></section>`;
     const a = A();
-    const intro = !a.counts.lessons && !a.xp ? `<div class="ac-welcome">${speech('happy', `<b>Hi, I’m Bullseye!</b> I’ll teach you to think like a quant: probability, statistics, options, charts and the puzzles from real trading interviews. A few minutes a day is all it takes. Tap <b>Start</b> below.`)}</div>` : '';
+    const intro = !a.counts.lessons && !a.xp ? `<div class="ac-welcome">${speech('happy', `<b>Hi, I’m Bullseye!</b> I’ll teach you to analyse a stock like a professional: reading the accounts, valuing a business, checking the dividend and spotting red flags. A few minutes a day is all it takes. Tap <b>Start</b> below.`)}</div>` : '';
     $('acPath').innerHTML = statsHTML(a, 'ac-stats-m') + intro + html;
   }
 
@@ -794,7 +806,7 @@
       </div>
       <div class="card ac-side-card">
         <div class="ac-row"><b>Practice</b></div>
-        <p class="muted small">Read real charts from the simulator, or race the clock like a trading-firm maths test (best ${a.sprintBest}).</p>
+        <p class="muted small">Read real charts from the simulator, or race the clock working out ratios (best ${a.sprintBest}).</p>
         <div class="ac-two"><button type="button" class="chunky small alt" id="acChartBtn">Charts</button><button type="button" class="chunky small purple" id="acSprintBtn">Sprint</button></div>
       </div>
       <div class="card ac-side-card">
@@ -803,7 +815,7 @@
       </div>
       <div class="card ac-side-card ${a.final.passed ? 'cert' : ''}">
         ${a.final.passed
-          ? `<span class="ac-eyebrow">Certificate</span><div class="ac-cert"><b>Bullpen Certified Quant</b><span class="muted small">Passed ${esc(a.final.date)} · best ${Math.round(a.final.best * 100)}%</span></div>`
+          ? `<span class="ac-eyebrow">Certificate</span><div class="ac-cert"><b>Bullpen Certified Analyst</b><span class="muted small">Passed ${esc(a.final.date)} · best ${Math.round(a.final.best * 100)}%</span></div>`
           : `<div class="ac-row"><b>Final exam</b><span class="muted small">${finalOpen() ? 'Unlocked' : `${unitsPassed}/${UNITS.length} units`}</span></div><p class="muted small">Pass every unit test to unlock the ${FINAL_LEN}-question certification exam.</p>`}
       </div>
       <label class="check ac-soundtoggle"><input type="checkbox" id="acSound"${a.sound ? ' checked' : ''}> Sound effects</label>`;

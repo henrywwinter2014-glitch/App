@@ -76,7 +76,7 @@
       tab: 'academy',
       target: '[data-tab="academy"]',
       title: 'Learn, Duolingo style',
-      text: 'Bite-sized daily lessons, from reading charts and spotting uptrends to the maths, probability and options a quant uses. Earn XP, keep your streak, finish daily quests and pass exams.',
+      text: 'Bite-sized daily lessons in fundamental analysis: reading the accounts, valuation ratios like P/E, dividend safety, moats and red flags. Earn XP, keep your streak, finish daily quests and pass exams.',
     },
     {
       tab: 'calculator',
