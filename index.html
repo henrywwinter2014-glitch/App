@@ -7,18 +7,15 @@
 <meta name="description" content="A stock and shares simulator with dividends, ETFs, bonds, REITs, preferreds, UK shares and penny stocks.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="app">
   <header class="topbar">
     <div class="brand">
-      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect x="3" y="14" width="5" height="14" rx="1"/><rect x="11" y="9" width="5" height="19" rx="1"/><rect x="19" y="4" width="5" height="24" rx="1"/><path d="M3 10 L12 5 L18 8 L29 2" fill="none" stroke-width="2.4" stroke-linecap="round"/></svg>
-      <div>
-        <div class="brand-name">Bullpen Trader</div>
-        <div class="brand-sub">Stocks &amp; shares simulator</div>
-      </div>
+      <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><rect x="1" y="11" width="4" height="8" rx="0.5"/><rect x="8" y="6" width="4" height="13" rx="0.5"/><rect x="15" y="1" width="4" height="18" rx="0.5"/></svg>
+      <span class="brand-name">Bullpen</span>
     </div>
 
     <div class="clock">
@@ -44,7 +41,7 @@
           <button type="button" data-skip="1y" title="Skip 1 year">+1Y</button>
         </div>
         <button class="btn" id="nextPayBtn" type="button" title="Skip until your next dividend is paid">Next payout</button>
-        <button class="btn btn-ghost" id="skipMoreBtn" type="button" aria-expanded="false" aria-controls="skipPanel">Skip to&hellip;</button>
+        <button class="btn" id="skipMoreBtn" type="button" aria-expanded="false" aria-controls="skipPanel">Skip to&hellip;</button>
       </div>
     </div>
 
@@ -82,8 +79,9 @@
     <button role="tab" type="button" data-tab="portfolio">Portfolio</button>
     <button role="tab" type="button" data-tab="dividends">Dividends</button>
     <button role="tab" type="button" data-tab="calendar">Calendar</button>
+    <button role="tab" type="button" data-tab="calculator">Calculator</button>
     <button role="tab" type="button" data-tab="orders">Orders <span class="count" id="orderCount" hidden></span></button>
-    <button role="tab" type="button" data-tab="activity">News &amp; activity</button>
+    <button role="tab" type="button" data-tab="activity">Activity</button>
     <button role="tab" type="button" data-tab="settings">Settings</button>
   </nav>
 
@@ -95,13 +93,14 @@
           <label class="sr" for="search">Search</label>
           <input id="search" type="search" placeholder="Search ticker or company, e.g. KO, Tesla, gilt" autocomplete="off">
         </div>
+        <label class="sr" for="typeChips">Category</label>
+        <select id="typeChips"></select>
         <label class="sr" for="sectorSel">Sector</label>
         <select id="sectorSel"></select>
         <label class="sr" for="exchSel">Exchange</label>
         <select id="exchSel"></select>
       </div>
-      <div class="chips" id="typeChips" role="group" aria-label="Type"></div>
-      <div class="result-line"><span id="resultCount"></span><span class="hint">Click any row to see the chart and trade.</span></div>
+      <div class="result-line"><span id="resultCount"></span><span class="hint">Select a row to view and trade</span></div>
       <div class="table-wrap">
         <table class="grid" id="marketTable">
           <thead><tr>
@@ -165,7 +164,7 @@
         <div class="card">
           <h2>Coming up</h2>
           <p class="note">Declared payments are locked in: you owned the shares on the ex-dividend date. Estimated ex-dates are for your current holdings.</p>
-          <div class="table-wrap"><table class="grid"><thead><tr><th>Security</th><th>Status</th><th class="r">Date</th><th class="r">Amount</th></tr></thead><tbody id="upcomingBody"></tbody></table></div>
+          <div class="table-wrap"><table class="grid"><thead><tr><th>Security</th><th>Status</th><th class="r">Date</th><th class="r">Before tax</th></tr></thead><tbody id="upcomingBody"></tbody></table></div>
         </div>
         <div class="card">
           <h2>Payment history</h2>
@@ -200,6 +199,84 @@
       <div class="two">
         <div class="card" id="calDay"></div>
         <div class="card" id="calMonth"></div>
+      </div>
+    </section>
+
+    <!-- Dividend calculator -->
+    <section class="panel" id="tab-calculator" hidden>
+      <div class="calc">
+        <form class="card calc-form" id="calcForm" autocomplete="off">
+          <h2>Dividend calculator</h2>
+          <p class="note">Project income and total return from a dividend investment, month by month, with dividend raises, reinvestment, tax, fund fees and inflation.</p>
+          <div class="field">
+            <span>Start from</span>
+            <div class="calc-src">
+              <input id="calcTicker" list="calcList" placeholder="Ticker, e.g. SCHD" aria-label="Ticker">
+              <datalist id="calcList"></datalist>
+              <button class="btn" type="button" id="calcUseTicker">Use</button>
+              <button class="btn" type="button" id="calcUsePf">My portfolio</button>
+            </div>
+            <span class="calc-src-note" id="calcSrcNote"></span>
+          </div>
+          <div class="row2">
+            <label class="field"><span>Initial investment ($)</span><input id="calcStart" type="number" min="0" step="100" value="10000" inputmode="decimal"></label>
+            <label class="field"><span>Monthly contribution ($)</span><input id="calcMonthly" type="number" min="0" step="25" value="250" inputmode="decimal"></label>
+          </div>
+          <div class="row2">
+            <label class="field"><span>Years</span><input id="calcYears" type="number" min="1" max="60" step="1" value="20" inputmode="numeric"></label>
+            <label class="field"><span>Payments</span>
+              <select id="calcFreq"><option value="12">Monthly</option><option value="4" selected>Quarterly</option><option value="2">Twice a year</option><option value="1">Yearly</option></select>
+            </label>
+          </div>
+          <div class="row3">
+            <label class="field"><span>Dividend yield %</span><input id="calcYield" type="number" min="0" max="30" step="0.05" value="3.5" inputmode="decimal"></label>
+            <label class="field"><span>Dividend growth %/yr</span><input id="calcDivGrowth" type="number" min="-20" max="30" step="0.1" value="5" inputmode="decimal"></label>
+            <label class="field"><span>Price growth %/yr</span><input id="calcPriceGrowth" type="number" min="-20" max="30" step="0.1" value="4.5" inputmode="decimal"></label>
+          </div>
+          <label class="field"><span>Account and tax</span>
+            <select id="calcAccount">
+              <option value="ira">Tax-free account (Roth IRA, 401k, IRA)</option>
+              <option value="us" selected>US taxable account, qualified dividends (15%)</option>
+              <option value="usord">US taxable account, ordinary income (24%), e.g. REITs, bond funds</option>
+              <option value="isa_us">UK ISA holding US shares (15% US withholding)</option>
+              <option value="isa_uk">UK ISA holding UK shares (0%)</option>
+              <option value="gia">UK general account, basic rate (8.75% over &pound;500)</option>
+              <option value="giah">UK general account, higher rate (33.75% over &pound;500)</option>
+              <option value="custom">Custom rate</option>
+            </select>
+          </label>
+          <div class="row3">
+            <label class="field"><span>Dividend tax %</span><input id="calcTax" type="number" min="0" max="60" step="0.25" value="15" inputmode="decimal"></label>
+            <label class="field"><span>Tax-free / yr ($)</span><input id="calcAllow" type="number" min="0" step="10" value="0" inputmode="decimal"></label>
+            <label class="field"><span>Fund fee %/yr</span><input id="calcFee" type="number" min="0" max="3" step="0.01" value="0" inputmode="decimal"></label>
+          </div>
+          <div class="row2">
+            <label class="field"><span>Inflation %/yr</span><input id="calcInfl" type="number" min="0" max="15" step="0.1" value="2.5" inputmode="decimal"></label>
+            <label class="check calc-drip"><input id="calcDrip" type="checkbox" checked> Reinvest dividends (DRIP)</label>
+          </div>
+        </form>
+        <div class="calc-out">
+          <div class="calc-headline" id="calcHeadline"></div>
+          <div class="tiles" id="calcTiles"></div>
+          <div class="card">
+            <div class="card-head"><h2>Portfolio value</h2>
+              <div class="legend"><span class="key key-a"></span>Value <span class="key key-b"></span>Money put in <span class="key key-c"></span>Value in today's money</div>
+            </div>
+            <canvas id="calcChart" class="chart" height="240"></canvas>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Yearly dividend income after tax</h2></div>
+            <canvas id="calcBars" class="chart" height="180"></canvas>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Year by year</h2></div>
+            <div class="table-wrap"><table class="grid">
+              <thead><tr><th>Year</th><th class="r">Put in</th><th class="r">Dividends</th><th class="r hide-sm">Tax</th><th class="r">Per month</th><th class="r hide-sm">Yield on cost</th><th class="r">Value</th><th class="r hide-md">In today's money</th></tr></thead>
+              <tbody id="calcBody"></tbody>
+            </table></div>
+            <p class="note calc-assume" id="calcAssume"></p>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -241,6 +318,9 @@
             <label class="check"><input id="setFractional" type="checkbox"> Allow fractional shares</label>
             <label class="check"><input id="setDrip" type="checkbox"> Reinvest dividends automatically (DRIP) for new holdings</label>
             <label class="check"><input id="setStamp" type="checkbox"> Charge 0.5% UK stamp duty on London share purchases</label>
+            <label class="field"><span>Account type (sets dividend tax)</span>
+              <select id="setAccount"></select>
+            </label>
             <label class="field"><span>Dividend speed</span>
               <select id="setDivSpeed">
                 <option value="normal">Real schedule (monthly, quarterly, twice a year or yearly)</option>
@@ -298,6 +378,8 @@
         <p>Each trading day, every price moves according to a factor model: the whole market, its sector, interest rates, currency and region, plus company-specific noise. Prices start near recent real-world levels and then evolve on their own; they are not live quotes.</p>
         <p>Dividend payers go ex-dividend on a fixed schedule (monthly, quarterly, twice a year or yearly). The share price drops by the dividend on the ex-date, and anyone holding shares that day is paid about two weeks later (four weeks for UK shares). Companies review their dividends once a year: aristocrats almost always raise theirs, while very high yields are more likely to be cut.</p>
         <p>Companies report earnings each quarter, which can move the price sharply. Expensive stocks may split; penny stocks below 50 cents may reverse split. Leveraged and inverse ETFs reset daily, so they drift away from their multiple over time. London shares are priced in pounds and converted to dollars at a moving GBP/USD rate.</p>
+        <p>Trading costs work like a real broker. Buys fill at the ask and sells at the bid: a fraction of a cent for large companies, wider for small UK shares and preferreds, and up to about 1% round trip for penny stocks. Mutual funds trade at their end-of-day price with no spread.</p>
+        <p>Dividends are taxed by account type. A US taxable account pays 15% on qualified dividends and 24% on REIT, BDC, partnership and bond-fund income. A UK ISA pays no UK tax, but US shares still have 15% US tax withheld. A UK general account gets a &pound;500 tax-free allowance each tax year (from 6 April), then 8.75% or 33.75%.</p>
         <p>Your game saves in this browser automatically.</p>
       </div>
     </section>
@@ -363,6 +445,7 @@
 <script src="js/data.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/charts.js"></script>
+<script src="js/calc.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

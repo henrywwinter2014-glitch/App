@@ -37,6 +37,8 @@ Anything missing can be added under **Settings → List a new security**.
 - Play at ½× to 100× speed (trading days per second), skip ahead 1 day, 1 week, 1 month, 3 months or 1 year, skip any number of days/weeks/months/years, jump to a date, or skip straight to your next dividend payout.
 - Dividend speed: keep real schedules, or pay every dividend monthly or weekly (same yearly amount, more often).
 - Calendar of ex-dividend days, paydays, dividends received and earnings for your holdings (and watchlist), with one-click "skip to this day".
+- Dividend calculator: projects yearly income, final value and annualised return (after tax and fees) from a ticker, your portfolio, or your own numbers, with dividend growth, DRIP, account-specific tax, fund fees and inflation.
+- Real-world costs: bid/ask spreads by liquidity (no spread on mutual funds), commission, UK stamp duty, and dividend tax by account type (US taxable 15%/24%, IRA, UK ISA with 15% US withholding, UK general account with the £500 allowance).
 - Saves automatically to the browser's local storage.
 
 Prices start near recent real-world levels and are then simulated with a factor model (market, sector, interest rates, region, currency, plus company-specific noise). They are not live market data.
@@ -47,4 +49,5 @@ Prices start near recent real-world levels and are then simulated with a factor 
 - `js/data.js`: the security list
 - `js/engine.js`: the market simulation (prices, dividends, splits, orders)
 - `js/charts.js`: canvas charts
+- `js/calc.js`: dividend calculator projection
 - `js/app.js`: the user interface

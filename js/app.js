@@ -133,7 +133,7 @@
       let n = 0;
       for (const m of E.U) if (fn(m)) n++;
       if (!n && !['watch', 'owned', 'all'].includes(key)) continue;
-      html += `<button type="button" class="chip${ui.filter === key ? ' on' : ''}" data-filter="${key}">${label}<span class="n">${n}</span></button>`;
+      html += `<option value="${key}"${ui.filter === key ? ' selected' : ''}>${key === 'all' ? 'All categories' : label} (${n})</option>`;
     }
     $('typeChips').innerHTML = html;
   }
@@ -317,12 +317,13 @@
     const last12 = s.divLog.filter((d) => d.d > ya).reduce((a, d) => a + d.amt, 0);
     const reinvested = s.divLog.filter((d) => d.drip).reduce((a, d) => a + d.amt, 0);
     const payers = rows.filter((r) => r.income > 0).length;
+    const netIncome = rows.reduce((a, r) => a + r.income * (1 - E.taxRateEstimate(r.m)), 0);
     $('divTiles').innerHTML =
-      tile('Forward income', money(income) + '/yr', `${money(income / 12)} a month on average`) +
+      tile('Forward income', money(income) + '/yr', `about ${money(netIncome)} after tax`) +
       tile('Portfolio yield', mv ? ((income / mv) * 100).toFixed(2) + '%' : '-', `${payers} paying holding${payers === 1 ? '' : 's'}`) +
       tile('Yield on cost', cost ? ((income / cost) * 100).toFixed(2) + '%' : '-', 'income vs what you paid') +
       tile('Last 12 months', money(last12), 'received') +
-      tile('All time', money(total), `${s.divLog.length} payment${s.divLog.length === 1 ? '' : 's'}`) +
+      tile('All time, after tax', money(total), `${money(s.taxPaid || 0)} tax withheld`) +
       tile('Reinvested (DRIP)', money(reinvested), total ? ((reinvested / total) * 100).toFixed(0) + '% of dividends' : 'turn on per holding');
 
     // monthly bars for the last 12 simulated months
@@ -352,7 +353,7 @@
       : `<tr><td colspan="4" class="empty">Nothing scheduled. Buy a dividend payer and its next payments show up here.</td></tr>`;
 
     const hist = s.divLog.slice(0, 150);
-    $('divHistBody').innerHTML = hist.length ? hist.map((e) => `<tr data-open="${e.t}"><td class="num">${C.shortDate(e.d)}</td><td><b class="num">${esc(e.t)}</b></td><td class="r">${money(e.dps, e.cur, 4)}</td><td class="r up">${money(e.amt)}</td><td class="r">${e.drip ? qtyFmt(+e.shares.toFixed(4)) + ' sh' : '<span class="muted">Cash</span>'}</td></tr>`).join('')
+    $('divHistBody').innerHTML = hist.length ? hist.map((e) => `<tr data-open="${e.t}"><td class="num">${C.shortDate(e.d)}</td><td><b class="num">${esc(e.t)}</b></td><td class="r">${money(e.dps, e.cur, 4)}</td><td class="r up">${money(e.amt)}${e.tax > 0.005 ? `<div class="small muted">${money(e.tax)} tax</div>` : ''}</td><td class="r">${e.drip ? qtyFmt(+e.shares.toFixed(4)) + ' sh' : '<span class="muted">Cash</span>'}</td></tr>`).join('')
       : `<tr><td colspan="5" class="empty">No dividends yet. Press Play or skip ahead to reach the next payment date.</td></tr>`;
   }
 
@@ -388,6 +389,7 @@
     $('setFractional').checked = st.fractional;
     $('setDrip').checked = st.drip;
     $('setStamp').checked = st.stamp;
+    $('setAccount').innerHTML = Object.entries(E.ACCOUNTS).map(([k, v]) => `<option value="${k}"${k === st.account ? ' selected' : ''}>${esc(v)}</option>`).join('');
   }
 
   /* ---------- security sheet ---------- */
@@ -512,7 +514,7 @@
 
   function maxBuyShares() {
     const t = ui.sheet, m = E.BY[t], s = S();
-    const unit = E.price(t) * E.fxOf(m) * (m.cur === 'GBP' && s.settings.stamp && m.type !== 'ETF' ? 1.005 : 1);
+    const unit = E.price(t) * (1 + E.halfSpread(m)) * E.fxOf(m) * (m.cur === 'GBP' && s.settings.stamp && m.type !== 'ETF' ? 1.005 : 1);
     const avail = Math.max(s.cash - (+s.settings.commission || 0), 0);
     const q = avail / unit;
     return s.settings.fractional ? Math.floor(q * 10000) / 10000 : Math.floor(q);
@@ -537,17 +539,16 @@
 
     const qty = sharesFromInput();
     const trig = parseFloat($('ordPx').value);
-    const px = kind !== 'market' && trig > 0 ? trig : E.price(t);
-    const fx = E.fxOf(m);
-    const gross = qty * px * fx;
-    const commission = +s.settings.commission || 0;
-    const stamp = ui.side === 'buy' && m.cur === 'GBP' && s.settings.stamp && m.type !== 'ETF' ? gross * 0.005 : 0;
-    const total = ui.side === 'buy' ? gross + commission + stamp : gross - commission;
-    const lines = [
-      [kind === 'market' ? 'Price' : 'Trigger price', money(px, m.cur)],
-      ['Shares', qty ? qtyFmt(qty) : '-'],
-    ];
+    const q = E.quote(t, ui.side, qty, kind !== 'market' && trig > 0 ? trig : undefined);
+    const commission = q.fee.commission;
+    const stamp = q.fee.stamp;
+    const total = q.total;
+    const lines = kind === 'market'
+      ? [['Bid / ask', `${money(q.bid, m.cur)} / ${money(q.ask, m.cur)}`], [ui.side === 'buy' ? 'You pay (ask)' : 'You get (bid)', money(q.px, m.cur)]]
+      : [['Trigger price', money(trig > 0 ? trig : E.price(t), m.cur)], ['Fills near', money(q.px, m.cur)]];
+    lines.push(['Shares', qty ? qtyFmt(qty) : '-']);
     if (m.cur === 'GBP') lines.push(['GBP/USD', s.fx.toFixed(4)]);
+    if (qty && q.spreadCost >= 0.005) lines.push(['Spread cost', money(q.spreadCost)]);
     if (commission) lines.push(['Commission', money(commission)]);
     if (stamp) lines.push(['Stamp duty 0.5%', money(stamp)]);
     lines.push([ui.side === 'buy' ? 'Estimated cost' : 'Estimated proceeds', qty ? money(total) : '-', 'total']);
@@ -754,6 +755,170 @@
     $('setDivSpeed').value = mode;
   }
 
+
+  /* ---------- dividend calculator ---------- */
+  const CALC_TAX = {
+    ira: [0, 0], us: [15, 0], usord: [24, 0], isa_us: [15, 0], isa_uk: [0, 0],
+    gia: [8.75, 500], giah: [33.75, 500],
+  };
+  const FUND_FEE = {
+    'Index ETF': 0.03, 'Dividend ETF': 0.06, 'Income ETF': 0.35, 'Sector ETF': 0.09, 'Bond ETF': 0.04, 'Leveraged ETF': 0.95,
+    'Inverse ETF': 0.95, 'Commodity ETF': 0.3, 'Crypto ETF': 0.25, 'International ETF': 0.07, 'Preferred ETF': 0.45,
+    'Thematic ETF': 0.75, 'UK ETF': 0.07, 'Mutual Fund': 0.04, 'Investment Trust': 0.35,
+  };
+  const r1 = (v) => Math.round(v * 10) / 10;
+
+  // Long-run assumptions for a security: dividend growth, price growth and yearly fee.
+  function calcAssumptions(m, yieldPct) {
+    const bondLike = m.type === 'Preferred' || m.cat === 'Bond ETF' || m.cat === 'Preferred ETF' || (m.type === 'Mutual Fund' && m.rate >= 0.5);
+    // Equities: a long-run total return of about 8.5% a year (yield + growth). Dividends and the
+    // share price grow at the same rate, so the yield stays steady instead of drifting.
+    const TOTAL = 8.5;
+    let dg, pg;
+    if (bondLike) { dg = 0; pg = 0; }
+    else if (m.cat === 'Income ETF') { dg = 0; pg = 1; }           // covered-call funds give up most growth
+    else if (m.cat === 'Commodity ETF' || m.cat === 'Crypto ETF' || m.track) { dg = 0; pg = 5; }
+    else if (yieldPct <= 0) { dg = 0; pg = 7; }
+    else {
+      let cap = m.arist ? 6 : ['REIT', 'BDC', 'MLP'].includes(m.type) ? 3.5 : 7;
+      const g = r1(Math.min(cap, Math.max(0, TOTAL - yieldPct)));
+      dg = g; pg = g;
+    }
+    const fee = FUND_FEE[m.cat] ?? FUND_FEE[m.type] ?? 0;
+    return { dg, pg, fee };
+  }
+
+  function calcAccountFor(m) {
+    const a = S().settings.account;
+    if (a === 'ira') return 'ira';
+    if (a === 'isa') return m && m.cur === 'GBP' ? 'isa_uk' : 'isa_us';
+    if (a === 'gia' || a === 'giah') return a;
+    return m && E.isOrdinaryIncome(m) ? 'usord' : 'us';
+  }
+
+  function setCalcAccount(key) {
+    $('calcAccount').value = key;
+    const [rate, allowGBP] = CALC_TAX[key] || [15, 0];
+    $('calcTax').value = rate;
+    $('calcAllow').value = Math.round(allowGBP * S().fx);
+  }
+
+  function calcFromTicker(t) {
+    const m = E.BY[(t || '').toUpperCase().trim()];
+    if (!m) { $('calcSrcNote').textContent = 'No security with that ticker. Pick one from the list.'; return; }
+    const y = E.fwdYield(m.t) * 100;
+    const a = calcAssumptions(m, y);
+    $('calcTicker').value = m.t;
+    $('calcYield').value = r1(y * 10) / 10 || 0;
+    $('calcDivGrowth').value = a.dg;
+    $('calcPriceGrowth').value = a.pg;
+    $('calcFee').value = a.fee;
+    $('calcFreq').value = String([12, 4, 2, 1].includes(m.q) ? m.q : 4);
+    setCalcAccount(calcAccountFor(m));
+    $('calcSrcNote').textContent = `${m.n} at ${money(E.price(m.t), m.cur)}, yielding ${y.toFixed(2)}%. Growth rates are long-run assumptions you can change.`;
+    renderCalc();
+  }
+
+  function calcFromPortfolio() {
+    const rows = holdingsRows();
+    const mv = rows.reduce((a, r) => a + r.value, 0);
+    if (!mv) { $('calcSrcNote').textContent = 'You do not own anything yet. Buy some shares first, or start from a ticker.'; return; }
+    let inc = 0, dg = 0, pg = 0, fee = 0;
+    for (const r of rows) {
+      const y = E.fwdYield(r.t) * 100;
+      const a = calcAssumptions(r.m, y);
+      const w = r.value / mv;
+      inc += r.income; dg += a.dg * w; pg += a.pg * w; fee += a.fee * w;
+    }
+    $('calcStart').value = Math.round(mv);
+    $('calcYield').value = r1((inc / mv) * 1000) / 10;
+    $('calcDivGrowth').value = r1(dg);
+    $('calcPriceGrowth').value = r1(pg);
+    $('calcFee').value = Math.round(fee * 100) / 100;
+    $('calcFreq').value = '4';
+    $('calcTicker').value = '';
+    setCalcAccount(calcAccountFor(null));
+    $('calcSrcNote').textContent = `Your ${rows.length} holdings: ${money(mv)} invested, ${money(inc)} a year in dividends before tax.`;
+    renderCalc();
+  }
+
+  function calcInputs() {
+    const num = (id, lo, hi, def) => { const v = parseFloat($(id).value); return isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def; };
+    return {
+      start: num('calcStart', 0, 1e10, 0), monthly: num('calcMonthly', 0, 1e8, 0), years: Math.round(num('calcYears', 1, 60, 20)),
+      yield: num('calcYield', 0, 30, 0), divGrowth: num('calcDivGrowth', -20, 30, 0), priceGrowth: num('calcPriceGrowth', -20, 30, 0),
+      freq: +$('calcFreq').value, drip: $('calcDrip').checked, taxRate: num('calcTax', 0, 60, 0), allowance: num('calcAllow', 0, 1e7, 0),
+      inflation: num('calcInfl', 0, 15, 0), fee: num('calcFee', 0, 3, 0),
+    };
+  }
+
+  function renderCalc() {
+    const p = calcInputs();
+    if (!p.start && !p.monthly) {
+      $('calcHeadline').textContent = 'Enter an initial investment or a monthly contribution to see a projection.';
+      return;
+    }
+    const r = window.DivCalc.project(p);
+    const alt = window.DivCalc.project(Object.assign({}, p, { drip: !p.drip }));
+    const first = r.rows[0], last = r.rows[r.rows.length - 1];
+    const irrTxt = r.irr == null ? '-' : pct(r.irr).replace('+', '');
+    $('calcHeadline').innerHTML =
+      `Investing <strong>${money(p.start, 'USD', 0)}</strong>${p.monthly ? ` plus <strong>${money(p.monthly, 'USD', 0)} a month</strong>` : ''} for <strong>${p.years} year${p.years === 1 ? '' : 's'}</strong> grows to about <strong>${money(r.final, 'USD', 0)}</strong>, ` +
+      `paying <strong>${money(last.net, 'USD', 0)} a year</strong> (${money(last.net / 12, 'USD', 0)} a month) in dividends after tax by the final year. ` +
+      `That is a yearly return of <strong>${irrTxt}</strong> after tax and fees. ` +
+      `${p.drip ? 'Without reinvesting' : 'Reinvesting'} the dividends, you would end with ${money(alt.final, 'USD', 0)} and ${money(alt.rows[alt.rows.length - 1].net, 'USD', 0)} a year of income.`;
+
+    $('calcTiles').innerHTML =
+      tile('Yearly return', irrTxt, 'after tax and fees, per year') +
+      tile('Year 1 income', money(first.net), `${money(first.net / 12)} a month`) +
+      tile(`Year ${p.years} income`, money(last.net), `yield on cost ${(last.yoc * 100).toFixed(1)}%`) +
+      tile('Final value', money(r.final, 'USD', 0), `${money(last.real, 'USD', 0)} in today's money`) +
+      tile('Total put in', money(r.contributed, 'USD', 0), `${signedMoney(r.final - r.contributed).replace(/\.\d+$/, '')} growth`) +
+      tile('Dividends received', money(r.totals.net, 'USD', 0), `${money(r.totals.tax, 'USD', 0)} tax paid`);
+
+    const css = getComputedStyle(document.documentElement);
+    const tok = (n) => css.getPropertyValue(n).trim();
+    const labels = ['Now', ...r.rows.map((x) => `Year ${x.year}`)];
+    C.line($('calcChart'), {
+      labels, labelFmt: (x) => x,
+      series: [
+        { name: 'Value', values: [p.start, ...r.rows.map((x) => x.value)], color: tok('--accent'), fill: true },
+        { name: 'Put in', values: [p.start, ...r.rows.map((x) => x.contributed)], color: tok('--chart-b'), width: 1.4, dash: [4, 3] },
+        { name: "Today's money", values: [p.start, ...r.rows.map((x) => x.real)], color: tok('--chart-c'), width: 1.4 },
+      ],
+      fmt: compact,
+    });
+    C.bars($('calcBars'), { values: r.rows.map((x) => x.net), labels: r.rows.map((x) => String(x.year)), fmt: compact });
+
+    $('calcBody').innerHTML = r.rows.map((x) => `<tr>
+      <td>${x.year}</td><td class="r">${money(x.contributed, 'USD', 0)}</td><td class="r">${money(x.net)}</td>
+      <td class="r hide-sm muted">${money(x.tax)}</td><td class="r">${money(x.net / 12)}</td><td class="r hide-sm">${(x.yoc * 100).toFixed(2)}%</td>
+      <td class="r">${money(x.value, 'USD', 0)}</td><td class="r hide-md muted">${money(x.real, 'USD', 0)}</td></tr>`).join('');
+
+    const freqTxt = { 12: 'monthly', 4: 'quarterly', 2: 'twice a year', 1: 'once a year' }[p.freq];
+    $('calcAssume').textContent =
+      `Assumes dividends are paid ${freqTxt} and raised once a year, the share price grows smoothly at ${p.priceGrowth}% a year, ` +
+      `contributions go in at the end of each month, and ${p.fee ? `a ${p.fee}% yearly fund fee comes out of the value` : 'there are no fund fees'}. ` +
+      `${p.taxRate ? `Dividends are taxed at ${p.taxRate}%${p.allowance ? ` above ${money(p.allowance, 'USD', 0)} a year` : ''}; ` : 'Dividends are not taxed; '}` +
+      `capital gains tax on selling is not included. Real markets move unevenly and companies can cut dividends, so treat this as an estimate, not a promise.`;
+  }
+
+  function bindCalc() {
+    $('calcList').innerHTML = E.U.filter((m) => m.y > 0 || m.type === 'ETF').map((m) => `<option value="${esc(m.t)}">${esc(m.n)}</option>`).join('');
+    let t;
+    $('calcForm').addEventListener('input', (e) => {
+      if (e.target.id === 'calcTicker') return;
+      if (e.target.id === 'calcTax' || e.target.id === 'calcAllow') $('calcAccount').value = 'custom';
+      clearTimeout(t); t = setTimeout(renderCalc, 120);
+    });
+    $('calcAccount').addEventListener('change', (e) => { if (e.target.value !== 'custom') setCalcAccount(e.target.value); renderCalc(); });
+    $('calcForm').addEventListener('submit', (e) => { e.preventDefault(); calcFromTicker($('calcTicker').value); });
+    $('calcTicker').addEventListener('change', () => { if (E.BY[$('calcTicker').value.toUpperCase().trim()]) calcFromTicker($('calcTicker').value); });
+    $('calcUseTicker').addEventListener('click', () => calcFromTicker($('calcTicker').value));
+    $('calcUsePf').addEventListener('click', calcFromPortfolio);
+    setCalcAccount(calcAccountFor(null));
+  }
+
   /* ---------- calendar ---------- */
   function calEvents(fromISO, toISO) {
     const s = S();
@@ -911,6 +1076,7 @@
     document.querySelectorAll('main .panel').forEach((p) => { p.hidden = p.id !== 'tab-' + tab; });
     if (tab === 'markets') renderChips();
     if (tab === 'settings') renderSettings();
+    if (tab === 'calculator') renderCalc();
     if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
     refresh();
   }
@@ -988,6 +1154,8 @@
     $('calToday').addEventListener('click', () => { ui.calFollow = true; ui.calMonth = S().date.slice(0, 7); ui.calSel = S().date; renderCalendar(); });
     $('calWatch').addEventListener('change', (e) => { ui.calWatch = e.target.checked; renderCalendar(); });
     $('setDivSpeed').addEventListener('change', (e) => setDivSpeed(e.target.value));
+    $('setAccount').addEventListener('change', (e) => { S().settings.account = e.target.value; save(); toast(`Account set to ${E.ACCOUNTS[e.target.value]}. New dividends are taxed accordingly.`); });
+    bindCalc();
 
     let qTimer;
     $('search').addEventListener('input', (e) => {
@@ -999,11 +1167,9 @@
     });
     $('sectorSel').addEventListener('change', (e) => { ui.sector = e.target.value; ui.limit = 120; renderMarkets(); });
     $('exchSel').addEventListener('change', (e) => { ui.exch = e.target.value; ui.limit = 120; renderMarkets(); });
-    $('typeChips').addEventListener('click', (e) => {
-      const c = e.target.closest('[data-filter]');
-      if (!c) return;
-      ui.filter = c.dataset.filter; ui.limit = 120;
-      renderChips(); renderMarkets();
+    $('typeChips').addEventListener('change', (e) => {
+      ui.filter = e.target.value; ui.limit = 120;
+      renderMarkets();
     });
     document.querySelectorAll('#marketTable th[data-sort]').forEach((th) => th.addEventListener('click', () => {
       const k = th.dataset.sort;

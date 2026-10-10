@@ -231,7 +231,7 @@
       nw: [],                  // net worth history {d, v, b}
       watch: ['AAPL', 'KO', 'O', 'SCHD', 'VOO', 'JEPI'],
       custom: [],
-      settings: { commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal' },
+      settings: { commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us' },
       nextId: 1,
       realized: 0,
       feesPaid: 0,
@@ -263,6 +263,12 @@
     const rng = mulberry(424242);
     const out = [];
     for (let k = 0; k < HIST; k++) out.push(drawFactors(rng));
+    // Anchor the back history to a typical year: the market up about 10%, every other factor flat.
+    for (const key of Object.keys(out[0])) {
+      const target = key === 'mkt' ? 0.095 : 0;
+      const shift = (out.reduce((a, F) => a + F[key], 0) - target) / (HIST - 1);
+      for (let k = 1; k < HIST; k++) out[k][key] -= shift;
+    }
     return out;
   }
 
@@ -320,7 +326,7 @@
 
   function load(saved) {
     S = saved;
-    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal' }, S.settings);
+    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us' }, S.settings);
     build(S.custom);
     ensureAllSecStates();
     return S;
@@ -527,10 +533,13 @@
     for (const p of due) {
       const m = BY[p.t];
       if (!m) continue;
-      const amt = p.qty * p.dps * fxOf(m);
+      const gross = p.qty * p.dps * fxOf(m);
+      const tax = dividendTax(m, gross, true);
+      const amt = gross - tax;
+      S.taxPaid = (S.taxPaid || 0) + tax;
       const h = S.holdings[p.t];
       const drip = h ? (h.drip ?? S.settings.drip) : false;
-      const entry = { id: S.nextId++, d: S.date, ex: p.ex, t: p.t, qty: p.qty, dps: p.dps, cur: m.cur, amt, drip: false };
+      const entry = { id: S.nextId++, d: S.date, ex: p.ex, t: p.t, qty: p.qty, dps: p.dps, cur: m.cur, gross, tax, amt, drip: false };
       if (drip) {
         const px = priceUSD(p.t);
         const sh = amt / px;
@@ -543,7 +552,7 @@
       } else {
         S.cash += amt;
       }
-      S.tx.unshift({ id: S.nextId++, d: S.date, kind: 'DIV', t: p.t, qty: p.qty, px: p.dps, cur: m.cur, amt, fee: 0 });
+      S.tx.unshift({ id: S.nextId++, d: S.date, kind: 'DIV', t: p.t, qty: p.qty, px: p.dps, cur: m.cur, amt, fee: 0, note: tax > 0.005 ? `${fmtMoney(tax)} tax withheld` : null });
       S.divLog.unshift(entry);
       events.push({ kind: 'div', t: p.t, amt, drip: entry.drip });
     }
@@ -612,6 +621,63 @@
   }
 
   /* ---------- trading ---------- */
+  /* ---------- real-world frictions ---------- */
+  // Half of the typical bid/ask spread. Big liquid names trade a cent wide; penny stocks much wider.
+  function halfSpread(m) {
+    if (m.type === 'Mutual Fund') return 0;                 // funds trade at the end-of-day NAV
+    if (m.type === 'Penny Stock') return 0.006;
+    if (m.type === 'Preferred') return 0.0012;
+    if (m.track) return 0.0002;
+    if (m.type === 'ETF') return m.exch === 'LSE' ? 0.0006 : 0.0001;
+    if (m.custom) return 0.002;
+    if (m.exch === 'LSE') return m.base < 2 ? 0.0012 : 0.0006;
+    if (m.type === 'International') return 0.0004;
+    if (m.blue) return 0.00005;
+    return m.base < 20 ? 0.0006 : 0.0002;
+  }
+
+  const ACCOUNTS = {
+    us: 'US taxable brokerage account',
+    ira: 'US retirement account (IRA, 401k, Roth)',
+    isa: 'UK Stocks & Shares ISA',
+    gia: 'UK general account, basic-rate taxpayer',
+    giah: 'UK general account, higher-rate taxpayer',
+  };
+  // Dividends that the IRS taxes as ordinary income rather than at the qualified rate.
+  function isOrdinaryIncome(m) {
+    return ['REIT', 'BDC', 'MLP'].includes(m.type) || ['Bond ETF', 'Income ETF'].includes(m.cat) || (m.type === 'Mutual Fund' && m.rate >= 0.5);
+  }
+  function ukTaxYear(ds) { const y = +ds.slice(0, 4); return ds.slice(5) >= '04-06' ? y : y - 1; }
+
+  /*
+   * Tax due on a dividend of `gross` USD. US accounts: 15% qualified / 24% ordinary.
+   * UK accounts: 15% US withholding on US-listed holdings (not reclaimable in an ISA);
+   * outside an ISA, UK dividend tax applies above the £500 yearly allowance.
+   * With commit=true the UK allowance is used up.
+   */
+  function dividendTax(m, gross, commit) {
+    const a = ACCOUNTS[S.settings.account] ? S.settings.account : 'us';
+    if (a === 'ira') return 0;
+    if (a === 'us') return gross * (isOrdinaryIncome(m) ? 0.24 : 0.15);
+    const wht = m.cur === 'USD' ? 0.15 : 0;
+    if (a === 'isa') return gross * wht;
+    const rate = a === 'giah' ? 0.3375 : 0.0875;
+    const ty = ukTaxYear(S.date);
+    if (!S.allow || S.allow.y !== ty) S.allow = { y: ty, left: 500 };
+    const allowUSD = S.allow.left * S.fx;
+    const used = Math.min(gross, allowUSD);
+    if (commit) S.allow.left = Math.max(0, S.allow.left - used / S.fx);
+    return Math.max(gross * wht, (gross - used) * rate);
+  }
+  function taxRateEstimate(m) {
+    const a = ACCOUNTS[S.settings.account] ? S.settings.account : 'us';
+    if (a === 'ira') return 0;
+    if (a === 'us') return isOrdinaryIncome(m) ? 0.24 : 0.15;
+    const wht = m.cur === 'USD' ? 0.15 : 0;
+    if (a === 'isa') return wht;
+    return Math.max(wht, a === 'giah' ? 0.3375 : 0.0875);
+  }
+
   function fees(m, side, gross) {
     let commission = +S.settings.commission || 0;
     let stamp = 0;
@@ -619,13 +685,16 @@
     return { commission, stamp, total: commission + stamp };
   }
 
-  function quote(t, side, qty) {
+  // Buys fill at the ask and sells at the bid, around the mid (last) price.
+  function quote(t, side, qty, atPrice) {
     const m = BY[t];
-    const px = price(t);
+    const mid = atPrice || price(t);
+    const hs = halfSpread(m);
+    const px = mid * (side === 'buy' ? 1 + hs : 1 - hs);
     const gross = qty * px * fxOf(m);
     const f = fees(m, side, gross);
     const total = side === 'buy' ? gross + f.total : gross - f.total;
-    return { px, gross, fee: f, total };
+    return { px, mid, bid: mid * (1 - hs), ask: mid * (1 + hs), spreadCost: qty * mid * hs * fxOf(m), gross, fee: f, total };
   }
 
   function validateQty(qty) {
@@ -727,5 +796,6 @@
     price, prevClose, priceUSD, fxOf, netWorth, marketValue, holdingValue, annualDps, fwdYield, nextExDate,
     addTradingDays, nextTradingDay, parseISO, addNews,
     perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,
+    halfSpread, dividendTax, taxRateEstimate, isOrdinaryIncome, ACCOUNTS,
   };
 })();

@@ -94,13 +94,14 @@
       ctx.fillText(opts.fmt(t), R + 6, y);
     }
     // x labels
+    const lab = opts.labelFmt || shortDate;
     if (opts.labels && n > 1) {
       ctx.textBaseline = 'alphabetic';
       const count = Math.min(4, n);
       for (let k = 0; k < count; k++) {
         const i = Math.round((k / (count - 1 || 1)) * (n - 1));
         ctx.textAlign = k === 0 ? 'left' : k === count - 1 ? 'right' : 'center';
-        ctx.fillText(shortDate(opts.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
+        ctx.fillText(lab(opts.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
       }
     }
 
@@ -145,7 +146,7 @@
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x + 0.5, Top - 6); ctx.lineTo(x + 0.5, B); ctx.stroke();
       ctx.setLineDash([]);
-      let text = opts.labels ? shortDate(opts.labels[i]) + '   ' : '';
+      let text = opts.labels ? lab(opts.labels[i]) + '   ' : '';
       series.forEach((s, k) => {
         const v = s.values[i];
         ctx.fillStyle = s.color || T.accent;
@@ -169,6 +170,8 @@
     const max = Math.max(...vals, 0);
     ctx.font = `11px ${T.mono}`;
     const ticks = niceTicks(0, max || 1, 3);
+    const tickStep = ticks.length > 1 ? ticks[1] - ticks[0] : ticks[0] || 1;
+    while (ticks[ticks.length - 1] < max) ticks.push(Number((ticks[ticks.length - 1] + tickStep).toFixed(10)));
     const labelW = Math.max(...ticks.map((t) => ctx.measureText(opts.fmt(t)).width)) + 10;
     const L = 4, R = w - labelW, Top = 12, B = h - 22;
     const top = ticks[ticks.length - 1] || 1;
@@ -188,7 +191,8 @@
       ctx.fillStyle = i === n - 1 ? T.accent : hexA(T.accent, 0.55);
       if (v > 0) { roundRect(ctx, x, y, bw, B - y, 3); ctx.fill(); }
       ctx.fillStyle = T.muted;
-      if (n <= 12 || i % 2 === 0) ctx.fillText(opts.labels[i], x + bw / 2, h - 5);
+      const every = Math.ceil(n / 12);
+      if ((n - 1 - i) % every === 0) ctx.fillText(opts.labels[i], x + bw / 2, h - 5);
     });
   }
 
