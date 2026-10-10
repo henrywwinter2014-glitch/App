@@ -5,7 +5,7 @@
   function tokens() {
     const cs = getComputedStyle(document.documentElement);
     const g = (n) => cs.getPropertyValue(n).trim();
-    return { fg: g('--fg'), muted: g('--muted'), line: g('--line'), accent: g('--accent'), gain: g('--gain'), loss: g('--loss'), b: g('--chart-b'), surface: g('--surface'), mono: g('--f-mono') };
+    return { fg: g('--fg'), muted: g('--muted'), line: g('--line'), accent: g('--accent'), gain: g('--gain'), loss: g('--loss'), b: g('--chart-b'), surface: g('--surface'), mono: g('--f-mono'), buy: g('--buy') || g('--accent'), sell: g('--sell') || g('--loss') };
   }
 
   function setup(canvas) {
@@ -196,6 +196,137 @@
     });
   }
 
+  /*
+   * Candlestick (or line) price chart with a volume histogram underneath.
+   * opts: { o, h, l, c, v, labels, type: 'candles'|'line', fmt }
+   */
+  function candles(canvas, opts) {
+    canvas._copts = opts;
+    drawCandles(canvas, null);
+    if (!canvas._cbound) {
+      canvas._cbound = true;
+      const move = (e) => {
+        const r = canvas.getBoundingClientRect();
+        drawCandles(canvas, (e.touches ? e.touches[0].clientX : e.clientX) - r.left);
+      };
+      canvas.addEventListener('mousemove', move);
+      canvas.addEventListener('touchmove', move, { passive: true });
+      canvas.addEventListener('mouseleave', () => drawCandles(canvas, null));
+      canvas.addEventListener('touchend', () => drawCandles(canvas, null));
+    }
+  }
+
+  function drawCandles(canvas, hoverX) {
+    const d = canvas._copts;
+    if (!d || !d.c.length) return;
+    const T = tokens();
+    const { ctx, w, h } = setup(canvas);
+    const n = d.c.length;
+    const line = d.type === 'line';
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const lo = line ? d.c[i] : d.l[i], hi = line ? d.c[i] : d.h[i];
+      if (lo < min) min = lo; if (hi > max) max = hi;
+    }
+    if (min === max) { min *= 0.99; max *= 1.01; }
+    const pad = (max - min) * 0.06; min -= pad; max += pad;
+
+    ctx.font = `11px ${T.mono}`;
+    const ticks = niceTicks(min, max, 5);
+    const labelW = Math.max(...ticks.map((t) => ctx.measureText(d.fmt(t)).width), ctx.measureText(d.fmt(d.c[n - 1])).width) + 16;
+    const L = 4, R = w - labelW, Top = 24, XB = h - 20;
+    const volH = Math.max(36, Math.round(h * 0.18));
+    const PB = XB - volH - 10;
+    const slot = (R - L) / n;
+    const xAt = (i) => L + slot * (i + 0.5);
+    const yAt = (v) => PB - ((v - min) / (max - min)) * (PB - Top);
+    const bw = Math.max(1, Math.min(9, slot * 0.62));
+
+    // grid and price axis
+    ctx.lineWidth = 1; ctx.strokeStyle = T.line; ctx.fillStyle = T.muted; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    for (const t of ticks) {
+      const y = Math.round(yAt(t)) + 0.5;
+      if (y < Top - 4 || y > PB + 4) continue;
+      ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke();
+      ctx.fillText(d.fmt(t), R + 8, y);
+    }
+    ctx.beginPath(); ctx.moveTo(L, XB - volH - 4.5); ctx.lineTo(R, XB - volH - 4.5); ctx.stroke();
+
+    // price
+    if (line) {
+      ctx.beginPath();
+      d.c.forEach((v, i) => (i ? ctx.lineTo(xAt(i), yAt(v)) : ctx.moveTo(xAt(i), yAt(v))));
+      ctx.save();
+      ctx.lineTo(xAt(n - 1), PB); ctx.lineTo(xAt(0), PB); ctx.closePath();
+      const grad = ctx.createLinearGradient(0, Top, 0, PB);
+      grad.addColorStop(0, hexA(T.accent, 0.25)); grad.addColorStop(1, hexA(T.accent, 0));
+      ctx.fillStyle = grad; ctx.fill(); ctx.restore();
+      ctx.beginPath();
+      d.c.forEach((v, i) => (i ? ctx.lineTo(xAt(i), yAt(v)) : ctx.moveTo(xAt(i), yAt(v))));
+      ctx.strokeStyle = T.accent; ctx.lineWidth = 1.6; ctx.stroke();
+    } else {
+      for (let i = 0; i < n; i++) {
+        const up = d.c[i] >= d.o[i];
+        const col = up ? T.gain : T.loss;
+        const x = Math.round(xAt(i)) + 0.5;
+        ctx.strokeStyle = col; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, yAt(d.h[i])); ctx.lineTo(x, yAt(d.l[i])); ctx.stroke();
+        const y1 = yAt(Math.max(d.o[i], d.c[i])), y2 = yAt(Math.min(d.o[i], d.c[i]));
+        ctx.fillStyle = col;
+        ctx.fillRect(Math.round(x - bw / 2), Math.round(y1), Math.max(1, Math.round(bw)), Math.max(1, Math.round(y2 - y1)));
+      }
+    }
+
+    // volume
+    const vmax = Math.max(...d.v) || 1;
+    for (let i = 0; i < n; i++) {
+      const up = d.c[i] >= (i ? d.c[i - 1] : d.o[i]);
+      const vh = (d.v[i] / vmax) * volH;
+      ctx.fillStyle = hexA(up ? T.buy : T.sell, 0.85);
+      ctx.fillRect(Math.round(xAt(i) - bw / 2), XB - vh, Math.max(1, Math.round(bw)), vh);
+    }
+
+    // dates
+    ctx.fillStyle = T.muted; ctx.textBaseline = 'alphabetic';
+    const count = Math.min(5, n);
+    for (let k = 0; k < count; k++) {
+      const i = Math.round((k / (count - 1 || 1)) * (n - 1));
+      ctx.textAlign = k === 0 ? 'left' : k === count - 1 ? 'right' : 'center';
+      ctx.fillText(shortDate(d.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
+    }
+
+    // last price marker on the axis
+    const last = d.c[n - 1];
+    const ly = Math.round(yAt(last)) + 0.5;
+    const lastUp = n < 2 || last >= d.c[n - 2];
+    const lc = lastUp ? T.gain : T.loss;
+    ctx.setLineDash([2, 3]); ctx.strokeStyle = lc;
+    ctx.beginPath(); ctx.moveTo(L, ly); ctx.lineTo(R, ly); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = lc;
+    ctx.fillRect(R + 2, ly - 9, labelW - 4, 18);
+    ctx.fillStyle = '#ffffff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.font = `600 11px ${T.mono}`;
+    ctx.fillText(d.fmt(last), R + 7, ly);
+
+    // hover readout
+    ctx.font = `11px ${T.mono}`;
+    const idx = hoverX == null ? n - 1 : Math.max(0, Math.min(n - 1, Math.floor((hoverX - L) / slot)));
+    if (hoverX != null) {
+      const x = Math.round(xAt(idx)) + 0.5;
+      ctx.strokeStyle = T.muted; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, Top - 4); ctx.lineTo(x, XB); ctx.stroke(); ctx.setLineDash([]);
+    }
+    const parts = line
+      ? [shortDate(d.labels[idx]), 'Close ' + d.fmt(d.c[idx])]
+      : [shortDate(d.labels[idx]), 'O ' + d.fmt(d.o[idx]), 'H ' + d.fmt(d.h[idx]), 'L ' + d.fmt(d.l[idx]), 'C ' + d.fmt(d.c[idx])];
+    const chg = idx ? d.c[idx] / d.c[idx - 1] - 1 : 0;
+    ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+    let x = L + 2;
+    parts.forEach((p, k) => { ctx.fillStyle = k ? T.fg : T.muted; ctx.fillText(p, x, 5); x += ctx.measureText(p).width + 12; });
+    ctx.fillStyle = chg >= 0 ? T.gain : T.loss;
+    ctx.fillText((chg >= 0 ? '+' : '') + (chg * 100).toFixed(2) + '%', x, 5);
+  }
+
   function roundRect(ctx, x, y, w, h, r) {
     r = Math.min(r, h / 2, w / 2);
     ctx.beginPath();
@@ -222,5 +353,5 @@
     return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(${up ? '--gain' : '--loss'})" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
   }
 
-  window.Charts = { line, bars, sparkSVG, shortDate };
+  window.Charts = { line, bars, candles, sparkSVG, shortDate };
 })();

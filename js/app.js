@@ -63,6 +63,7 @@
     nwRange: 0, newsFilter: 'all',
     sheet: null, side: 'buy', unit: 'shares', range: 260,
     playing: false, timer: null, speed: 1, skip: null,
+    chartT: null, chartRange: 126, chartType: 'candles', lastPx: null,
     calMonth: null, calSel: null, calFollow: true, calWatch: false,
   };
 
@@ -161,45 +162,161 @@
       if (!fn(m)) continue;
       const h = S().sec[m.t].h;
       const p = h[h.length - 1];
-      rows.push({ m, p, chg: p / h[h.length - 2] - 1, y1: p / h[0] - 1, yld: E.fwdYield(m.t), exact: q && m.t.toLowerCase() === q });
+      rows.push({ m, p, chg: p / h[h.length - 2] - 1, y1: p / h[0] - 1, yld: E.fwdYield(m.t), sent: sentiment(m.t), exact: q && m.t.toLowerCase() === q });
     }
     const dir = ui.asc ? 1 : -1;
     const key = {
       t: (r) => r.m.t, type: (r) => r.m.type, sector: (r) => r.m.sector, price: (r) => r.p * E.fxOf(r.m),
-      chg: (r) => r.chg, y1: (r) => r.y1, yield: (r) => r.yld, q: (r) => (S().sec[r.m.t].dps > 0 ? r.m.q : 0),
+      chg: (r) => r.chg, y1: (r) => r.y1, yield: (r) => r.yld, sent: (r) => r.sent, q: (r) => (S().sec[r.m.t].dps > 0 ? r.m.q : 0),
     }[ui.sort];
     if (key) rows.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * dir; });
     if (q) rows.sort((a, b) => (b.exact ? 1 : 0) - (a.exact ? 1 : 0));
     return rows;
   }
 
+  /* ---------- trading workspace helpers ---------- */
+  // Deterministic pseudo-random numbers for a ticker on a date, so synthetic intraday
+  // detail (open, high, low, volume) stays the same every time it is drawn.
+  function rand4(key) {
+    let h = 2166136261;
+    for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+    const out = [];
+    for (let k = 0; k < 4; k++) { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; out.push(((h >>> 0) % 10000) / 10000); }
+    return out;
+  }
+
+  // Daily candles built from the simulated closes.
+  function ohlcFor(t, n) {
+    const s = S(), m = E.BY[t], h = s.sec[t].h, dates = s.dates;
+    const sd = Math.min(0.08, Math.max(0.002, (m.vol || 0.3) / Math.sqrt(252)));
+    const len = h.length, start = Math.max(1, len - n);
+    const out = { o: [], h: [], l: [], c: [], v: [], labels: [] };
+    const baseVol = 1e6 * (1 + (rand4(t)[0] * 9));
+    for (let i = start; i < len; i++) {
+      const c = h[i], pc = h[i - 1];
+      const [r1, r2, r3, r4] = rand4(t + (dates[i] || i));
+      const o = pc * (1 + (r1 - 0.5) * sd * 0.7);
+      out.o.push(o);
+      out.h.push(Math.max(o, c) * (1 + r2 * sd * 0.9));
+      out.l.push(Math.min(o, c) * (1 - r3 * sd * 0.9));
+      out.c.push(c);
+      out.v.push(baseVol * (0.5 + r4) * (1 + Math.abs(c / pc - 1) / sd * 0.6));
+      out.labels.push(dates[i] || '');
+    }
+    return out;
+  }
+
+  function dayRange(t) {
+    const d = ohlcFor(t, 1);
+    return { lo: d.l[0], hi: d.h[0] };
+  }
+
+  // Share of simulated clients buying: tends to lean against the recent move, like real retail flow.
+  function sentiment(t) {
+    const h = S().sec[t].h, n = h.length;
+    const r5 = h[n - 1] / h[Math.max(0, n - 6)] - 1;
+    const noise = (rand4(t + 'sent')[0] - 0.5) * 30;
+    return Math.round(Math.min(92, Math.max(8, 55 - r5 * 600 + noise)));
+  }
+
+  // A price with its last two digits set small, as dealing screens show them.
+  function priceHTML(v, cur) {
+    const sym = cur === 'GBP' ? '£' : '';
+    const dec = v >= 1 ? 2 : 4;
+    const txt = v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    return `<span class="px">${sym}${txt.slice(0, -2)}<sup>${txt.slice(-2)}</sup></span>`;
+  }
+  const ARROW_UP = '<svg class="arr" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 9 L9 3 M4.5 3 H9 V7.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  const ARROW_DN = '<svg class="arr" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3 L9 9 M9 4.5 V9 H4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+
+  function chartTicker() {
+    if (!ui.chartT || !E.BY[ui.chartT]) ui.chartT = (S().watch.find((t) => E.BY[t]) || 'SPY');
+    return ui.chartT;
+  }
+
+  function renderWorkspace() {
+    renderWatchTiles();
+    renderMainChart();
+  }
+
+  function renderWatchTiles() {
+    const s = S();
+    const list = s.watch.filter((t) => E.BY[t]);
+    $('watchCount').textContent = `${list.length} product${list.length === 1 ? '' : 's'}`;
+    ui.lastPx = ui.lastPx || {};
+    if (!list.length) {
+      $('watchTiles').innerHTML = '<p class="pane-empty">Star any product in the list below to watch it here.</p>';
+      return;
+    }
+    $('watchTiles').innerHTML = list.map((t) => {
+      const m = E.BY[t];
+      const p = E.price(t), pc = E.prevClose(t), chg = p / pc - 1;
+      const q = E.quote(t, 'buy', 1);
+      const { lo, hi } = dayRange(t);
+      const prev = ui.lastPx[t];
+      const flash = prev == null || prev === p ? '' : p > prev ? ' flash-up' : ' flash-down';
+      ui.lastPx[t] = p;
+      const spread = q.ask - q.bid;
+      return `<div class="ptile${t === chartTicker() ? ' sel' : ''}${flash}" data-pick="${t}">
+        <div class="pt-head"><span class="pt-name" title="${esc(m.n)}">${esc(t)} <span>${esc(m.n)}</span></span>
+          <span class="pt-chg ${cls(chg)}">${pct(chg)}<small>${(p - pc >= 0 ? '+' : '') + (p - pc).toFixed(p >= 1 ? 2 : 4)}</small></span></div>
+        <div class="pt-q">
+          <button type="button" class="pq sell" data-trade="${t}:sell"><span class="pq-l">SELL</span><span class="pq-p">${priceHTML(q.bid, m.cur)}</span>${ARROW_DN}</button>
+          <button type="button" class="pq buy" data-trade="${t}:buy"><span class="pq-l">BUY</span><span class="pq-p">${priceHTML(q.ask, m.cur)}</span>${ARROW_UP}</button>
+        </div>
+        <div class="pt-foot"><span>L: ${money(lo, m.cur)}</span><span class="pt-spread">${spread >= 0.01 ? spread.toFixed(2) : spread.toFixed(4)}</span><span>H: ${money(hi, m.cur)}</span></div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderMainChart() {
+    const t = chartTicker();
+    const m = E.BY[t];
+    const s = S();
+    const p = E.price(t), chg = p / E.prevClose(t) - 1;
+    const q = E.quote(t, 'buy', 1);
+    $('chT').textContent = t;
+    $('chName').textContent = `${m.n} · ${m.cat || m.type} · ${m.exch}`;
+    $('chSell').innerHTML = `<span>SELL</span>${priceHTML(q.bid, m.cur)}${ARROW_DN}`;
+    $('chBuy').innerHTML = `<span>BUY</span>${priceHTML(q.ask, m.cur)}${ARROW_UP}`;
+    const y = E.fwdYield(t);
+    $('chStats').innerHTML = `<span class="${cls(chg)}">${pct(chg)} today</span>${y > 0 ? ` · Yield ${(y * 100).toFixed(2)}%` : ''}${s.holdings[t] ? ` · You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}` : ''}`;
+    $('chWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
+    const d = ohlcFor(t, ui.chartRange);
+    C.candles($('mainChart'), Object.assign(d, { type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+  }
+
   function renderMarkets() {
     const rows = marketRows();
-    $('resultCount').textContent = `${rows.length.toLocaleString()} ${rows.length === 1 ? 'security' : 'securities'}`;
+    $('resultCount').textContent = `${rows.length.toLocaleString()} ${rows.length === 1 ? 'product' : 'products'}`;
     const shown = rows.slice(0, ui.limit);
     const s = S();
+    const cur = chartTicker();
     let html = '';
     for (const r of shown) {
       const m = r.m;
       const h = s.sec[m.t].h;
       const spark = C.sparkSVG(h.slice(-30), h[h.length - 1] >= h[h.length - 30]);
       const w = s.watch.includes(m.t);
-      const pays = s.sec[m.t].dps > 0 ? FREQ_SHORT[m.q] : '';
-      html += `<tr data-open="${m.t}">
+      const q = E.quote(m.t, 'buy', 1);
+      const { lo, hi } = dayRange(m.t);
+      const sent = r.sent;
+      const sentTxt = sent >= 50 ? `${sent}% Bought` : `${100 - sent}% Sold`;
+      const abs = r.p - h[h.length - 2];
+      html += `<tr data-pick="${m.t}"${m.t === cur ? ' class="sel"' : ''}>
         <td class="star-col"><button type="button" class="star${w ? ' on' : ''}" data-watch="${m.t}" aria-label="${w ? 'Remove from' : 'Add to'} watchlist">${w ? '★' : '☆'}</button></td>
         <td><div class="sec-cell"><b>${esc(m.t)}${s.holdings[m.t] ? '<span class="held-dot" title="You own this"></span>' : ''}</b><span>${esc(m.n)}</span></div></td>
-        <td class="hide-sm"><span class="type-pill">${esc(m.cat || m.type)}</span></td>
-        <td class="hide-md muted">${esc(m.sector)}</td>
+        <td class="r ${cls(r.chg)}"><span class="chg-cell">${r.chg >= 0 ? ARROW_UP : ARROW_DN}${pct(r.chg).replace('+', '')}</span><small class="muted">${(abs >= 0 ? '' : '-') + Math.abs(abs).toFixed(r.p >= 1 ? 2 : 4)}</small></td>
         <td class="hide-sm">${spark}</td>
-        <td class="r">${money(r.p, m.cur)}</td>
-        <td class="r"><span class="chg-pill ${cls(r.chg)}">${pct(r.chg)}</span></td>
-        <td class="r hide-sm ${cls(r.y1)}">${pct(r.y1, 1)}</td>
-        <td class="r">${r.yld > 0 ? (r.yld * 100).toFixed(2) + '%' : '<span class="muted">-</span>'}</td>
-        <td class="r hide-md muted">${pays}</td>
+        <td class="hide-md range-cell"><span>L: ${money(lo, m.cur)}</span><span>H: ${money(hi, m.cur)}</span></td>
+        <td class="hide-md"><div class="sent"><span class="sent-l">${sentTxt} ${sent >= 50 ? ARROW_UP : ARROW_DN}</span><div class="sent-bar"><i style="width:${sent}%"></i></div></div></td>
+        <td class="r hide-sm">${r.yld > 0 ? (r.yld * 100).toFixed(2) + '%' : '<span class="muted">-</span>'}</td>
+        <td class="r"><button type="button" class="qcell sell" data-trade="${m.t}:sell">${priceHTML(q.bid, m.cur)}${ARROW_DN}</button></td>
+        <td class="r"><button type="button" class="qcell buy" data-trade="${m.t}:buy">${priceHTML(q.ask, m.cur)}${ARROW_UP}</button></td>
       </tr>`;
     }
     if (!shown.length) {
-      html = `<tr><td colspan="10" class="empty">${ui.filter === 'watch' ? 'Your watchlist is empty. Tap the star next to any security to add it.' : ui.filter === 'owned' ? 'You do not own anything yet. Open a security and buy some shares.' : 'Nothing matches. Try a different search or filter, or list it yourself in Settings.'}</td></tr>`;
+      html = `<tr><td colspan="9" class="empty">${ui.filter === 'watch' ? 'Your watchlist is empty. Tap the star next to any product to add it.' : ui.filter === 'owned' ? 'You do not own anything yet. Click Buy next to any product.' : 'Nothing matches. Try a different search or filter, or list it yourself in Settings.'}</td></tr>`;
     }
     $('marketBody').innerHTML = html;
     $('moreBtn').hidden = rows.length <= ui.limit;
@@ -208,6 +325,15 @@
       th.classList.toggle('sorted', th.dataset.sort === ui.sort);
       th.classList.toggle('asc', th.dataset.sort === ui.sort && ui.asc);
     });
+  }
+
+  function pickChart(t) {
+    if (!E.BY[t]) return;
+    ui.chartT = t;
+    uiPref('chartT', t);
+    renderWorkspace();
+    document.querySelectorAll('#marketBody tr[data-pick]').forEach((tr) => tr.classList.toggle('sel', tr.dataset.pick === t));
+    if (window.innerWidth < 1000) document.querySelector('.pane-chart').scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
   /* ---------- portfolio ---------- */
@@ -394,10 +520,10 @@
   }
 
   /* ---------- security sheet ---------- */
-  function openSheet(t, noFocus) {
+  function openSheet(t, noFocus, side) {
     if (!E.BY[t]) return;
     ui.sheet = t;
-    ui.side = S().holdings[t] && ui.side === 'sell' ? 'sell' : 'buy';
+    ui.side = side || (S().holdings[t] && ui.side === 'sell' ? 'sell' : 'buy');
     $('ordQty').value = '';
     $('ordPx').value = '';
     $('ordKind').value = 'market';
@@ -449,11 +575,7 @@
     const vals = h.slice(-range);
     const css = getComputedStyle(document.documentElement);
     const up = vals[vals.length - 1] >= vals[0];
-    C.line($('shChart'), {
-      labels: s.dates.slice(-range),
-      series: [{ values: vals, color: css.getPropertyValue(up ? '--gain' : '--loss').trim(), fill: true }],
-      fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined),
-    });
+    C.candles($('shChart'), Object.assign(ohlcFor(t, range), { type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
 
     const lo = Math.min(...h), hi = Math.max(...h);
     const ann = E.annualDps(t);
@@ -1061,7 +1183,7 @@
   function refresh() {
     renderHeader();
     renderTape();
-    if (ui.tab === 'markets') { renderMarkets(); if (ui.filter === 'owned' || ui.filter === 'watch') renderChips(); }
+    if (ui.tab === 'markets') { renderWorkspace(); renderMarkets(); if (ui.filter === 'owned' || ui.filter === 'watch') renderChips(); }
     if (ui.tab === 'portfolio') renderPortfolio();
     if (ui.tab === 'dividends') renderDividends();
     if (ui.tab === 'orders') renderOrders();
@@ -1111,6 +1233,10 @@
       }
       const cancel = e.target.closest('[data-cancel]');
       if (cancel) { E.cancelOrder(+cancel.dataset.cancel); save(); refresh(); toast('Order cancelled'); return; }
+      const trade = e.target.closest('[data-trade]');
+      if (trade) { const [t, side] = trade.dataset.trade.split(':'); openSheet(t, false, side); return; }
+      const pick = e.target.closest('[data-pick]');
+      if (pick) { pickChart(pick.dataset.pick); return; }
       const open = e.target.closest('[data-open]');
       if (open && !e.target.closest('.sheet')) openSheet(open.dataset.open);
     });
@@ -1181,6 +1307,22 @@
     }));
     $('moreBtn').addEventListener('click', () => { ui.limit += 200; renderMarkets(); });
 
+    $('chRange').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      ui.chartRange = +b.dataset.r; uiPref('chartRange', ui.chartRange);
+      $('chRange').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+      renderMainChart();
+    });
+    $('chType').addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      ui.chartType = b.dataset.ct; uiPref('chartType', ui.chartType);
+      $('chType').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+      renderMainChart();
+    });
+    $('chTrade').addEventListener('click', () => openSheet(chartTicker(), false, 'buy'));
+    $('chSell').addEventListener('click', () => openSheet(chartTicker(), false, 'sell'));
+    $('chBuy').addEventListener('click', () => openSheet(chartTicker(), false, 'buy'));
+    $('chWatch').addEventListener('click', () => toggleWatch(chartTicker()));
     $('nwRange').addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
       ui.nwRange = +b.dataset.r;
@@ -1317,6 +1459,11 @@
     if (!restored) {
       E.newGame(100000);
     }
+    ui.chartT = uiPref('chartT') || null;
+    const cr = +uiPref('chartRange'); if ([21, 63, 126, 260].includes(cr)) ui.chartRange = cr;
+    if (uiPref('chartType') === 'line') ui.chartType = 'line';
+    document.querySelectorAll('#chRange button').forEach((b) => b.classList.toggle('on', +b.dataset.r === ui.chartRange));
+    document.querySelectorAll('#chType button').forEach((b) => b.classList.toggle('on', b.dataset.ct === ui.chartType));
     const sp = +uiPref('speedx');
     setSpeed(sp > 0 ? sp : 1);
     $('search').placeholder = `Search ${E.U.length} securities by ticker or name`;

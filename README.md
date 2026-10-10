@@ -28,6 +28,7 @@ Anything missing can be added under **Settings → List a new security**.
 
 ## Features
 
+- Trading-terminal layout: watchlist price tiles with Sell/Buy (bid/ask) prices and day range, a candlestick chart with volume, and a product list with change, trend, range, client sentiment and one-click Sell/Buy.
 - Market, limit and stop orders; buy by share count or dollar amount; optional fractional shares and commission.
 - Dividends on real-style schedules (monthly, quarterly, semi-annual, annual) with ex-dates, pay dates, and the price drop on the ex-date.
 - Per-holding DRIP (dividend reinvestment), forward income, yield on cost and a monthly income chart.

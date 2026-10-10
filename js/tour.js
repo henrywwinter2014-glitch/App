@@ -33,8 +33,8 @@
     {
       tab: 'markets',
       target: '#marketTable thead',
-      title: 'Reading the list',
-      text: '<b>Price</b> is the cost of one share. <b>Day</b> is how much it moved today. <b>Yield</b> is how much the company pays you each year in dividends, as a % of the price. Click any row to open it.',
+      title: 'Reading the product list',
+      text: '<b>Change</b> is how much the price moved today. <b>Yield</b> is the yearly dividend as a % of the price. <b>Sell</b> and <b>Buy</b> are the prices you can trade at right now: click one to trade, or click a row to see its chart above.',
     },
     {
       open: 'KO',
