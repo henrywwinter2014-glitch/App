@@ -614,6 +614,66 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
   .qt { top: auto; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); right: 12px; width: calc(100% - 24px); }
 }
 
+
+/* ---------- learn ---------- */
+.learn { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 12px; align-items: start; }
+.learn-nav { display: grid; gap: 14px; position: sticky; top: 90px; padding: 14px; }
+.learn-progress { display: grid; gap: 6px; }
+.learn-progress b { font-size: 14px; }
+.learn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.learn-list button {
+  width: 100%; display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; text-align: left;
+  border: 0; background: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.learn-list button:hover { background: var(--surface-2); }
+.learn-list button.on { background: var(--accent-soft); font-weight: 600; }
+.learn-list small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.ll-n { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line-strong); display: grid; place-items: center; font-size: 11px; color: var(--muted); }
+.ll-n.done { background: var(--gain); border-color: var(--gain); color: #fff; }
+.learn-practice { border: 1px dashed var(--line-strong); background: none; border-radius: 6px; padding: 10px 12px; text-align: left; cursor: pointer; display: grid; gap: 2px; }
+.learn-practice span { color: var(--muted); font-size: 12px; }
+.learn-practice:hover, .learn-practice.on { border-color: var(--accent); background: var(--accent-soft); }
+.learn-body { padding: 22px 26px; display: grid; gap: 16px; scroll-margin-top: 110px; }
+.learn-title { font-size: 24px; margin: -8px 0 0; }
+.learn-lead { margin: -6px 0 0; color: var(--muted); max-width: 70ch; }
+.learn-fig { margin: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface-2); padding: 8px; }
+.learn-fig canvas { width: 100%; display: block; }
+.learn-text { max-width: 72ch; font-size: 15px; line-height: 1.65; }
+.learn-text p { margin: 0 0 12px; }
+.learn-text ul { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 4px; }
+.learn-points { border-left: 3px solid var(--accent); padding: 4px 0 4px 14px; display: grid; gap: 6px; }
+.learn-points ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.learn-quiz { border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 10px; background: var(--surface-2); }
+.lq-q { margin: 0; font-weight: 600; font-size: 15px; }
+.lq-opts { display: grid; gap: 8px; }
+.lq-trend { grid-template-columns: repeat(3, 1fr); }
+.lq-opt { text-align: left; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px; padding: 10px 12px; cursor: pointer; font-size: 14px; }
+.lq-trend .lq-opt { text-align: center; font-weight: 600; padding: 14px; }
+.lq-opt:hover:not(:disabled) { border-color: var(--accent); }
+.lq-opt.right { border-color: var(--gain); background: var(--gain-soft); }
+.lq-opt.wrong { border-color: var(--loss); background: var(--loss-soft); }
+.lq-opt:disabled { cursor: default; }
+.lq-why { margin: 0; }
+.lq-result { border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 10px; }
+.lq-result p { margin: 0; line-height: 1.6; }
+.learn-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.trend-badge { border: 1px solid var(--line-strong); background: var(--surface-2); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.trend-badge b { font-weight: 600; }
+.trend-badge.up b { color: var(--gain); }
+.trend-badge.down b { color: var(--loss); }
+.trend-badge.sideways b { color: var(--fg); }
+#chMA[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 1000px) {
+  .learn { grid-template-columns: 1fr; }
+  .learn-nav { position: static; }
+}
+@media (max-width: 600px) {
+  .learn-body { padding: 16px; }
+  .learn-title { font-size: 20px; }
+  .learn-text { font-size: 14px; }
+  .lq-trend { grid-template-columns: 1fr; }
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
   .topbar { grid-template-columns: 1fr auto; }

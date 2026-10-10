@@ -233,6 +233,7 @@
       const lo = line ? d.c[i] : d.l[i], hi = line ? d.c[i] : d.h[i];
       if (lo < min) min = lo; if (hi > max) max = hi;
     }
+    for (const ov of d.overlays || []) for (const v of ov.values) { if (v == null) continue; if (v < min) min = v; if (v > max) max = v; }
     if (min === max) { min *= 0.99; max *= 1.01; }
     const pad = (max - min) * 0.06; min -= pad; max += pad;
 
@@ -280,6 +281,19 @@
         ctx.fillStyle = col;
         ctx.fillRect(Math.round(x - bw / 2), Math.round(y1), Math.max(1, Math.round(bw)), Math.max(1, Math.round(y2 - y1)));
       }
+    }
+
+    // moving-average overlays
+    (d.overlays || []).forEach((ov) => {
+      ctx.strokeStyle = T[ov.color] || ov.color; ctx.lineWidth = 1.6; ctx.beginPath();
+      let started = false;
+      ov.values.forEach((v, i) => { if (v == null) return; if (!started) { ctx.moveTo(xAt(i), yAt(v)); started = true; } else ctx.lineTo(xAt(i), yAt(v)); });
+      ctx.stroke();
+    });
+    if (d.overlays && d.overlays.length) {
+      ctx.font = `11px ${T.mono}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      let lx = L + 2;
+      d.overlays.forEach((ov) => { ctx.fillStyle = T[ov.color] || ov.color; ctx.fillRect(lx, 22, 12, 2); ctx.fillStyle = T.muted; ctx.fillText(ov.label, lx + 16, 23); lx += ctx.measureText(ov.label).width + 30; });
     }
 
     // volume

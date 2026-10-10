@@ -63,7 +63,7 @@
     nwRange: 0, newsFilter: 'all',
     sheet: null, side: 'buy', unit: 'shares', range: 260,
     playing: false, timer: null, speed: 1, skip: null,
-    chartT: null, chartRange: 126, chartType: 'candles', lastPx: null,
+    chartT: null, chartRange: 126, chartType: 'candles', lastPx: null, chartMA: false,
     calMonth: null, calSel: null, calFollow: true, calWatch: false,
   };
 
@@ -283,7 +283,25 @@
     $('chStats').innerHTML = `<span class="${cls(chg)}">${pct(chg)} today</span>${y > 0 ? ` · Yield ${(y * 100).toFixed(2)}%` : ''}${s.holdings[t] ? ` · You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}` : ''}`;
     $('chWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
     const d = ohlcFor(t, ui.chartRange);
-    C.candles($('mainChart'), Object.assign(d, { type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles($('mainChart'), Object.assign(d, { type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    const tr = window.Learn && window.Learn.trendOf(s.sec[t].h.slice(-126));
+    const badge = $('chTrend');
+    if (tr) {
+      badge.hidden = false;
+      badge.className = `trend-badge ${tr.kind}`;
+      badge.innerHTML = `6-month trend: <b>${window.Learn.TREND_LABEL[tr.kind]} ${tr.kind === 'up' ? '↗' : tr.kind === 'down' ? '↘' : '→'}</b>`;
+    } else badge.hidden = true;
+  }
+
+  // 20- and 50-day simple moving averages for the last n days, computed on the full history.
+  function maOverlays(t, n) {
+    if (!ui.chartMA || !window.Learn) return [];
+    const h = S().sec[t].h;
+    const out = [];
+    for (const [len, color] of [[20, 'buy'], [50, 'sell']]) {
+      out.push({ label: `${len}-day average`, color, values: window.Learn.sma(h, len).slice(-n) });
+    }
+    return out;
   }
 
   function renderMarkets() {
@@ -1220,7 +1238,8 @@
     const canvas = $('focusChart');
     const avail = $('focus').clientHeight - document.querySelector('.focus-bar').offsetHeight - 16;
     canvas.dataset.h = Math.max(220, Math.round(avail));
-    C.candles(canvas, Object.assign(ohlcFor(t, ui.chartRange), { type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    const fd = ohlcFor(t, ui.chartRange);
+    C.candles(canvas, Object.assign(fd, { type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     if (!$('quickTicket').hidden) renderQuick();
   }
 
@@ -1298,6 +1317,7 @@
     if (tab === 'markets') renderChips();
     if (tab === 'settings') renderSettings();
     if (tab === 'calculator') renderCalc();
+    if (tab === 'learn' && window.Learn) window.Learn.render();
     if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
     refresh();
   }
@@ -1418,6 +1438,16 @@
       renderMainChart();
     });
     $('chTrade').addEventListener('click', () => openSheet(chartTicker(), false, 'buy'));
+    $('chMA').addEventListener('click', () => {
+      ui.chartMA = !ui.chartMA; uiPref('chartMA', ui.chartMA ? '1' : '');
+      $('chMA').setAttribute('aria-pressed', String(ui.chartMA));
+      renderMainChart();
+    });
+    $('chTrend').addEventListener('click', () => {
+      const tr = window.Learn.trendOf(S().sec[chartTicker()].h.slice(-126));
+      showTab('learn');
+      window.Learn.show(tr && tr.kind === 'down' ? 'downtrend' : tr && tr.kind === 'sideways' ? 'sideways' : 'uptrend');
+    });
     $('chFull').addEventListener('click', openFocus);
     $('mainChart').addEventListener('dblclick', openFocus);
     $('fcClose').addEventListener('click', closeFocus);
@@ -1579,6 +1609,8 @@
     ui.chartT = uiPref('chartT') || null;
     const cr = +uiPref('chartRange'); if ([21, 63, 126, 260].includes(cr)) ui.chartRange = cr;
     if (uiPref('chartType') === 'line') ui.chartType = 'line';
+    ui.chartMA = uiPref('chartMA') === '1';
+    $('chMA').setAttribute('aria-pressed', String(ui.chartMA));
     document.querySelectorAll('#chRange button').forEach((b) => b.classList.toggle('on', +b.dataset.r === ui.chartRange));
     document.querySelectorAll('#chType button').forEach((b) => b.classList.toggle('on', b.dataset.ct === ui.chartType));
     const sp = +uiPref('speedx');
@@ -1621,6 +1653,7 @@
     closeSheet,
     sheetOpen: () => !!ui.sheet,
     sheetTicker: () => ui.sheet,
+    pickChart,
     isFresh: () => S().day === 0 && !S().tx.length,
     netWorth: () => E.netWorth(),
     newGame: startNewGame,

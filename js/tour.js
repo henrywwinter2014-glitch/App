@@ -73,6 +73,12 @@
       text: 'Paydays and ex-dividend days for your stocks, month by month. Click a day and press <b>Skip to this day</b> to jump straight to a payday.',
     },
     {
+      tab: 'learn',
+      target: '[data-tab="learn"]',
+      title: 'Learn to read charts',
+      text: 'Short lessons on uptrends, downtrends, support and resistance, moving averages and more, each with a quick quiz. Then practise spotting trends on real charts.',
+    },
+    {
       tab: 'calculator',
       target: '[data-tab="calculator"]',
       title: 'Plan ahead',
@@ -111,6 +117,10 @@
     ['Market order', 'Buy or sell right now at the current price.'],
     ['Limit order', 'Buy or sell only if the price reaches a level you choose.'],
     ['Stop order', 'Automatically sell if the price falls to a level you choose, to limit a loss.'],
+    ['Uptrend', 'A price that keeps making higher highs and higher lows, like a staircase going up. See the Learn tab.'],
+    ['Downtrend', 'A price making lower highs and lower lows, like a staircase going down.'],
+    ['Support / resistance', 'A price where falls keep stopping (support) or rises keep stopping (resistance).'],
+    ['Moving average', 'The average price over the last so many days, drawn as a smooth line that shows the trend.'],
     ['Diversification', 'Spreading money across many investments so one bad one can’t sink you.'],
   ];
 

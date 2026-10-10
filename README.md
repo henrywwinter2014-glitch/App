@@ -42,6 +42,7 @@ Anything missing can be added under **Settings → List a new security**.
 - Dividend calculator: projects yearly income, final value and annualised return (after tax and fees) from a ticker, your portfolio, or your own numbers, with dividend growth, DRIP, account-specific tax, fund fees and inflation.
 - Real-world costs: bid/ask spreads by liquidity (no spread on mutual funds), commission, UK stamp duty, and dividend tax by account type (US taxable 15%/24%, IRA, UK ISA with 15% US withholding, UK general account with the £500 allowance).
 - A welcome screen on first visit: choose light or dark mode, starting money ($1,000 to $1,000,000 or any amount), and whether to take the tutorial.
+- Learn tab: nine illustrated lessons on reading charts (candlesticks, uptrends, downtrends, sideways markets, support and resistance, moving averages, volume, pullbacks, trends and long-term investing), each with a quiz, plus a "spot the trend" practice game on the simulator's own charts. The Markets chart shows its 6-month trend and can overlay 20/50-day moving averages.
 - A guided tour for beginners, and a Help panel with a plain-English glossary (and a button to replay the tour).
 - Saves automatically in the browser, and to your account when signed in (see below), so progress follows you between devices.
 
@@ -83,3 +84,4 @@ Saves are compressed and stored in a few chunks, with a small summary document w
 - `js/app.js`: the user interface
 - `js/tour.js`: beginner tour and help glossary
 - `js/setup.js`: first-run welcome screen
+- `js/learn.js`: chart lessons, quizzes, trend detection and practice game

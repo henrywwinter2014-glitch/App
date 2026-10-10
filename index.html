@@ -84,6 +84,7 @@
     <button role="tab" type="button" data-tab="dividends">Dividends</button>
     <button role="tab" type="button" data-tab="calendar">Calendar</button>
     <button role="tab" type="button" data-tab="calculator">Calculator</button>
+    <button role="tab" type="button" data-tab="learn">Learn</button>
     <button role="tab" type="button" data-tab="orders">Orders <span class="count" id="orderCount" hidden></span></button>
     <button role="tab" type="button" data-tab="activity">Activity</button>
     <button role="tab" type="button" data-tab="settings">Settings</button>
@@ -116,6 +117,8 @@
             <div class="seg seg-dark" id="chType" role="group" aria-label="Chart type">
               <button type="button" data-ct="candles" class="on">Candles</button><button type="button" data-ct="line">Line</button>
             </div>
+            <button type="button" class="btn" id="chMA" aria-pressed="false" title="Show 20-day and 50-day moving averages">Averages</button>
+            <button type="button" class="trend-badge" id="chTrend" title="What does this mean? Open the trend lessons"></button>
             <span class="ch-stats" id="chStats"></span>
             <button type="button" class="btn btn-ghost" id="chWatch">Watch</button>
             <button type="button" class="btn" id="chFull" title="Full-screen chart (or double-click the chart)">&#x26F6; Full screen</button>
@@ -318,6 +321,14 @@
             <p class="note calc-assume" id="calcAssume"></p>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- Learn -->
+    <section class="panel" id="tab-learn" hidden>
+      <div class="learn">
+        <nav class="card learn-nav" id="learnNav" aria-label="Lessons"></nav>
+        <article class="card learn-body" id="learnBody"></article>
       </div>
     </section>
 
@@ -593,6 +604,7 @@
 <script src="js/calc.js"></script>
 <script src="js/firebase-config.js"></script>
 <script src="js/cloud.js"></script>
+<script src="js/learn.js"></script>
 <script src="js/app.js"></script>
 <script src="js/tour.js"></script>
 <script src="js/setup.js"></script>
