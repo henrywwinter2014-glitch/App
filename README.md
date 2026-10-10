@@ -43,6 +43,7 @@ Anything missing can be added under **Settings → List a new security**.
 - Real-world costs: bid/ask spreads by liquidity (no spread on mutual funds), commission, UK stamp duty, and dividend tax by account type (US taxable 15%/24%, IRA, UK ISA with 15% US withholding, UK general account with the £500 allowance).
 - A welcome screen on first visit: choose light or dark mode, starting money ($1,000 to $1,000,000 or any amount), and whether to take the tutorial.
 - Learn tab: nine illustrated lessons on reading charts (candlesticks, uptrends, downtrends, sideways markets, support and resistance, moving averages, volume, pullbacks, trends and long-term investing), each with a quiz, plus a "spot the trend" practice game on the simulator's own charts. The Markets chart shows its 6-month trend and can overlay 20/50-day moving averages.
+- Quant Academy: a Duolingo-style course for becoming a quant. 12 units (mental maths, probability, expected value, combinatorics, statistics, returns and risk, time value of money, portfolio theory, options, markets, interview brainteasers, Python), 36 lessons with teaching cards and instant feedback, XP, streaks, daily goals, hearts and ranks, spaced-repetition revision, unit guidebooks, unit tests, a timed final certification exam and a 2-minute mental maths interview sprint. Many questions are generated, so practice never runs out.
 - A guided tour for beginners, and a Help panel with a plain-English glossary (and a button to replay the tour).
 - Saves automatically in the browser, and to your account when signed in (see below), so progress follows you between devices.
 
@@ -85,3 +86,4 @@ Saves are compressed and stored in a few chunks, with a small summary document w
 - `js/tour.js`: beginner tour and help glossary
 - `js/setup.js`: first-run welcome screen
 - `js/learn.js`: chart lessons, quizzes, trend detection and practice game
+- `js/academy-content.js`, `js/academy.js`: Quant Academy course content and engine

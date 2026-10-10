@@ -85,6 +85,7 @@
     <button role="tab" type="button" data-tab="calendar">Calendar</button>
     <button role="tab" type="button" data-tab="calculator">Calculator</button>
     <button role="tab" type="button" data-tab="learn">Learn</button>
+    <button role="tab" type="button" data-tab="academy">Quant Academy</button>
     <button role="tab" type="button" data-tab="orders">Orders <span class="count" id="orderCount" hidden></span></button>
     <button role="tab" type="button" data-tab="activity">Activity</button>
     <button role="tab" type="button" data-tab="settings">Settings</button>
@@ -332,6 +333,14 @@
       </div>
     </section>
 
+    <!-- Quant Academy -->
+    <section class="panel" id="tab-academy" hidden>
+      <div class="academy">
+        <div class="ac-path" id="acPath"></div>
+        <aside class="ac-side" id="acSide"></aside>
+      </div>
+    </section>
+
     <!-- Orders -->
     <section class="panel" id="tab-orders" hidden>
       <div class="card">
@@ -525,6 +534,19 @@
   </div>
 </div>
 
+<!-- Quant Academy session -->
+<div class="acad" id="acad" hidden role="dialog" aria-modal="true" aria-labelledby="acKind">
+  <div class="acad-top">
+    <button type="button" class="focus-x" id="acClose" aria-label="Quit">&times;</button>
+    <div class="acad-prog"><i id="acBar"></i></div>
+    <span id="acHearts"></span>
+    <span class="acad-timer" id="acTimer" hidden></span>
+  </div>
+  <p class="acad-kind" id="acKind"></p>
+  <div class="acad-main" id="acMain"></div>
+  <div class="ac-foot" id="acFoot"></div>
+</div>
+
 <!-- Account -->
 <div class="backdrop" id="acctModal" hidden>
   <div class="sheet acct-sheet" role="dialog" aria-modal="true" aria-label="Account">
@@ -605,8 +627,10 @@
 <script src="js/firebase-config.js"></script>
 <script src="js/cloud.js"></script>
 <script src="js/learn.js"></script>
+<script src="js/academy-content.js"></script>
 <script src="js/app.js"></script>
 <script src="js/tour.js"></script>
 <script src="js/setup.js"></script>
+<script src="js/academy.js"></script>
 </body>
 </html>

@@ -1318,6 +1318,7 @@
     if (tab === 'settings') renderSettings();
     if (tab === 'calculator') renderCalc();
     if (tab === 'learn' && window.Learn) window.Learn.render();
+    if (tab === 'academy' && window.Academy) window.Academy.render();
     if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
     refresh();
   }
@@ -1572,6 +1573,7 @@
       if (saveTimer) saveNow();
     });
     window.addEventListener('pagehide', () => { if (saveTimer) saveNow(); });
+    window.addEventListener('beforeunload', () => { if (saveTimer) saveNow(); });
   }
 
   /* ---------- boot ---------- */
@@ -1588,9 +1590,12 @@
   function startNewGame(cash) {
     setPlaying(false);
     if (ui.sheet) closeSheet();
+    const academy = S() && S().academy;   // course progress survives a new trading game
     E.newGame(cash);
+    if (academy) S().academy = academy;
     ui.calMonth = null; ui.calSel = null; ui.calFollow = true;
     save();
+    saveNow();   // a new game is a big change: write it straight away
     renderSelects();
     showTab('markets');
   }
@@ -1653,6 +1658,8 @@
     closeSheet,
     sheetOpen: () => !!ui.sheet,
     sheetTicker: () => ui.sheet,
+    save, toast,
+    saveNow: () => { save(); saveNow(); },
     pickChart,
     isFresh: () => S().day === 0 && !S().tx.length,
     netWorth: () => E.netWorth(),

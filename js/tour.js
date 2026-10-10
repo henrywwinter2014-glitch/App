@@ -79,6 +79,12 @@
       text: 'Short lessons on uptrends, downtrends, support and resistance, moving averages and more, each with a quick quiz. Then practise spotting trends on real charts.',
     },
     {
+      tab: 'academy',
+      target: '[data-tab="academy"]',
+      title: 'Quant Academy',
+      text: 'Want to go further? Bite-sized daily lessons train you to think like a quant: probability, statistics, options, interview puzzles and more, with streaks, XP, revision and exams.',
+    },
+    {
       tab: 'calculator',
       target: '[data-tab="calculator"]',
       title: 'Plan ahead',
