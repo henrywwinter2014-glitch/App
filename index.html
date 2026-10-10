@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bullpen Trader</title>
+<meta name="description" content="A stock and shares simulator with dividends, ETFs, bonds, REITs, preferreds, UK shares and penny stocks.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect x="3" y="14" width="5" height="14" rx="1"/><rect x="11" y="9" width="5" height="19" rx="1"/><rect x="19" y="4" width="5" height="24" rx="1"/><path d="M3 10 L12 5 L18 8 L29 2" fill="none" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <div>
+        <div class="brand-name">Bullpen Trader</div>
+        <div class="brand-sub">Stocks &amp; shares simulator</div>
+      </div>
+    </div>
+
+    <div class="clock">
+      <div class="clock-date"><span id="simDate">-</span><span class="clock-day" id="simDay"></span></div>
+      <div class="controls">
+        <button class="btn btn-play" id="playBtn" type="button" aria-pressed="false">Play</button>
+        <label class="sr" for="speedSel">Speed</label>
+        <select id="speedSel" class="select-sm">
+          <option value="3000">1 day / 3 s</option>
+          <option value="1000" selected>1 day / s</option>
+          <option value="250">4 days / s</option>
+          <option value="80">12 days / s</option>
+        </select>
+        <div class="seg" role="group" aria-label="Skip ahead">
+          <button type="button" data-adv="1">+1D</button>
+          <button type="button" data-adv="5">+1W</button>
+          <button type="button" data-adv="21">+1M</button>
+          <button type="button" data-adv="252">+1Y</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="worth">
+      <span class="eyebrow">Net worth</span>
+      <strong id="hdrWorth" class="num">-</strong>
+      <span id="hdrChange" class="num small"></span>
+    </div>
+  </header>
+
+  <div class="tape" id="tape" aria-label="Market summary"></div>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button role="tab" type="button" data-tab="markets" aria-selected="true">Markets</button>
+    <button role="tab" type="button" data-tab="portfolio">Portfolio</button>
+    <button role="tab" type="button" data-tab="dividends">Dividends</button>
+    <button role="tab" type="button" data-tab="orders">Orders <span class="count" id="orderCount" hidden></span></button>
+    <button role="tab" type="button" data-tab="activity">News &amp; activity</button>
+    <button role="tab" type="button" data-tab="settings">Settings</button>
+  </nav>
+
+  <main>
+    <!-- Markets -->
+    <section class="panel" id="tab-markets">
+      <div class="filters">
+        <div class="search">
+          <label class="sr" for="search">Search</label>
+          <input id="search" type="search" placeholder="Search ticker or company, e.g. KO, Tesla, gilt" autocomplete="off">
+        </div>
+        <label class="sr" for="sectorSel">Sector</label>
+        <select id="sectorSel"></select>
+        <label class="sr" for="exchSel">Exchange</label>
+        <select id="exchSel"></select>
+      </div>
+      <div class="chips" id="typeChips" role="group" aria-label="Type"></div>
+      <div class="result-line"><span id="resultCount"></span><span class="hint">Click any row to see the chart and trade.</span></div>
+      <div class="table-wrap">
+        <table class="grid" id="marketTable">
+          <thead><tr>
+            <th class="star-col"><span class="sr">Watch</span></th>
+            <th data-sort="t">Security</th>
+            <th data-sort="type" class="hide-sm">Type</th>
+            <th data-sort="sector" class="hide-md">Sector</th>
+            <th class="hide-sm">30 days</th>
+            <th data-sort="price" class="r">Price</th>
+            <th data-sort="chg" class="r">Day</th>
+            <th data-sort="y1" class="r hide-sm">1 year</th>
+            <th data-sort="yield" class="r">Yield</th>
+            <th data-sort="q" class="r hide-md">Pays</th>
+          </tr></thead>
+          <tbody id="marketBody"></tbody>
+        </table>
+      </div>
+      <div class="more"><button class="btn" id="moreBtn" type="button">Show more</button></div>
+    </section>
+
+    <!-- Portfolio -->
+    <section class="panel" id="tab-portfolio" hidden>
+      <div class="tiles" id="pfTiles"></div>
+      <div class="card">
+        <div class="card-head">
+          <h2>Net worth</h2>
+          <div class="seg" id="nwRange" role="group" aria-label="Range">
+            <button type="button" data-r="21">1M</button><button type="button" data-r="63">3M</button><button type="button" data-r="252">1Y</button><button type="button" data-r="0" class="on">All</button>
+          </div>
+        </div>
+        <div class="legend"><span class="key key-a"></span>Your portfolio <span class="key key-b"></span>If you had bought SPY</div>
+        <canvas id="nwChart" class="chart" height="240"></canvas>
+      </div>
+      <div class="two">
+        <div class="card"><h2>By type</h2><div id="allocType" class="bars"></div></div>
+        <div class="card"><h2>By sector</h2><div id="allocSector" class="bars"></div></div>
+      </div>
+      <div class="card">
+        <h2>Holdings</h2>
+        <div class="table-wrap"><table class="grid" id="holdTable">
+          <thead><tr><th>Security</th><th class="r">Shares</th><th class="r hide-sm">Avg cost</th><th class="r">Price</th><th class="r">Value</th><th class="r hide-sm">Day</th><th class="r">Total return</th><th class="r hide-md">Income / yr</th><th class="r hide-md">Yield on cost</th><th class="c hide-sm">DRIP</th></tr></thead>
+          <tbody id="holdBody"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- Dividends -->
+    <section class="panel" id="tab-dividends" hidden>
+      <div class="tiles" id="divTiles"></div>
+      <div class="card">
+        <div class="card-head"><h2>Dividends received by month</h2></div>
+        <canvas id="divChart" class="chart" height="200"></canvas>
+      </div>
+      <div class="two">
+        <div class="card">
+          <h2>Coming up</h2>
+          <p class="note">Declared payments are locked in: you owned the shares on the ex-dividend date. Estimated ex-dates are for your current holdings.</p>
+          <div class="table-wrap"><table class="grid"><thead><tr><th>Security</th><th>Status</th><th class="r">Date</th><th class="r">Amount</th></tr></thead><tbody id="upcomingBody"></tbody></table></div>
+        </div>
+        <div class="card">
+          <h2>Payment history</h2>
+          <div class="table-wrap"><table class="grid"><thead><tr><th>Date</th><th>Security</th><th class="r">Per share</th><th class="r">Amount</th><th class="r">Reinvested</th></tr></thead><tbody id="divHistBody"></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Orders -->
+    <section class="panel" id="tab-orders" hidden>
+      <div class="card">
+        <h2>Open orders</h2>
+        <p class="note">Limit and stop orders are checked at each day's close and fill at that close price.</p>
+        <div class="table-wrap"><table class="grid"><thead><tr><th>Placed</th><th>Security</th><th>Order</th><th class="r">Shares</th><th class="r">Trigger</th><th class="r">Now</th><th></th></tr></thead><tbody id="ordersBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- Activity -->
+    <section class="panel" id="tab-activity" hidden>
+      <div class="two">
+        <div class="card">
+          <div class="card-head">
+            <h2>Market news</h2>
+            <div class="seg" id="newsFilter" role="group" aria-label="Filter news">
+              <button type="button" data-f="all" class="on">All</button><button type="button" data-f="mine">My stocks</button>
+            </div>
+          </div>
+          <ul class="news" id="newsList"></ul>
+        </div>
+        <div class="card">
+          <h2>Transactions</h2>
+          <div class="table-wrap"><table class="grid"><thead><tr><th>Date</th><th>Type</th><th>Security</th><th class="r">Shares</th><th class="r">Price</th><th class="r">Cash</th></tr></thead><tbody id="txBody"></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section class="panel" id="tab-settings" hidden>
+      <div class="two">
+        <div class="card">
+          <h2>Trading rules</h2>
+          <div class="form">
+            <label class="field"><span>Commission per trade (USD)</span><input id="setCommission" type="number" min="0" step="0.5" inputmode="decimal"></label>
+            <label class="check"><input id="setFractional" type="checkbox"> Allow fractional shares</label>
+            <label class="check"><input id="setDrip" type="checkbox"> Reinvest dividends automatically (DRIP) for new holdings</label>
+            <label class="check"><input id="setStamp" type="checkbox"> Charge 0.5% UK stamp duty on London share purchases</label>
+          </div>
+          <h2 class="mt">New game</h2>
+          <div class="form">
+            <label class="field"><span>Starting cash (USD)</span>
+              <select id="setStart">
+                <option value="1000">$1,000</option>
+                <option value="10000">$10,000</option>
+                <option value="100000" selected>$100,000</option>
+                <option value="1000000">$1,000,000</option>
+                <option value="1000000000">$1,000,000,000</option>
+              </select>
+            </label>
+            <button class="btn btn-danger" id="resetBtn" type="button">Start a new game</button>
+            <p class="note" id="resetNote">This clears your holdings, orders and history.</p>
+          </div>
+        </div>
+        <div class="card">
+          <h2>List a new security</h2>
+          <p class="note">Missing a company? Add it here and it trades alongside everything else.</p>
+          <form class="form" id="customForm" autocomplete="off">
+            <div class="row2">
+              <label class="field"><span>Ticker</span><input id="cTicker" required maxlength="10" placeholder="e.g. ACME"></label>
+              <label class="field"><span>Starting price (USD)</span><input id="cPrice" type="number" min="0.0001" step="any" required placeholder="25.00"></label>
+            </div>
+            <label class="field"><span>Company name</span><input id="cName" maxlength="60" placeholder="Acme Corporation"></label>
+            <div class="row2">
+              <label class="field"><span>Type</span>
+                <select id="cType"><option>Stock</option><option>ETF</option><option>REIT</option><option>Preferred</option><option>Penny Stock</option><option>Mutual Fund</option><option>BDC</option></select>
+              </label>
+              <label class="field"><span>Sector</span><select id="cSector"></select></label>
+            </div>
+            <div class="row3">
+              <label class="field"><span>Dividend yield %</span><input id="cYield" type="number" min="0" max="40" step="0.1" value="0"></label>
+              <label class="field"><span>Pays</span>
+                <select id="cFreq"><option value="4">Quarterly</option><option value="12">Monthly</option><option value="2">Twice a year</option><option value="1">Yearly</option></select>
+              </label>
+              <label class="field"><span>Volatility</span>
+                <select id="cVol"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="extreme">Extreme</option></select>
+              </label>
+            </div>
+            <button class="btn btn-primary" type="submit">List security</button>
+            <p class="note" id="customMsg" role="status"></p>
+          </form>
+        </div>
+      </div>
+      <div class="card about">
+        <h2>How the simulation works</h2>
+        <p>Each trading day, every price moves according to a factor model: the whole market, its sector, interest rates, currency and region, plus company-specific noise. Prices start near recent real-world levels and then evolve on their own; they are not live quotes.</p>
+        <p>Dividend payers go ex-dividend on a fixed schedule (monthly, quarterly, twice a year or yearly). The share price drops by the dividend on the ex-date, and anyone holding shares that day is paid about two weeks later (four weeks for UK shares). Companies review their dividends once a year: aristocrats almost always raise theirs, while very high yields are more likely to be cut.</p>
+        <p>Companies report earnings each quarter, which can move the price sharply. Expensive stocks may split; penny stocks below 50 cents may reverse split. Leveraged and inverse ETFs reset daily, so they drift away from their multiple over time. London shares are priced in pounds and converted to dollars at a moving GBP/USD rate.</p>
+        <p>Your game saves in this browser automatically.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Security detail sheet -->
+<div class="backdrop" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="shTicker">
+    <div class="sh-head">
+      <div class="sh-title">
+        <div class="sh-ticker" id="shTicker"></div>
+        <div class="sh-name" id="shName"></div>
+        <div class="badges" id="shBadges"></div>
+      </div>
+      <div class="sh-actions">
+        <button class="btn btn-ghost" id="shWatch" type="button">Watch</button>
+        <button class="btn btn-ghost" id="shClose" type="button" aria-label="Close">Close</button>
+      </div>
+    </div>
+    <div class="sh-body">
+      <div class="sh-main">
+        <div class="sh-price"><span id="shPrice" class="num"></span><span id="shChg" class="num"></span></div>
+        <div class="seg" id="shRange" role="group" aria-label="Chart range">
+          <button type="button" data-r="21">1M</button><button type="button" data-r="63">3M</button><button type="button" data-r="126">6M</button><button type="button" data-r="260" class="on">1Y</button>
+        </div>
+        <canvas id="shChart" class="chart" height="230"></canvas>
+        <dl class="stats" id="shStats"></dl>
+        <div id="shPosition"></div>
+      </div>
+      <form class="trade" id="tradeForm" autocomplete="off">
+        <div class="seg seg-full" id="sideSeg" role="group" aria-label="Side">
+          <button type="button" data-side="buy" class="on">Buy</button><button type="button" data-side="sell">Sell</button>
+        </div>
+        <label class="field"><span>Order type</span>
+          <select id="ordKind">
+            <option value="market">Market (fills now)</option>
+            <option value="limit">Limit</option>
+            <option value="stop">Stop</option>
+          </select>
+        </label>
+        <label class="field" id="trigField" hidden><span id="trigLabel">Limit price</span><input id="ordPx" type="number" min="0" step="any" inputmode="decimal"></label>
+        <div class="field">
+          <span>Amount</span>
+          <div class="amount">
+            <input id="ordQty" type="number" min="0" step="any" inputmode="decimal" aria-label="Amount">
+            <div class="seg" id="unitSeg" role="group" aria-label="Units">
+              <button type="button" data-u="shares" class="on">Shares</button><button type="button" data-u="usd">USD</button>
+            </div>
+          </div>
+          <div class="quick" id="quickAmt"></div>
+        </div>
+        <dl class="est" id="estimate"></dl>
+        <button class="btn btn-primary btn-block" id="submitTrade" type="submit">Buy</button>
+        <p class="msg" id="tradeMsg" role="status"></p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="js/data.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
