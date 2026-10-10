@@ -40,6 +40,7 @@
   function save() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 400);
+    if (window.Cloud) window.Cloud.markDirty();
   }
   function loadSaved() {
     try {
@@ -1304,6 +1305,27 @@
     const tab = uiPref('tab');
     showTab(tab && document.getElementById('tab-' + tab) ? tab : 'markets');
     if (!restored) save();
+    if (window.Cloud) {
+      window.Cloud.init({
+        serialize: () => E.serialize(),
+        summary: () => ({ day: S().day, date: S().date, nw: E.netWorth() }),
+        isFresh: () => S().day === 0 && !S().tx.length,
+        isSkipping: () => !!ui.skip,
+        apply: applyLoadedGame,
+        toast, money, longDate,
+      });
+    }
+  }
+
+  // Replace the running game with one loaded from the player's account.
+  function applyLoadedGame(state) {
+    setPlaying(false);
+    if (ui.sheet) closeSheet();
+    E.load(state);
+    saveNow();
+    ui.calMonth = null; ui.calSel = null; ui.calFollow = true;
+    renderSelects();
+    showTab(ui.tab);
   }
 
   boot();
