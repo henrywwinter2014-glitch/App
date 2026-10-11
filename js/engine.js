@@ -796,9 +796,10 @@
       S.realized += q.total - basis;
       if (h.qty < 1e-9) delete S.holdings[t];
       q.pl = q.total - basis;
+      q.plPct = basis > 0 ? q.pl / basis : null;
     }
     S.feesPaid += q.fee.total;
-    S.tx.unshift({ id: S.nextId++, d: S.date, kind: side === 'buy' ? 'BUY' : 'SELL', t, qty, px: q.px, cur: m.cur, amt: side === 'buy' ? -q.total : q.total, fee: q.fee.total, pl: q.pl ?? null, note: source || null });
+    S.tx.unshift({ id: S.nextId++, d: S.date, kind: side === 'buy' ? 'BUY' : 'SELL', t, qty, px: q.px, cur: m.cur, amt: side === 'buy' ? -q.total : q.total, fee: q.fee.total, pl: q.pl ?? null, plPct: q.plPct ?? null, note: source || null });
     return { ok: true, q };
   }
 

@@ -434,6 +434,38 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && draw.tool && !$('drawBar').hidden && $('focus').hidden) closeDraw(); });
   }
 
+  /* ---------- your trades on the chart ---------- */
+  // "a profit of $195.10 (+8.4%)" for a sale result; '' for a buy.
+  const pct1 = (r) => (Math.abs(r) < 0.0005 ? '0.0%' : pct(r, 1));
+  const cash2 = (v) => money(v, 'USD', 2);
+  function plNote(q) {
+    if (!q || q.pl == null) return '';
+    const up = q.pl >= 0;
+    if (Math.abs(q.pl) < 0.005) return ' You broke even.';
+    return ` That’s a ${up ? 'profit' : 'loss'} of ${cash2(Math.abs(q.pl))}${q.plPct != null ? ` (${pct1(q.plPct)})` : ''}.`;
+  }
+  // Buy and sell markers for the bars in view, one per side per day.
+  function tradesFor(t, nView) {
+    const s = S(), h = s.sec[t].h, start = h.length - nView, m = E.BY[t];
+    const byKey = new Map();
+    for (const tx of s.tx) {
+      if (tx.t !== t || (tx.kind !== 'BUY' && tx.kind !== 'SELL')) continue;
+      const i = s.dates.indexOf(tx.d);
+      if (i < start) continue;
+      const key = tx.d + tx.kind;
+      const g = byKey.get(key) || { x: i - start, side: tx.kind === 'BUY' ? 'buy' : 'sell', qty: 0, val: 0, pl: 0, basis: 0, hasPl: false };
+      g.qty += tx.qty; g.val += tx.qty * tx.px;
+      if (tx.pl != null) { g.hasPl = true; g.pl += tx.pl; g.basis += tx.amt - tx.pl; }
+      byKey.set(key, g);
+    }
+    return [...byKey.values()].map((g) => {
+      const p = g.val / g.qty, f = (v) => money(v, m.cur);
+      if (g.side === 'buy') return { x: g.x, p, side: 'buy', text: `Bought ${qtyFmt(+g.qty.toFixed(4))} @ ${f(p)}` };
+      const r = g.hasPl && g.basis > 0 ? g.pl / g.basis : null, up = g.pl >= 0;
+      return { x: g.x, p, side: 'sell', up, tag: r == null ? '' : pct1(r), text: `Sold ${qtyFmt(+g.qty.toFixed(4))} @ ${f(p)}${r == null ? '' : `, ${pct1(r)} (${up ? '+' : '−'}${cash2(Math.abs(g.pl))})`}` };
+    });
+  }
+
   function renderMainChart() {
     const t = chartTicker();
     const m = E.BY[t];
@@ -445,12 +477,12 @@
     $('chSell').innerHTML = `<span>SELL</span>${priceHTML(q.bid, m.cur)}${ARROW_DN}`;
     $('chBuy').innerHTML = `<span>BUY</span>${priceHTML(q.ask, m.cur)}${ARROW_UP}`;
     const y = E.fwdYield(t);
-    $('chStats').innerHTML = `<span class="${cls(chg)}">${pct(chg)} today</span>${y > 0 ? ` · Yield ${(y * 100).toFixed(2)}%` : ''}${s.holdings[t] ? ` · You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}` : ''}`;
+    $('chStats').innerHTML = `<span class="${cls(chg)}">${pct(chg)} today</span>${y > 0 ? ` · Yield ${(y * 100).toFixed(2)}%` : ''}${s.holdings[t] ? ` · You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}${(() => { const hh = s.holdings[t], val = E.holdingValue(t), g = hh.cost > 0 ? val / hh.cost - 1 : 0; return hh.cost > 0 ? `, <span class="${cls(g)}">${pct1(g)} (${val - hh.cost >= 0 ? '+' : '−'}${cash2(Math.abs(val - hh.cost))})</span>` : ''; })()}` : ''}`;
     $('chWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
     const nd = ((s.drawings || {})[t] || []).length;
     $('chDraw').innerHTML = `&#x270E; Draw${nd ? ` <span class="muted">(${nd})</span>` : ''}`;
     const d = ohlcFor(t, ui.chartRange);
-    C.candles($('mainChart'), Object.assign(d, { timeAxis: true, drawings: drawingsFor(t, d.c.length), type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles($('mainChart'), Object.assign(d, { timeAxis: true, drawings: drawingsFor(t, d.c.length), trades: tradesFor(t, d.c.length), type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     const tr = window.Learn && window.Learn.trendOf(s.sec[t].h.slice(-126));
     const badge = $('chTrend');
     if (tr) {
@@ -882,7 +914,8 @@
     if (!res.ok) { msg.textContent = res.msg; msg.className = 'msg err'; return; }
     msg.className = 'msg ok';
     if (kind === 'market') {
-      msg.textContent = `${ui.side === 'buy' ? 'Bought' : 'Sold'} ${qtyFmt(qty)} ${t} for ${money(Math.abs(res.q.total))}.`;
+      msg.textContent = `${ui.side === 'buy' ? 'Bought' : 'Sold'} ${qtyFmt(qty)} ${t} for ${money(Math.abs(res.q.total))}.${plNote(res.q)}`;
+      if (ui.side === 'sell' && res.q.pl != null) toast(`Sold ${qtyFmt(qty)} ${t}.${plNote(res.q)}`);
     } else {
       msg.textContent = `Order placed. It will ${ui.side} ${qtyFmt(qty)} ${t} when the price ${(kind === 'limit') === (ui.side === 'buy') ? 'falls to' : 'reaches'} ${money(parseFloat($('ordPx').value), E.BY[t].cur)}.`;
     }
@@ -907,7 +940,7 @@
       if (ev.kind === 'div') { divAmt += ev.amt; divT.add(ev.t); }
       if (ev.kind === 'fill') {
         const o = ev.order;
-        if (ev.res.ok) toast(`${o.kind === 'limit' ? 'Limit' : 'Stop'} order filled: ${o.side === 'buy' ? 'bought' : 'sold'} ${qtyFmt(o.qty)} ${o.t} at ${money(E.price(o.t), E.BY[o.t].cur)}`);
+        if (ev.res.ok) toast(`${o.kind === 'limit' ? 'Limit' : 'Stop'} order filled: ${o.side === 'buy' ? 'bought' : 'sold'} ${qtyFmt(o.qty)} ${o.t} at ${money(E.price(o.t), E.BY[o.t].cur)}.${plNote(ev.res.q)}`);
         else toast(`Order for ${o.t} cancelled: ${ev.res.msg}`);
       }
       if (ev.kind === 'split' && S().holdings[ev.t]) toast(`${ev.t} split ${ev.r >= 1 ? ev.r + '-for-1' : '1-for-10'}. Your share count was adjusted.`);
@@ -1406,7 +1439,7 @@
     const avail = $('focus').clientHeight - document.querySelector('.focus-bar').offsetHeight - 16;
     canvas.dataset.h = Math.max(220, Math.round(avail));
     const fd = ohlcFor(t, ui.chartRange);
-    C.candles(canvas, Object.assign(fd, { timeAxis: true, drawings: drawingsFor(t, fd.c.length), type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles(canvas, Object.assign(fd, { timeAxis: true, drawings: drawingsFor(t, fd.c.length), trades: tradesFor(t, fd.c.length), type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     if (!$('quickTicket').hidden) renderQuick();
   }
 
@@ -1456,7 +1489,7 @@
     const qty = parseFloat($('qtQty').value);
     const res = E.execute(t, ui.qside, qty);
     if (!res.ok) { $('qtMsg').textContent = res.msg; $('qtMsg').className = 'msg err'; return; }
-    toast(`${ui.qside === 'buy' ? 'Bought' : 'Sold'} ${qtyFmt(qty)} ${t} for ${money(Math.abs(res.q.total))}`);
+    toast(`${ui.qside === 'buy' ? 'Bought' : 'Sold'} ${qtyFmt(qty)} ${t} for ${money(Math.abs(res.q.total))}.${plNote(res.q)}`);
     hideQuick();
     save();
     refresh();

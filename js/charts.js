@@ -211,6 +211,7 @@
    * opts: { o, h, l, c, v, labels, type: 'candles'|'line', fmt, timeAxis }
    * timeAxis: label the bottom axis in 5-minute steps instead of dates.
    * drawings: [{ type: 'pen'|'line'|'hline', color, pts: [{ x: bar index (may be fractional), p: price }] }]
+   * trades: [{ x: bar index, p: price, side: 'buy'|'sell', tag: e.g. '+8.4%' (sells), text: hover detail }]
    */
   function candles(canvas, opts) {
     canvas._copts = opts;
@@ -376,6 +377,45 @@
       }
     }
 
+    // your buys and sells: B under the bar at the price paid, S above it with the profit
+    if (d.trades && d.trades.length) {
+      ctx.save();
+      ctx.font = `700 10px ${T.mono}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const boxes = [];   // profit labels already placed, so neighbours stack instead of overlapping
+      const hits = (a) => boxes.some((b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1);
+      for (const tr of d.trades) {
+        if (tr.x < 0 || tr.x > n - 1) continue;
+        const x = Math.round(xAt(tr.x)) + 0.5;
+        const buy = tr.side === 'buy';
+        const col = buy ? T.gain : T.sell;
+        const py = Math.max(Top, Math.min(PB, yAt(tr.p)));
+        // dot at the exact trade price
+        ctx.fillStyle = col; ctx.strokeStyle = T.surface; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, py, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // arrow flag: below the bar's low for buys, above its high for sells
+        const bar = line ? d.c[tr.x] : buy ? d.l[tr.x] : d.h[tr.x];
+        const by = Math.max(Top + 10, Math.min(PB - 10, yAt(bar) + (buy ? 16 : -16)));
+        ctx.beginPath();
+        if (buy) { ctx.moveTo(x, by - 9); ctx.lineTo(x - 8, by + 4); ctx.lineTo(x + 8, by + 4); }
+        else { ctx.moveTo(x, by + 9); ctx.lineTo(x - 8, by - 4); ctx.lineTo(x + 8, by - 4); }
+        ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.fillText(buy ? 'B' : 'S', x, by + (buy ? 0 : -1));
+        if (tr.tag) {
+          ctx.font = `700 11px ${T.mono}`;
+          const tw = ctx.measureText(tr.tag).width + 8;
+          const tx = Math.min(Math.max(x, L + tw / 2), R - tw / 2);
+          const spots = [by - 17, by - 34, by - 51, by + 18, by + 35, by + 52].filter((y) => y - 8 >= Top && y + 8 <= PB);
+          let ty = spots.find((y) => !hits({ x1: tx - tw / 2, x2: tx + tw / 2, y1: y - 8, y2: y + 8 }));
+          if (ty == null) ty = spots[0] ?? by - 17;
+          boxes.push({ x1: tx - tw / 2, x2: tx + tw / 2, y1: ty - 8, y2: ty + 8 });
+          ctx.fillStyle = T.surface; ctx.globalAlpha = 0.92; ctx.fillRect(tx - tw / 2, ty - 8, tw, 16); ctx.globalAlpha = 1;
+          ctx.fillStyle = tr.up ? T.gain : T.loss; ctx.fillText(tr.tag, tx, ty);
+          ctx.font = `700 10px ${T.mono}`;
+        }
+      }
+      ctx.restore();
+    }
+
     // last price marker on the axis
     const last = d.c[n - 1];
     const ly = Math.round(yAt(last)) + 0.5;
@@ -407,6 +447,17 @@
     parts.forEach((p, k) => { ctx.fillStyle = k ? T.fg : T.muted; ctx.fillText(p, x, 5); x += ctx.measureText(p).width + 12; });
     ctx.fillStyle = chg >= 0 ? T.gain : T.loss;
     ctx.fillText((chg >= 0 ? '+' : '') + (chg * 100).toFixed(2) + '%', x, 5);
+    x += ctx.measureText('+0.00%').width + 14;
+    // your trades on the hovered bar
+    if (hoverX != null && d.trades) {
+      for (const tr of d.trades) {
+        if (tr.x !== idx || !tr.text) continue;
+        ctx.font = `600 11px ${T.mono}`;
+        ctx.fillStyle = tr.side === 'buy' ? T.gain : tr.up ? T.gain : T.loss;
+        if (x + ctx.measureText(tr.text).width > R) break;
+        ctx.fillText(tr.text, x, 5); x += ctx.measureText(tr.text).width + 12;
+      }
+    }
   }
 
   function roundRect(ctx, x, y, w, h, r) {
