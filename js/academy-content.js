@@ -5,7 +5,8 @@
  *   { q, opts: [...], a: index, why }                 multiple choice
  *   { q, num: answer, tol?, pct?, unit?, why }         number answer (pct: answer is a fraction, "25%" or "0.25" both accepted)
  *   { q, fig, plain?, opts, a, why }                   multiple choice under a chart figure from learn.js
- * Optional: show (how to display the answer), calc (a calculator is allowed; number questions are mental maths otherwise).
+ * Optional: near ([{ num, say }]: a common slip, e.g. the part you keep instead of the part lost; it
+ *   gets a hint and another try instead of a wrong mark), show (how to display the answer), calc (a calculator is allowed; number questions are mental maths otherwise).
  * Lessons may have m: [[term, meaning], ...] for a match-the-pairs round.
  * Generators (GEN) build fresh questions from a seeded random function.
  */
@@ -31,7 +32,12 @@
   const GEN = {
     /* the basics */
     mcap: (r) => { const p = pick(r, [20, 25, 40, 50, 80, 120, 150, 200]), s = pick(r, [0.5, 1, 2, 4, 5, 10]); return { q: `A company has ${s} billion shares outstanding, each trading at $${p}. What is its market cap, in $ billions?`, num: p * s, why: `Market cap = share price × shares outstanding = $${p} × ${s} billion = ${bn(p * s)}.` }; },
-    dilution: (r) => { const s = pick(r, [100, 200, 400, 500]), n = pick(r, [10, 20, 25, 50, 100]); const own = 1 - s / (s + n); return { calc: true, q: `A company with ${s} million shares issues ${n} million new ones. By what % does each existing shareholder’s stake shrink?`, num: own, pct: true, tol: 0.003, show: pc(own), why: `You now own ${s}/${s + n} of what you owned before: a ${pc(own)} smaller slice. That is dilution.` }; },
+    dilution: (r) => {
+      const s = pick(r, [100, 200, 400, 500]), n = pick(r, [10, 20, 25, 50, 80]);
+      const keep = s / (s + n), shrink = 1 - keep;
+      if (r() < 0.5) return { calc: true, q: `You own shares in a company with ${s} million shares. It issues ${n} million new ones. What percentage of your old stake do you still have?`, num: keep, pct: true, tol: 0.003, show: pc(keep), near: [{ num: shrink, say: `That’s how much your stake shrank. The question asks how much you still have: ${s}/${s + n}.` }], why: `Your slice was 1/${s} million of the company; now it’s 1/${s + n} million. You keep ${s}/${s + n} = ${pc(keep)} of your old stake, so it shrank by ${pc(shrink)}. That is dilution.` };
+      return { calc: true, q: `A company with ${s} million shares issues ${n} million new ones. By what percentage does each existing shareholder’s stake shrink?`, num: shrink, pct: true, tol: 0.003, show: pc(shrink), near: [{ num: keep, say: `Nearly! ${s}/${s + n} is the part of your stake you keep. The question asks how much it shrinks: 1 − ${s}/${s + n}.` }], why: `You now own ${s}/${s + n} = ${pc(keep)} of what you owned before, so your stake shrank by 1 − ${s}/${s + n} = ${pc(shrink)}. That is dilution.` };
+    },
     /* income statement */
     grossProfit: (r) => { const rev = pick(r, [80, 120, 200, 250, 400, 500]), gm = pick(r, [0.25, 0.4, 0.5, 0.6, 0.7]); const cogs = r2(rev * (1 - gm)); return { q: `Revenue is $${rev} million and the cost of goods sold is $${cogs} million. What is gross profit, in $ millions?`, num: r2(rev - cogs), why: `Gross profit = revenue − cost of goods sold = ${rev} − ${cogs} = $${r2(rev - cogs)} million.` }; },
     margin: (r) => {
@@ -61,7 +67,7 @@
     roe: (r) => { const eq = pick(r, [100, 200, 250, 400, 500]), x = pick(r, [0.05, 0.08, 0.12, 0.15, 0.2, 0.3]); return { q: `Net income is $${r2(eq * x)} million and shareholders’ equity is $${eq} million. What is return on equity (ROE)?`, num: x, pct: true, why: `ROE = net income ÷ equity = ${r2(eq * x)} ÷ ${eq} = ${pc(x)}.` }; },
     roa: (r) => { const a = pick(r, [200, 400, 500, 800, 1000]), x = pick(r, [0.02, 0.04, 0.05, 0.08, 0.1]); return { q: `Net income is $${r2(a * x)} million and total assets are $${a} million. What is return on assets (ROA)?`, num: x, pct: true, why: `ROA = net income ÷ total assets = ${r2(a * x)} ÷ ${a} = ${pc(x)}.` }; },
     /* growth */
-    growth: (r) => { const a = pick(r, [40, 50, 80, 100, 120, 200, 250]), g = pick(r, [-0.1, -0.05, 0.05, 0.1, 0.15, 0.2, 0.25, 0.4]); return { q: `Revenue went from $${a} million last year to $${r2(a * (1 + g))} million this year. What is the year-on-year growth?`, num: g, pct: true, why: `Growth = (new − old) ÷ old = (${r2(a * (1 + g))} − ${a}) ÷ ${a} = ${pc(g)}.` }; },
+    growth: (r) => { const a = pick(r, [40, 50, 80, 100, 120, 200, 250]), g = pick(r, [-0.1, -0.05, 0.05, 0.1, 0.15, 0.2, 0.25, 0.4]); return { q: `Revenue went from $${a} million last year to $${r2(a * (1 + g))} million this year. What is the year-on-year growth?`, num: g, pct: true, near: [{ num: 1 + g, say: `Nearly! ${r2(a * (1 + g))}/${a} compares new with old. Growth is that minus 1 (or minus 100%).` }], why: `Growth = (new − old) ÷ old = (${r2(a * (1 + g))} − ${a}) ÷ ${a} = ${pc(g)}.` }; },
     cagr: (r) => { const t = pick(r, [2, 3, 5]), g = pick(r, [0.05, 0.08, 0.1, 0.12, 0.15, 0.2]), a = pick(r, [100, 200, 500]); const b = a * Math.pow(1 + g, t); return { calc: true, q: `Earnings grew from $${a} million to $${r2(b)} million over ${t} years. What is the compound annual growth rate (CAGR)?`, num: g, pct: true, tol: 0.003, why: `CAGR = (end ÷ start)^(1/${t}) − 1 = (${r2(b)} ÷ ${a})^(1/${t}) − 1 = ${pc(g)}.` }; },
     /* dividends */
     divYield: (r) => { const p = pick(r, [20, 25, 40, 50, 80, 100, 120]), y = pick(r, [0.01, 0.02, 0.025, 0.03, 0.04, 0.05, 0.06]); return { q: `A share costs $${p} and pays $${r2(p * y)} a year in dividends. What is the dividend yield?`, num: y, pct: true, why: `Yield = annual dividend ÷ price = ${r2(p * y)} ÷ ${p} = ${pc(y)}.` }; },
@@ -86,7 +92,7 @@
     /* intrinsic value */
     pv: (r) => { const F = pick(r, [100, 500, 1000]), rt = pick(r, [5, 8, 10]), t = pick(r, [1, 2, 3]); const v = F / Math.pow(1 + rt / 100, t); return { calc: true, q: `What is $${F} received in ${t} year${t > 1 ? 's' : ''} worth today, at a ${rt}% discount rate?`, num: v, tol: Math.max(0.5, v * 0.003), show: usd(v), why: `Present value = ${F} ÷ ${1 + rt / 100}^${t} = ${usd(v)}.` }; },
     gordon: (r) => { const d = pick(r, [1, 2, 2.5, 3, 4]), k = pick(r, [0.08, 0.09, 0.1]), g = pick(r, [0.02, 0.03, 0.04, 0.05]); const v = d / (k - g); return { calc: true, q: `Next year’s dividend will be $${d} and will grow ${pc(g)} a year forever. With a ${pc(k)} required return, what is the share worth (Gordon growth model), in $?`, num: v, tol: Math.max(0.05, v * 0.005), show: usd(v), why: `Value = D ÷ (r − g) = ${d} ÷ (${k} − ${g}) = ${usd(v)}.` }; },
-    mos: (r) => { const v = pick(r, [40, 50, 80, 100, 120]), m = pick(r, [0.1, 0.2, 0.25, 0.3, 0.4]); return { q: `You estimate a share is worth $${v}. It trades at $${r2(v * (1 - m))}. What is your margin of safety?`, num: m, pct: true, why: `Margin of safety = (value − price) ÷ value = (${v} − ${r2(v * (1 - m))}) ÷ ${v} = ${pc(m)}.` }; },
+    mos: (r) => { const v = pick(r, [40, 50, 80, 100, 120]), m = pick(r, [0.1, 0.2, 0.25, 0.3, 0.4]); return { q: `You estimate a share is worth $${v}. It trades at $${r2(v * (1 - m))}. What is your margin of safety?`, num: m, pct: true, near: [{ num: 1 - m, say: `Nearly! ${r2(v * (1 - m))}/${v} is price as a share of value. Margin of safety is the gap: 1 − price ÷ value.` }], why: `Margin of safety = (value − price) ÷ value = (${v} − ${r2(v * (1 - m))}) ÷ ${v} = ${pc(m)}.` }; },
     graham: (r) => { const e = pick(r, [2, 4, 5, 8]), b = pick(r, [10, 20, 40, 45, 50]); const v = Math.sqrt(22.5 * e * b); return { calc: true, q: `EPS is $${e} and book value per share is $${b}. What is the Graham number, √(22.5 × EPS × BVPS), in $?`, num: v, tol: Math.max(0.1, v * 0.005), show: usd(v), why: `√(22.5 × ${e} × ${b}) = √${r2(22.5 * e * b)} = ${usd(v)}. Graham’s rough ceiling on what a defensive investor should pay.` }; },
     /* charts */
     trendSpot: (r) => (window.Learn ? window.Learn.trendQuestion(r) : { q: 'Higher highs and higher lows describe…', opts: ['an uptrend', 'a downtrend', 'a sideways market'], a: 0, why: 'A staircase going up.' }),
@@ -217,7 +223,7 @@
       lessons: [
         { t: 'Measuring growth', gen: ['growth', 'cagr'],
           tip: `<p><b>Year-on-year growth</b> = (this year − last year) ÷ last year.</p><p>Over several years use <b>CAGR</b>, the compound annual growth rate: (end ÷ start)^(1/years) − 1. It smooths out bumpy years.</p><p>Rule of 72: something growing at 12% a year doubles in about 72 ÷ 12 = 6 years.</p>`,
-          q: [{ q: 'Sales went from $200m to $250m. Growth?', num: 0.25, pct: true, why: '(250 − 200) ÷ 200 = 25%.' },
+          q: [{ q: 'Sales went from $200m to $250m. Growth?', num: 0.25, pct: true, near: [{ num: 1.25, say: 'Nearly! 250/200 compares new with old. Growth is that minus 1: 250/200 − 1.' }], why: '(250 − 200) ÷ 200 = 25%.' },
             { q: 'Earnings grow 12% a year. Roughly how many years to double?', num: 6, tol: 0.2, why: 'Rule of 72: 72 ÷ 12 = 6.' },
             { q: 'Revenue grew 50%, then fell 50%. Overall it is…', opts: ['down 25%', 'flat', 'up 25%', 'down 50%'], a: 0, why: '1.5 × 0.5 = 0.75.' }] },
         { t: 'Quality of growth', m: [['Organic growth', 'Growth from the existing business'], ['Acquisition growth', 'Growth from buying companies'], ['Same-store sales', 'Sales at shops open over a year'], ['Operating leverage', 'Profit grows faster than sales'], ['Guidance', 'Management’s forecast']],
@@ -285,7 +291,7 @@
             { q: 'Why can’t growth (g) be above the discount rate (r) in the Gordon model?', opts: ['The formula breaks: value would be negative or infinite', 'It is illegal', 'Dividends can’t grow', 'Rates are always zero'], a: 0, why: 'Nothing grows faster than the economy forever, and r − g must be positive.' }] },
         { t: 'Margin of safety', gen: ['mos', 'graham'],
           tip: `<p>Your value estimate will be wrong, so buy well below it. Benjamin Graham called this the <b>margin of safety</b>:</p><p>(intrinsic value − price) ÷ intrinsic value</p><p>Many value investors want 25 to 50%. Graham also gave a rough check, the <b>Graham number</b> = √(22.5 × EPS × book value per share).</p>`,
-          q: [{ q: 'You value a share at $100. It trades at $70. Margin of safety?', num: 0.3, pct: true, why: '(100 − 70) ÷ 100 = 30%.' },
+          q: [{ q: 'You value a share at $100. It trades at $70. Margin of safety?', num: 0.3, pct: true, near: [{ num: 0.7, say: 'Nearly! 70/100 is price as a share of value. Margin of safety is the gap: 1 − 70/100.' }], why: '(100 − 70) ÷ 100 = 30%.' },
             { q: 'The margin of safety protects you against…', opts: ['errors in your own estimate and bad luck', 'all losses forever', 'taxes', 'dividends being paid'], a: 0, why: 'It leaves room for being wrong.' },
             { q: 'Benjamin Graham wrote…', opts: ['The Intelligent Investor', 'The Wealth of Nations', 'Rich Dad Poor Dad', 'The Big Short'], a: 0, why: 'Buffett calls it the best book about investing ever written.' }] },
       ],

@@ -418,7 +418,18 @@
     let ok;
     if (it.q.match) { if (it.matched.length < it.q.match.length) return; ok = it.mistakes === 0; it.given = `${it.mistakes} mistake${it.mistakes === 1 ? '' : 's'}`; }
     else if (it.q.opts) { if (ses.sel == null) return; ok = ses.sel === it.ans; it.given = it.opts[ses.sel]; }
-    else { const v = $('acInput') ? $('acInput').value : ''; ok = checkNum(it.q, v); if (ok === null) { flashInput(); return; } it.given = v; }
+    else {
+      const v = $('acInput') ? $('acInput').value : '';
+      ok = checkNum(it.q, v);
+      if (ok === null) { flashInput(); return; }
+      // A common slip (the part kept instead of the part lost, new ÷ old instead of growth) gets
+      // one hint and another try, outside exams and the sprint.
+      if (!ok && it.q.near && !it.nudged && !ses.exam && ses.kind !== 'sprint') {
+        const slip = it.q.near.find((x) => checkNum(Object.assign({}, it.q, { num: x.num }), v));
+        if (slip) { it.nudged = true; return nudge(slip.say); }
+      }
+      it.given = v;
+    }
 
     if (ses.kind === 'sprint') {
       ses.attempts++;
@@ -445,7 +456,7 @@
     } else {
       ses.combo = 0;
       ses.misses++;
-      if (it.tries === 1) ses.items.push(Object.assign({}, it, it.q.match ? { matched: [], mistakes: 0, left: shuffle(it.left.slice()), right: shuffle(it.right.slice()) } : {}, { tries: 1, again: true }));
+      if (it.tries === 1) ses.items.push(Object.assign({}, it, it.q.match ? { matched: [], mistakes: 0, left: shuffle(it.left.slice()), right: shuffle(it.right.slice()) } : {}, { tries: 1, again: true, nudged: false }));
       sfx('bad');
     }
     markReview(it.key, ok);
@@ -453,13 +464,18 @@
     renderFeedback();
   }
 
+  function nudge(text) {
+    const e = $('acErr'), i = $('acInput');
+    if (e) { e.hidden = false; e.classList.add('hint'); e.textContent = text + ' Try again.'; }
+    if (i) { i.focus(); i.select(); }
+  }
   function flashInput() {
     const i = $('acInput');
     if (!i) return;
     i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); i.focus();
     const q = currentItem() && currentItem().q;
     const e = $('acErr');
-    if (e) { e.hidden = false; e.textContent = `I couldn’t read “${i.value.trim()}” as a number. Type just the number, like ${q && q.pct ? '80%, 0.8 or 400/500' : '42, 1.5 or 400/500'}.`; }
+    if (e) { e.hidden = false; e.classList.remove('hint'); e.textContent = `I couldn’t read “${i.value.trim()}” as a number. Type just the number, like ${q && q.pct ? '80%, 0.8 or 400/500' : '42, 1.5 or 400/500'}.`; }
   }
 
   function advance() {
@@ -978,7 +994,7 @@
     ses.checked = true; ses.lastOk = false; it.tries++; ses.combo = 0;
     if (it.q.match) it.mistakes = Math.max(it.mistakes, 1);
     ses.misses++;
-    if (it.tries === 1) ses.items.push(Object.assign({}, it, it.q.match ? { matched: [], mistakes: 0 } : {}, { tries: 1, again: true }));
+    if (it.tries === 1) ses.items.push(Object.assign({}, it, it.q.match ? { matched: [], mistakes: 0 } : {}, { tries: 1, again: true, nudged: false }));
     markReview(it.key, false);
     ses.results.push({ it, ok: false });
     sfx('bad');
