@@ -969,3 +969,8 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .ac-err { font-size: 13px; font-weight: 600; color: #d33131; }
 :root[data-theme="dark"] .ac-err { color: #ff6b6b; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ac-err { color: #ff6b6b; } }
+/* academy: extra answer keys for phone keypads that lack / % − */
+.ac-anskeys { display: none; gap: 8px; }
+@media (pointer: coarse) { .ac-anskeys { display: flex; } }
+.ac-anskeys .btn { flex: 1; max-width: 72px; padding: 8px 0; font-size: 18px; font-weight: 700; background: var(--surface-2); border: 1.5px solid var(--line-strong); border-radius: 10px; box-shadow: 0 2px 0 var(--line-strong); color: var(--fg); }
+.ac-anskeys .btn:active { transform: translateY(2px); box-shadow: none; }

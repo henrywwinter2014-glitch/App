@@ -265,7 +265,7 @@
   }
   const isChart = (q) => !!(q.fig || q.chart);
 
-  function parseAnswer(str) {
+  function parseAnswer(str, allowSums) {
     // Accept the number with the extras people naturally type: currency, "x", units, "percent", "about".
     let s = String(str).toLowerCase().trim()
       .replace(/[−–—]/g, '-')
@@ -280,13 +280,14 @@
     let v;
     if (/^-?\d*\.?\d+\/\d*\.?\d+$/.test(s)) { const [a, b] = s.split('/').map(Number); v = a / b; }
     else if (/^-?(\d+\.?\d*|\.\d+)$/.test(s)) v = Number(s);
+    else if (allowSums && /[\d)]/.test(s)) { v = calcEval(s); if (v == null) return null; }
     else return null;
     if (!isFinite(v)) return null;
     return { v: pct ? v / 100 : v, pct };
   }
 
   function checkNum(q, input) {
-    const p = parseAnswer(input);
+    const p = parseAnswer(input, calcAllowed(q));
     if (!p) return null;
     const ans = q.num;
     if (q.pct) {
@@ -465,7 +466,7 @@
     i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); i.focus();
     const q = currentItem() && currentItem().q;
     const e = $('acErr');
-    if (e) { e.hidden = false; e.textContent = `I couldn’t read “${i.value.trim()}” as a number. Type just the number, like ${q && q.pct ? '12.5% or 0.125' : '42 or 1.5 or 1/6'}.`; }
+    if (e) { e.hidden = false; e.textContent = `I couldn’t read “${i.value.trim()}” as a number. Type just the number, like ${q && q.pct ? '12.5%, 0.125 or 400/460' : '42, 1.5 or 400/460'}.`; }
   }
 
   function advance() {
@@ -599,7 +600,7 @@
   const CALC_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="8" y="6" width="8" height="3" fill="currentColor"/><circle cx="9" cy="13" r="1.2" fill="currentColor"/><circle cx="12" cy="13" r="1.2" fill="currentColor"/><circle cx="15" cy="13" r="1.2" fill="currentColor"/><circle cx="9" cy="17" r="1.2" fill="currentColor"/><circle cx="12" cy="17" r="1.2" fill="currentColor"/><circle cx="15" cy="17" r="1.2" fill="currentColor"/></svg>';
   // Number questions are mental maths unless marked calc. The sprint never allows one.
   const CALC_RULE = '<p class="ac-calcrule">' + '<b>Calculator rules:</b> each number question says whether a calculator is allowed. When it is, use the built-in one. The rest are mental maths.</p>';
-  const calcAllowed = (q) => !!q.calc && ses.kind !== 'sprint';
+  const calcAllowed = (q) => !!q.calc && !(ses && ses.kind === 'sprint');
 
   // Evaluates + − × ÷ ^ √ ( ) and % on numbers, without eval. Returns null if it can't.
   function calcEval(src) {
@@ -646,7 +647,7 @@
     else if (q.opts) body = `<div class="ac-opts${q.opts.length === 3 && isChart(q) ? ' three' : ''}">${it.opts.map((o, i) => `<button type="button" class="ac-opt${ses.sel === i ? ' sel' : ''}" data-opt="${i}"><kbd>${i + 1}</kbd><span>${esc(o)}</span></button>`).join('')}</div>`;
     else {
       const calc = calcAllowed(q);
-      body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a % or a decimal, e.g. 12.5% or 0.125' : 'Fractions like 1/6 are fine'}</span><span class="ac-err" id="acErr" role="alert" hidden></span></div>
+      body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a %, a decimal or a fraction, e.g. 12.5%, 0.125 or 400/460' : 'Fractions like 400/460 are fine'}${calc ? '. You can also type a whole sum, like (460 − 400) / 400' : ''}</span><div class="ac-anskeys" aria-label="Extra keys">${['/', '%', '−', '.'].map((k) => `<button type="button" class="btn btn-ghost small" data-ak="${k}" aria-label="Type ${k === '/' ? 'divide' : k === '%' ? 'percent' : k === '−' ? 'minus' : 'decimal point'}">${k}</button>`).join('')}</div><span class="ac-err" id="acErr" role="alert" hidden></span></div>
         <div class="ac-calcrow"><span class="ac-calcchip ${calc ? 'yes' : 'no'}">${calc ? CALC_SVG : CALC_SVG.replace('</svg>', '<path d="M3 3l18 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>')}${calc ? 'Calculator allowed' : 'No calculator: mental maths'}</span>${calc ? '<button type="button" class="btn btn-ghost small" id="acCalcBtn" aria-expanded="false">Open calculator</button>' : ''}</div>
         ${calc ? `<div class="ac-calc" id="acCalcBox" hidden><input id="acCalc" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Type a sum, e.g. 3.75 / 75 * 100" aria-label="Calculator"><div class="ac-calc-keys">${['(', ')', '^', '√', '÷', '×', '−', '+'].map((k) => `<button type="button" class="btn btn-ghost small" data-ck="${k}">${k}</button>`).join('')}</div><div class="ac-calc-out"><span id="acCalcOut" aria-live="polite">= </span><button type="button" class="btn small" id="acCalcUse" disabled>Use this answer</button></div></div>` : ''}`;
     }
@@ -700,6 +701,7 @@
       else if (i === ses.sel) b.classList.add('wrong');
     });
     if ($('acCalcBox')) { $('acCalc').disabled = true; $('acCalcUse').disabled = true; document.querySelectorAll('[data-ck], #acCalcBtn').forEach((b) => { b.disabled = true; }); }
+    document.querySelectorAll('[data-ak]').forEach((b) => { b.disabled = true; });
     if ($('acInput')) { $('acInput').disabled = true; $('acInput').classList.add(ses.lastOk ? 'right' : 'wrong'); }
     const ok = ses.lastOk;
     let head;
@@ -936,6 +938,14 @@
         ses.sel = +opt.dataset.opt;
         document.querySelectorAll('.ac-opt').forEach((b) => b.classList.toggle('sel', b === opt));
         $('acCheck').disabled = false;
+        return;
+      }
+      const ak = e.target.closest('[data-ak]');
+      if (ak && $('acInput') && !$('acInput').disabled) {
+        const c = $('acInput'), k = ak.dataset.ak, a = c.selectionStart ?? c.value.length, b = c.selectionEnd ?? c.value.length;
+        c.value = c.value.slice(0, a) + k + c.value.slice(b);
+        c.focus(); c.setSelectionRange(a + k.length, a + k.length);
+        c.dispatchEvent(new Event('input', { bubbles: true }));
         return;
       }
       const ck = e.target.closest('[data-ck]');
