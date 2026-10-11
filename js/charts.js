@@ -5,7 +5,7 @@
   function tokens() {
     const cs = getComputedStyle(document.documentElement);
     const g = (n) => cs.getPropertyValue(n).trim();
-    return { fg: g('--fg'), muted: g('--muted'), line: g('--line'), accent: g('--accent'), gain: g('--gain'), loss: g('--loss'), b: g('--chart-b'), surface: g('--surface'), mono: g('--f-mono'), buy: g('--buy') || g('--accent'), sell: g('--sell') || g('--loss'), gold: g('--chart-c') || '#c08a2b' };
+    return { fg: g('--fg'), muted: g('--muted'), line: g('--line'), accent: g('--accent'), gain: g('--gain'), loss: g('--loss'), b: g('--chart-b'), surface: g('--surface'), mono: g('--f-mono'), buy: g('--buy') || g('--accent'), sell: g('--sell') || g('--loss') };
   }
 
   function setup(canvas) {
@@ -210,7 +210,7 @@
    * Candlestick (or line) price chart with a volume histogram underneath.
    * opts: { o, h, l, c, v, labels, type: 'candles'|'line', fmt, timeAxis }
    * timeAxis: label the bottom axis in 5-minute steps instead of dates.
-   * target: { px, label, note } draws a sell-target line with its label and note.
+   * drawings: [{ type: 'pen'|'line'|'hline', color, pts: [{ x: bar index (may be fractional), p: price }] }]
    */
   function candles(canvas, opts) {
     canvas._copts = opts;
@@ -218,6 +218,7 @@
     if (!canvas._cbound) {
       canvas._cbound = true;
       const move = (e) => {
+        if (canvas._drawing) return;
         const r = canvas.getBoundingClientRect();
         drawCandles(canvas, (e.touches ? e.touches[0].clientX : e.clientX) - r.left);
       };
@@ -241,9 +242,6 @@
       if (lo < min) min = lo; if (hi > max) max = hi;
     }
     for (const ov of d.overlays || []) for (const v of ov.values) { if (v == null) continue; if (v < min) min = v; if (v > max) max = v; }
-    // Keep a sell target in view, unless it is far away from the prices shown.
-    const tgt = d.target && d.target.px > 0 ? d.target : null;
-    if (tgt && tgt.px <= max * 1.6 && tgt.px >= min / 1.6) { min = Math.min(min, tgt.px); max = Math.max(max, tgt.px); }
     if (min === max) { min *= 0.99; max *= 1.01; }
     const pad = (max - min) * 0.06; min -= pad; max += pad;
 
@@ -350,22 +348,32 @@
       }
     }
 
-    // sell target line
-    if (tgt) {
-      const inView = tgt.px <= max && tgt.px >= min;
-      const ty = inView ? Math.round(yAt(tgt.px)) + 0.5 : (tgt.px > max ? Top - 2 : PB);
-      ctx.strokeStyle = T.gold; ctx.lineWidth = 1.5; ctx.setLineDash([7, 4]);
-      if (inView) { ctx.beginPath(); ctx.moveTo(L, ty); ctx.lineTo(R, ty); ctx.stroke(); }
-      ctx.setLineDash([]);
+    // the reader's drawings, clipped to the price area
+    canvas._map = { L, R, Top, PB, slot, n, min, max };
+    if (d.drawings && d.drawings.length) {
+      const px = (pt) => [L + slot * (pt.x + 0.5), yAt(pt.p)];
+      ctx.save();
+      ctx.beginPath(); ctx.rect(L, Top - 6, R - L, PB - Top + 12); ctx.clip();
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.setLineDash([]);
+      for (const dr of d.drawings) {
+        ctx.strokeStyle = dr.color; ctx.lineWidth = dr.type === 'pen' ? 2.2 : 2;
+        ctx.beginPath();
+        if (dr.type === 'hline') { const y = Math.round(yAt(dr.pts[0].p)) + 0.5; ctx.moveTo(L, y); ctx.lineTo(R, y); }
+        else dr.pts.forEach((pt, k) => { const [x, y] = px(pt); if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        ctx.stroke();
+        if (dr.type === 'line') for (const pt of dr.pts) { const [x, y] = px(pt); ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fillStyle = dr.color; ctx.fill(); }
+      }
+      ctx.restore();
+      // price tags for level lines
       ctx.font = `600 11px ${T.mono}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      const gap = d.c[n - 1] > 0 ? tgt.px / d.c[n - 1] - 1 : 0;
-      let text = `${tgt.label || 'Sell target'} ${d.fmt(tgt.px)} (${gap >= 0 ? '+' : ''}${(gap * 100).toFixed(1)}%)${inView ? '' : tgt.px > max ? ' ↑' : ' ↓'}`;
-      if (tgt.note) text += ` · ${tgt.note.length > 40 ? tgt.note.slice(0, 39) + '…' : tgt.note}`;
-      const tw = Math.min(ctx.measureText(text).width, R - L - 12);
-      const ly2 = Math.max(Top + 2, Math.min(PB - 10, ty - 11));
-      ctx.fillStyle = T.surface; ctx.globalAlpha = 0.9; ctx.fillRect(L + 4, ly2 - 8, tw + 10, 16); ctx.globalAlpha = 1;
-      ctx.fillStyle = T.gold; ctx.fillText(text, L + 9, ly2, R - L - 16);
-      if (inView) { ctx.fillRect(R + 2, ty - 9, labelW - 4, 18); ctx.fillStyle = '#ffffff'; ctx.fillText(d.fmt(tgt.px), R + 7, ty); }
+      for (const dr of d.drawings) {
+        if (dr.type !== 'hline') continue;
+        const p = dr.pts[0].p;
+        if (p > max || p < min) continue;
+        const y = Math.round(yAt(p)) + 0.5;
+        ctx.fillStyle = dr.color; ctx.fillRect(R + 2, y - 9, labelW - 4, 18);
+        ctx.fillStyle = '#ffffff'; ctx.fillText(d.fmt(p), R + 7, y);
+      }
     }
 
     // last price marker on the axis
@@ -427,5 +435,17 @@
     return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(${up ? '--gain' : '--loss'})" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
   }
 
-  window.Charts = { line, bars, candles, sparkSVG, shortDate };
+  // Convert between canvas pixels and chart data ({ x: bar index, p: price }) for the last-drawn candles chart.
+  function toData(canvas, px, py) {
+    const m = canvas._map; if (!m) return null;
+    const y = Math.max(m.Top, Math.min(m.PB, py));
+    return { x: (px - m.L) / m.slot - 0.5, p: m.max - ((y - m.Top) / (m.PB - m.Top)) * (m.max - m.min) };
+  }
+  function toPx(canvas, pt) {
+    const m = canvas._map; if (!m) return null;
+    return [m.L + m.slot * (pt.x + 0.5), m.PB - ((pt.p - m.min) / (m.max - m.min)) * (m.PB - m.Top)];
+  }
+  const redraw = (canvas) => drawCandles(canvas, null);
+
+  window.Charts = { line, bars, candles, sparkSVG, shortDate, toData, toPx, redraw };
 })();

@@ -974,19 +974,16 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 :root[data-theme="dark"] .ac-err.hint { color: #ffb347; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ac-err.hint { color: #ffb347; } }
 
-/* chart note: target sell price */
-.pane-chart { position: relative; }
-.note-box { position: absolute; z-index: 20; right: 12px; top: 92px; width: min(340px, calc(100% - 24px)); display: grid; gap: 10px; padding: 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); }
-.note-box[hidden] { display: none; }
-.note-head { display: flex; justify-content: space-between; align-items: center; }
-.note-box textarea { font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); padding: 7px 9px; resize: vertical; width: 100%; }
-.note-box textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-.note-btns { display: flex; gap: 8px; }
-.note-order { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
-.note-order[hidden] { display: none; }
-.note-order-row { display: flex; gap: 8px; align-items: flex-end; }
-.note-order-row .field { flex: 1; }
-#chNote.on { border-color: var(--chart-c); color: var(--chart-c); font-weight: 600; }
-@media (max-width: 700px) {
-  .note-box { position: static; width: auto; margin: 8px 8px 0; box-shadow: none; }
-}
+/* chart drawing tools */
+.draw-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.draw-bar[hidden] { display: none; }
+.draw-bar .seg button.on { background: var(--fg); color: var(--surface); }
+.draw-colors { display: inline-flex; gap: 6px; }
+.draw-colors button { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--surface); background: var(--c); box-shadow: 0 0 0 1px var(--line-strong); cursor: pointer; padding: 0; }
+.draw-colors button.on { box-shadow: 0 0 0 2px var(--fg); }
+.draw-hint { font-size: 12px; flex: 1; min-width: 140px; }
+#drawDone { margin-left: auto; }
+#chDraw[aria-pressed="true"] { background: var(--fg); color: var(--surface); border-color: var(--fg); }
+#drawClear.armed { color: var(--loss); font-weight: 600; }
+.chart.drawing { cursor: crosshair; touch-action: none; }
+.chart.drawing.erasing { cursor: pointer; }

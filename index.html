@@ -118,26 +118,25 @@
               <button type="button" data-ct="candles" class="on">Candles</button><button type="button" data-ct="line">Line</button>
             </div>
             <button type="button" class="btn" id="chMA" aria-pressed="false" title="Show 20-day and 50-day moving averages">Averages</button>
-            <button type="button" class="btn" id="chNote" aria-expanded="false" aria-controls="noteBox" title="Note a target price to sell at">Note</button>
+            <button type="button" class="btn" id="chDraw" aria-pressed="false" aria-controls="drawBar" title="Draw on the chart">&#x270E; Draw</button>
             <button type="button" class="trend-badge" id="chTrend" title="What does this mean? Open the trend lessons"></button>
             <span class="ch-stats" id="chStats"></span>
             <button type="button" class="btn btn-ghost" id="chWatch">Watch</button>
             <button type="button" class="btn" id="chFull" title="Full-screen chart (or double-click the chart)">&#x26F6; Full screen</button>
             <button type="button" class="btn btn-primary" id="chTrade">Trade</button>
           </div>
-          <form class="note-box" id="noteBox" hidden autocomplete="off">
-            <div class="note-head"><b id="noteTitle">Note</b><button type="button" class="focus-x small" id="noteClose" aria-label="Close note">&times;</button></div>
-            <label class="field"><span>Highest price to sell at <small class="muted" id="noteNow"></small></span><input id="notePx" type="number" min="0" step="any" inputmode="decimal" placeholder="e.g. 250"></label>
-            <label class="field"><span>Note <small class="muted">(optional)</small></span><textarea id="noteText" rows="2" maxlength="200" placeholder="Why this price? e.g. sell before earnings, P/E too high above here"></textarea></label>
-            <label class="check"><input type="checkbox" id="noteAlert" checked> Alert me when the price reaches it</label>
-            <div class="note-btns"><button type="submit" class="btn btn-primary">Save note</button><button type="button" class="btn btn-ghost" id="noteClear">Remove</button></div>
-            <div class="note-order" id="noteOrder" hidden>
-              <span>Sell automatically at this price?</span>
-              <div class="note-order-row"><label class="field small"><span>Shares</span><input id="noteQty" type="number" min="0" step="any" inputmode="decimal"></label><button type="button" class="btn" id="noteLimit">Place limit sell</button></div>
-              <small class="muted">A limit sell order fills when the price reaches your target. You can cancel it on the Orders tab.</small>
+          <div class="draw-bar" id="drawBar" hidden role="toolbar" aria-label="Drawing tools">
+            <div class="seg" id="drawTools">
+              <button type="button" data-tool="pen" class="on" title="Pen: draw freehand">&#x270E; Pen</button><button type="button" data-tool="line" title="Line: drag from one point to another">&#x2571; Line</button><button type="button" data-tool="hline" title="Level: click a price for a horizontal line, e.g. the highest price you'd sell at">&#x2015; Level</button><button type="button" data-tool="erase" title="Eraser: click a drawing to delete it">&#x232B; Erase</button>
             </div>
-            <p class="msg" id="noteMsg" role="status"></p>
-          </form>
+            <div class="draw-colors" id="drawColors" role="group" aria-label="Colour">
+              <button type="button" data-color="#f0a020" class="on" aria-label="Orange" style="--c:#f0a020"></button><button type="button" data-color="#2f80ed" aria-label="Blue" style="--c:#2f80ed"></button><button type="button" data-color="#16a34a" aria-label="Green" style="--c:#16a34a"></button><button type="button" data-color="#e5484d" aria-label="Red" style="--c:#e5484d"></button><button type="button" data-color="#9b5de5" aria-label="Purple" style="--c:#9b5de5"></button>
+            </div>
+            <button type="button" class="btn btn-ghost" id="drawUndo">Undo</button>
+            <button type="button" class="btn btn-ghost" id="drawClear">Clear all</button>
+            <span class="draw-hint muted" id="drawHint">Draw on the chart with your mouse or finger.</span>
+            <button type="button" class="btn" id="drawDone">Done</button>
+          </div>
           <canvas id="mainChart" class="chart" height="380"></canvas>
         </div>
 

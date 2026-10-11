@@ -269,60 +269,169 @@
     }).join('');
   }
 
-  /* ---------- chart note: target sell price ---------- */
-  const noteOf = (t) => (S().notes || {})[t] || null;
-  function targetOpt(t) {
-    const n = noteOf(t);
-    return n && n.px ? { px: n.px, label: n.hit ? 'Target reached' : 'Sell target', note: n.text } : null;
+  /* ---------- drawing on the chart ---------- */
+  // Points are stored as { d: game day, p: price }, so drawings stay put as days pass and the range changes.
+  const draw = { tool: null, color: '#f0a020', draft: null, last: null, undo: [] };
+  // Remember a stock's drawings before each change, so Undo can reverse adding, erasing or clearing.
+  function snapshot(t) {
+    draw.undo.push({ t, list: JSON.stringify((S().drawings || {})[t] || []) });
+    if (draw.undo.length > 40) draw.undo.shift();
   }
-  function openNote() {
-    const t = chartTicker(), m = E.BY[t], n = noteOf(t), h = S().holdings[t];
-    const box = $('noteBox');
-    box.dataset.t = t;
-    $('noteTitle').textContent = `Note for ${t}`;
-    $('noteNow').textContent = `· now ${money(E.price(t), m.cur)}`;
-    $('notePx').value = n && n.px ? n.px : '';
-    $('noteText').value = n ? n.text : '';
-    $('noteAlert').checked = n ? n.alert || !n.px : true;
-    $('noteClear').hidden = !n;
-    $('noteMsg').textContent = '';
-    $('noteOrder').hidden = !(h && n && n.px);
-    if (h) $('noteQty').value = +h.qty.toFixed(4);
-    box.hidden = false;
-    const tools = document.querySelector('.pane-chart .pane-tools');
-    box.style.top = tools ? `${tools.offsetTop + tools.offsetHeight + 6}px` : '';
-    $('chNote').setAttribute('aria-expanded', 'true');
-    $('notePx').focus();
+  const DRAW_HINTS = {
+    pen: 'Hold and drag to draw freehand.',
+    line: 'Drag from one point to another for a straight line.',
+    hline: 'Click a price to mark it, e.g. the highest price you’d sell at. Drag to adjust.',
+    erase: 'Click or tap a drawing to delete it.',
+  };
+  function drawingsFor(t, n) {
+    const off = S().day - (n - 1);
+    const list = ((S().drawings || {})[t] || []).concat(draw.draft && draw.draft.t === t ? [draw.draft] : []);
+    return list.map((dr) => ({ type: dr.type, color: dr.color, pts: dr.pts.map((pt) => ({ x: pt.d - off, p: pt.p })) }));
   }
-  function closeNote() {
-    $('noteBox').hidden = true;
-    $('chNote').setAttribute('aria-expanded', 'false');
+  function chartPoint(e) {
+    const c = $('mainChart'), r = c.getBoundingClientRect();
+    const v = C.toData(c, e.clientX - r.left, e.clientY - r.top);
+    if (!v) return null;
+    return { d: +(v.x + S().day - (c._map.n - 1)).toFixed(2), p: +v.p.toPrecision(6) };
   }
-  function saveNote(e) {
-    e.preventDefault();
-    const t = $('noteBox').dataset.t, m = E.BY[t];
-    const raw = $('notePx').value.trim();
-    const px = raw === '' ? 0 : +raw;
-    if (raw !== '' && !(px > 0)) { $('noteMsg').textContent = 'Enter a price above zero, or leave it empty for a note only.'; return; }
-    const n = E.setNote(t, { px, text: $('noteText').value, alert: $('noteAlert').checked });
+  function redrawDrawings() {
+    const c = $('mainChart');
+    if (!c._copts) return;
+    c._copts.drawings = drawingsFor(chartTicker(), c._copts.c.length);
+    C.redraw(c);
+  }
+  function setDrawTool(tool) {
+    draw.tool = tool;
+    draw.draft = null;
+    const c = $('mainChart');
+    c.classList.toggle('drawing', !!tool);
+    c.classList.toggle('erasing', tool === 'erase');
+    c._drawing = !!tool;
+    document.querySelectorAll('#drawTools [data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === tool));
+    if (tool) $('drawHint').textContent = DRAW_HINTS[tool];
+  }
+  function openDraw() {
+    $('drawBar').hidden = false;
+    $('chDraw').setAttribute('aria-pressed', 'true');
+    setDrawTool(draw.lastTool || 'pen');
+    renderMainChart();
+  }
+  function closeDraw() {
+    $('drawBar').hidden = true;
+    $('chDraw').setAttribute('aria-pressed', 'false');
+    if (draw.tool) draw.lastTool = draw.tool;
+    setDrawTool(null);
+    renderMainChart();
+  }
+  function commitDraft() {
+    const dr = draw.draft;
+    draw.draft = null;
+    if (!dr) return;
+    const c = $('mainChart');
+    const n = c._map.n, off = S().day - (n - 1);
+    const px = (pt) => C.toPx(c, { x: pt.d - off, p: pt.p });
+    if (dr.type === 'pen' && dr.pts.length < 2) dr.pts.push({ d: dr.pts[0].d + 0.01, p: dr.pts[0].p });
+    if (dr.type === 'line') { const [a, b] = dr.pts.map(px); if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 6) return redrawDrawings(); }
+    const t = dr.t;
+    delete dr.t;
+    snapshot(t);
+    const st = S();
+    if (!st.drawings) st.drawings = {};
+    (st.drawings[t] = st.drawings[t] || []).push(dr);
+    if (st.drawings[t].length > 60) st.drawings[t].shift();
     save();
     renderMainChart();
-    if (!n) { closeNote(); toast(`Note for ${t} removed.`); return; }
-    const p = E.price(t);
-    toast(n.px ? `${t} sell target set at ${money(n.px, m.cur)} (${pct(n.px / p - 1)} from now).${n.alert ? ' You’ll get an alert when it’s reached.' : ''}` : `Note saved for ${t}.`);
-    if (n.px && n.px <= p) toast(`${t} is already at or above your target.`);
-    if (n.px && S().holdings[t]) { openNote(); $('noteMsg').textContent = 'Saved. You can also place a limit sell below.'; }
-    else closeNote();
   }
-  function noteLimitSell() {
-    const t = $('noteBox').dataset.t, n = noteOf(t);
-    if (!n || !n.px) return;
-    const res = E.placeOrder(t, 'sell', 'limit', +$('noteQty').value, n.px);
-    if (!res.ok) { $('noteMsg').textContent = res.msg; return; }
+  // Delete the drawing nearest a click, if one is close enough.
+  function eraseAt(e) {
+    const t = chartTicker(), list = (S().drawings || {})[t] || [];
+    if (!list.length) return;
+    const c = $('mainChart'), r = c.getBoundingClientRect();
+    const mx = e.clientX - r.left, my = e.clientY - r.top;
+    const n = c._map.n, off = S().day - (n - 1);
+    const segDist = (p, a, b) => {
+      const dx = b[0] - a[0], dy = b[1] - a[1], len = dx * dx + dy * dy;
+      const k = len ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len)) : 0;
+      return Math.hypot(p[0] - (a[0] + k * dx), p[1] - (a[1] + k * dy));
+    };
+    let best = -1, bestD = e.pointerType === 'touch' ? 16 : 9;
+    list.forEach((dr, i) => {
+      let dist;
+      if (dr.type === 'hline') dist = Math.abs(my - C.toPx(c, { x: 0, p: dr.pts[0].p })[1]);
+      else {
+        const pts = dr.pts.map((pt) => C.toPx(c, { x: pt.d - off, p: pt.p }));
+        dist = pts.length === 1 ? Math.hypot(mx - pts[0][0], my - pts[0][1]) : Math.min(...pts.slice(1).map((b, k) => segDist([mx, my], pts[k], b)));
+      }
+      if (dist < bestD) { bestD = dist; best = i; }
+    });
+    if (best < 0) { $('drawHint').textContent = 'Nothing there to erase. Click right on a line.'; return; }
+    snapshot(t);
+    list.splice(best, 1);
     save();
-    closeNote();
-    toast(`Limit sell placed: ${qtyFmt(res.order.qty)} ${t} at ${money(n.px, E.BY[t].cur)}. See the Orders tab.`);
-    refresh();
+    renderMainChart();
+  }
+  function bindDrawing() {
+    const c = $('mainChart');
+    c.addEventListener('pointerdown', (e) => {
+      if (!draw.tool || e.button > 0) return;
+      e.preventDefault();
+      if (draw.tool === 'erase') return eraseAt(e);
+      const pt = chartPoint(e);
+      if (!pt) return;
+      c.setPointerCapture(e.pointerId);
+      const t = chartTicker();
+      draw.draft = { t, type: draw.tool, color: draw.color, pts: draw.tool === 'line' ? [pt, Object.assign({}, pt)] : [pt] };
+      draw.last = [e.clientX, e.clientY];
+      redrawDrawings();
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!draw.draft) return;
+      const pt = chartPoint(e);
+      if (!pt) return;
+      const dr = draw.draft;
+      if (dr.type === 'pen') {
+        if (Math.hypot(e.clientX - draw.last[0], e.clientY - draw.last[1]) < 3 || dr.pts.length > 600) return;
+        draw.last = [e.clientX, e.clientY];
+        dr.pts.push(pt);
+      } else if (dr.type === 'line') dr.pts[1] = pt;
+      else dr.pts[0] = pt;
+      redrawDrawings();
+    });
+    const end = () => { if (draw.draft) commitDraft(); };
+    c.addEventListener('pointerup', end);
+    c.addEventListener('pointercancel', end);
+    $('chDraw').addEventListener('click', () => ($('drawBar').hidden ? openDraw() : closeDraw()));
+    $('drawDone').addEventListener('click', closeDraw);
+    $('drawTools').addEventListener('click', (e) => { const b = e.target.closest('[data-tool]'); if (b) setDrawTool(b.dataset.tool); });
+    $('drawColors').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-color]'); if (!b) return;
+      draw.color = b.dataset.color;
+      document.querySelectorAll('#drawColors [data-color]').forEach((x) => x.classList.toggle('on', x === b));
+      if (draw.tool === 'erase') setDrawTool('pen');
+    });
+    $('drawUndo').addEventListener('click', () => {
+      const t = chartTicker();
+      let i = draw.undo.length - 1;
+      while (i >= 0 && draw.undo[i].t !== t) i--;
+      if (i < 0) { $('drawHint').textContent = 'Nothing to undo.'; return; }
+      const list = JSON.parse(draw.undo.splice(i, 1)[0].list);
+      if (list.length) S().drawings[t] = list; else delete S().drawings[t];
+      save(); renderMainChart();
+    });
+    let clearTimer = null;
+    $('drawClear').addEventListener('click', () => {
+      const b = $('drawClear');
+      if (!b.classList.contains('armed')) {
+        b.classList.add('armed'); b.textContent = 'Tap again to clear';
+        clearTimer = setTimeout(() => { b.classList.remove('armed'); b.textContent = 'Clear all'; }, 3000);
+        return;
+      }
+      clearTimeout(clearTimer); b.classList.remove('armed'); b.textContent = 'Clear all';
+      snapshot(chartTicker());
+      delete S().drawings[chartTicker()];
+      save(); renderMainChart();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && draw.tool && !$('drawBar').hidden && $('focus').hidden) closeDraw(); });
   }
 
   function renderMainChart() {
@@ -338,12 +447,10 @@
     const y = E.fwdYield(t);
     $('chStats').innerHTML = `<span class="${cls(chg)}">${pct(chg)} today</span>${y > 0 ? ` · Yield ${(y * 100).toFixed(2)}%` : ''}${s.holdings[t] ? ` · You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}` : ''}`;
     $('chWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
-    const note = noteOf(t);
-    $('chNote').textContent = note && note.px ? `Target ${money(note.px, m.cur)}${note.hit ? ' ✓' : ''}` : note ? 'Note ✎' : 'Note';
-    $('chNote').classList.toggle('on', !!note);
-    if (!$('noteBox').hidden && $('noteBox').dataset.t !== t) closeNote();
+    const nd = ((s.drawings || {})[t] || []).length;
+    $('chDraw').innerHTML = `&#x270E; Draw${nd ? ` <span class="muted">(${nd})</span>` : ''}`;
     const d = ohlcFor(t, ui.chartRange);
-    C.candles($('mainChart'), Object.assign(d, { timeAxis: true, target: targetOpt(t), type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles($('mainChart'), Object.assign(d, { timeAxis: true, drawings: drawingsFor(t, d.c.length), type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     const tr = window.Learn && window.Learn.trendOf(s.sec[t].h.slice(-126));
     const badge = $('chTrend');
     if (tr) {
@@ -803,7 +910,6 @@
         if (ev.res.ok) toast(`${o.kind === 'limit' ? 'Limit' : 'Stop'} order filled: ${o.side === 'buy' ? 'bought' : 'sold'} ${qtyFmt(o.qty)} ${o.t} at ${money(E.price(o.t), E.BY[o.t].cur)}`);
         else toast(`Order for ${o.t} cancelled: ${ev.res.msg}`);
       }
-      if (ev.kind === 'target') toast(`${ev.t} reached your sell target of ${money(ev.px, E.BY[ev.t].cur)}.${S().holdings[ev.t] ? ' Time to decide whether to sell.' : ''}`);
       if (ev.kind === 'split' && S().holdings[ev.t]) toast(`${ev.t} split ${ev.r >= 1 ? ev.r + '-for-1' : '1-for-10'}. Your share count was adjusted.`);
       if (ev.kind === 'macro' && ui.playing && ui.speed <= 1) toast(ev.text);
     }
@@ -828,7 +934,7 @@
     for (let i = 0; i < days; i++) all.push(...E.step());
     if (days > 1) {
       // Collapse a long skip into one summary instead of a toast per event.
-      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split' || e.kind === 'target');
+      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split');
       const divs = all.filter((e) => e.kind === 'div');
       reportEvents([...fills.slice(-3), ...divs]);
     } else {
@@ -896,7 +1002,7 @@
       while (job.done < job.total && !job.stop && performance.now() - t0 < 40) {
         const ev = E.step();
         job.done++;
-        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div' || e.kind === 'target') job.events.push(e);
+        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div') job.events.push(e);
         if (opts.untilPay && ev.some((e) => e.kind === 'div')) { job.found = true; job.stop = true; }
       }
       if (showBar) {
@@ -1300,7 +1406,7 @@
     const avail = $('focus').clientHeight - document.querySelector('.focus-bar').offsetHeight - 16;
     canvas.dataset.h = Math.max(220, Math.round(avail));
     const fd = ohlcFor(t, ui.chartRange);
-    C.candles(canvas, Object.assign(fd, { timeAxis: true, target: targetOpt(t), type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles(canvas, Object.assign(fd, { timeAxis: true, drawings: drawingsFor(t, fd.c.length), type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     if (!$('quickTicket').hidden) renderQuick();
   }
 
@@ -1509,7 +1615,8 @@
       window.Academy.openGuideById('charts');
     });
     $('chFull').addEventListener('click', openFocus);
-    $('mainChart').addEventListener('dblclick', openFocus);
+    $('mainChart').addEventListener('dblclick', () => { if (!draw.tool) openFocus(); });
+    bindDrawing();
     $('fcClose').addEventListener('click', closeFocus);
     $('fcPlay').addEventListener('click', () => setPlaying(!ui.playing));
     $('fcSell').addEventListener('click', () => showQuick('sell'));
@@ -1529,12 +1636,6 @@
     $('chSell').addEventListener('click', () => openSheet(chartTicker(), false, 'sell'));
     $('chBuy').addEventListener('click', () => openSheet(chartTicker(), false, 'buy'));
     $('chWatch').addEventListener('click', () => toggleWatch(chartTicker()));
-    $('chNote').addEventListener('click', () => ($('noteBox').hidden ? openNote() : closeNote()));
-    $('noteClose').addEventListener('click', closeNote);
-    $('noteBox').addEventListener('submit', saveNote);
-    $('noteClear').addEventListener('click', () => { E.setNote($('noteBox').dataset.t, {}); save(); closeNote(); renderMainChart(); toast('Note removed.'); });
-    $('noteLimit').addEventListener('click', noteLimitSell);
-    $('noteBox').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeNote(); $('chNote').focus(); } });
     $('nwRange').addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
       ui.nwRange = +b.dataset.r;
