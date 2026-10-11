@@ -266,13 +266,21 @@
   const isChart = (q) => !!(q.fig || q.chart);
 
   function parseAnswer(str) {
-    let s = String(str).trim().replace(/[$,\s]/g, '').replace('−', '-');
+    // Accept the number with the extras people naturally type: currency, "x", units, "percent", "about".
+    let s = String(str).toLowerCase().trim()
+      .replace(/[−–—]/g, '-')
+      .replace(/^(about|approx\.?|around|roughly|≈|~|=)+/, '')
+      .replace(/[$£€,\s]/g, '')
+      .replace(/^\+/, '');
     if (!s) return null;
     let pct = false;
-    if (s.endsWith('%')) { pct = true; s = s.slice(0, -1); }
+    if (/(%|percent|pc)$/.test(s)) { pct = true; s = s.replace(/(%|percent|pc)$/, ''); }
+    // Units the question already states ("in $ millions", "P/E", "years") don't change the value.
+    s = s.replace(/(x|times|years?|yrs?|millions?|mn|m|billions?|bn|b|dollars?|usd|pershare|ashare|\/share)$/, '');
     let v;
     if (/^-?\d*\.?\d+\/\d*\.?\d+$/.test(s)) { const [a, b] = s.split('/').map(Number); v = a / b; }
-    else v = Number(s);
+    else if (/^-?(\d+\.?\d*|\.\d+)$/.test(s)) v = Number(s);
+    else return null;
     if (!isFinite(v)) return null;
     return { v: pct ? v / 100 : v, pct };
   }
@@ -451,7 +459,14 @@
     renderFeedback();
   }
 
-  function flashInput() { const i = $('acInput'); if (i) { i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); i.focus(); } }
+  function flashInput() {
+    const i = $('acInput');
+    if (!i) return;
+    i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); i.focus();
+    const q = currentItem() && currentItem().q;
+    const e = $('acErr');
+    if (e) { e.hidden = false; e.textContent = `I couldn’t read “${i.value.trim()}” as a number. Type just the number, like ${q && q.pct ? '12.5% or 0.125' : '42 or 1.5 or 1/6'}.`; }
+  }
 
   function advance() {
     ses.checked = false; ses.sel = null; ses.mSel = null;
@@ -631,7 +646,7 @@
     else if (q.opts) body = `<div class="ac-opts${q.opts.length === 3 && isChart(q) ? ' three' : ''}">${it.opts.map((o, i) => `<button type="button" class="ac-opt${ses.sel === i ? ' sel' : ''}" data-opt="${i}"><kbd>${i + 1}</kbd><span>${esc(o)}</span></button>`).join('')}</div>`;
     else {
       const calc = calcAllowed(q);
-      body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a % or a decimal, e.g. 12.5% or 0.125' : 'Fractions like 1/6 are fine'}</span></div>
+      body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a % or a decimal, e.g. 12.5% or 0.125' : 'Fractions like 1/6 are fine'}</span><span class="ac-err" id="acErr" role="alert" hidden></span></div>
         <div class="ac-calcrow"><span class="ac-calcchip ${calc ? 'yes' : 'no'}">${calc ? CALC_SVG : CALC_SVG.replace('</svg>', '<path d="M3 3l18 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>')}${calc ? 'Calculator allowed' : 'No calculator: mental maths'}</span>${calc ? '<button type="button" class="btn btn-ghost small" id="acCalcBtn" aria-expanded="false">Open calculator</button>' : ''}</div>
         ${calc ? `<div class="ac-calc" id="acCalcBox" hidden><input id="acCalc" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Type a sum, e.g. 3.75 / 75 * 100" aria-label="Calculator"><div class="ac-calc-keys">${['(', ')', '^', '√', '÷', '×', '−', '+'].map((k) => `<button type="button" class="btn btn-ghost small" data-ck="${k}">${k}</button>`).join('')}</div><div class="ac-calc-out"><span id="acCalcOut" aria-live="polite">= </span><button type="button" class="btn small" id="acCalcUse" disabled>Use this answer</button></div></div>` : ''}`;
     }
@@ -652,7 +667,7 @@
     const inp = $('acInput');
     if (inp) {
       inp.focus();
-      inp.addEventListener('input', () => { $('acCheck').disabled = !inp.value.trim(); });
+      inp.addEventListener('input', () => { $('acCheck').disabled = !inp.value.trim(); if ($('acErr')) $('acErr').hidden = true; });
       $('acCheck').disabled = true;
     }
   }

@@ -966,3 +966,6 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .ac-calcrow .btn, .ac-calc-out .btn { padding: 6px 12px; }
 .ac-calc-keys .btn { background: var(--surface-2); border: 1.5px solid var(--line-strong); border-radius: 10px; box-shadow: 0 2px 0 var(--line-strong); color: var(--fg); }
 .ac-calc-keys .btn:active { transform: translateY(2px); box-shadow: none; }
+.ac-err { font-size: 13px; font-weight: 600; color: #d33131; }
+:root[data-theme="dark"] .ac-err { color: #ff6b6b; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ac-err { color: #ff6b6b; } }
