@@ -226,6 +226,7 @@
       dates: [],
       holdings: {},
       orders: [],
+      notes: {},              // per ticker: { px: target sell price, text, alert, hit: date reached }
       pending: [],             // declared dividends awaiting payment
       tx: [],
       divLog: [],
@@ -374,6 +375,7 @@
     S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us' }, S.settings);
     build(S.custom);
     ensureAllSecStates();
+    if (!S.notes) S.notes = {};
     if (S.histV !== HIST_V) refreshBackHistory();
     return S;
   }
@@ -569,6 +571,7 @@
     processDividends(events);
     processSplits(events);
     processOrders(events);
+    checkTargets(events);
 
     S.nw.push({ d: S.date, v: netWorth(), b: price('SPY') });
     if (S.nw.length > 5000) S.nw.splice(0, S.nw.length - 5000);
@@ -832,6 +835,29 @@
     S.orders = keep;
   }
 
+  /* ---------- chart notes and sell targets ---------- */
+  function setNote(t, note) {
+    if (!S.notes) S.notes = {};
+    const px = +note.px > 0 ? +note.px : 0, text = String(note.text || '').trim().slice(0, 200);
+    if (!px && !text) { delete S.notes[t]; return null; }
+    // Re-arm the alert whenever the target changes, or if the price is still below it.
+    const old = S.notes[t];
+    const hit = old && old.px === px && old.hit && price(t) >= px ? old.hit : '';
+    S.notes[t] = { px, text, alert: !!note.alert && px > 0, hit };
+    return S.notes[t];
+  }
+  function checkTargets(events) {
+    for (const t in S.notes || {}) {
+      const n = S.notes[t];
+      if (!n.alert || !n.px || n.hit || !BY[t]) continue;
+      if (price(t) >= n.px) {
+        n.hit = S.date;
+        events.push({ kind: 'target', t, px: n.px });
+        addNews('order', `${t} reached your sell target of ${BY[t].cur === 'GBP' ? '£' : '$'}${n.px.toLocaleString('en-US', { maximumFractionDigits: 2 })}.`, t);
+      }
+    }
+  }
+
   function setDrip(t, on) { if (S.holdings[t]) S.holdings[t].drip = on; }
 
   function addCustom(input) {
@@ -859,7 +885,7 @@
   window.Engine = {
     U, BY, SECTORS, TD,
     get S() { return S; },
-    newGame, load, step, execute, quote, placeOrder, cancelOrder, setDrip, addCustom, serialize,
+    newGame, load, step, execute, quote, placeOrder, cancelOrder, setDrip, setNote, addCustom, serialize,
     price, prevClose, priceUSD, fxOf, netWorth, marketValue, holdingValue, annualDps, fwdYield, nextExDate,
     addTradingDays, nextTradingDay, parseISO, addNews,
     perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,

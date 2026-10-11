@@ -973,3 +973,20 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .ac-err.hint { color: #b26a00; background: rgba(255, 150, 0, 0.12); border: 1.5px solid rgba(255, 150, 0, 0.5); border-radius: 10px; padding: 8px 12px; font-size: 14px; }
 :root[data-theme="dark"] .ac-err.hint { color: #ffb347; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ac-err.hint { color: #ffb347; } }
+
+/* chart note: target sell price */
+.pane-chart { position: relative; }
+.note-box { position: absolute; z-index: 20; right: 12px; top: 92px; width: min(340px, calc(100% - 24px)); display: grid; gap: 10px; padding: 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); }
+.note-box[hidden] { display: none; }
+.note-head { display: flex; justify-content: space-between; align-items: center; }
+.note-box textarea { font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); padding: 7px 9px; resize: vertical; width: 100%; }
+.note-box textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.note-btns { display: flex; gap: 8px; }
+.note-order { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+.note-order[hidden] { display: none; }
+.note-order-row { display: flex; gap: 8px; align-items: flex-end; }
+.note-order-row .field { flex: 1; }
+#chNote.on { border-color: var(--chart-c); color: var(--chart-c); font-weight: 600; }
+@media (max-width: 700px) {
+  .note-box { position: static; width: auto; margin: 8px 8px 0; box-shadow: none; }
+}

@@ -5,7 +5,7 @@
   function tokens() {
     const cs = getComputedStyle(document.documentElement);
     const g = (n) => cs.getPropertyValue(n).trim();
-    return { fg: g('--fg'), muted: g('--muted'), line: g('--line'), accent: g('--accent'), gain: g('--gain'), loss: g('--loss'), b: g('--chart-b'), surface: g('--surface'), mono: g('--f-mono'), buy: g('--buy') || g('--accent'), sell: g('--sell') || g('--loss') };
+    return { fg: g('--fg'), muted: g('--muted'), line: g('--line'), accent: g('--accent'), gain: g('--gain'), loss: g('--loss'), b: g('--chart-b'), surface: g('--surface'), mono: g('--f-mono'), buy: g('--buy') || g('--accent'), sell: g('--sell') || g('--loss'), gold: g('--chart-c') || '#c08a2b' };
   }
 
   function setup(canvas) {
@@ -210,6 +210,7 @@
    * Candlestick (or line) price chart with a volume histogram underneath.
    * opts: { o, h, l, c, v, labels, type: 'candles'|'line', fmt, timeAxis }
    * timeAxis: label the bottom axis in 5-minute steps instead of dates.
+   * target: { px, label, note } draws a sell-target line with its label and note.
    */
   function candles(canvas, opts) {
     canvas._copts = opts;
@@ -240,6 +241,9 @@
       if (lo < min) min = lo; if (hi > max) max = hi;
     }
     for (const ov of d.overlays || []) for (const v of ov.values) { if (v == null) continue; if (v < min) min = v; if (v > max) max = v; }
+    // Keep a sell target in view, unless it is far away from the prices shown.
+    const tgt = d.target && d.target.px > 0 ? d.target : null;
+    if (tgt && tgt.px <= max * 1.6 && tgt.px >= min / 1.6) { min = Math.min(min, tgt.px); max = Math.max(max, tgt.px); }
     if (min === max) { min *= 0.99; max *= 1.01; }
     const pad = (max - min) * 0.06; min -= pad; max += pad;
 
@@ -344,6 +348,24 @@
         ctx.textAlign = k === 0 ? 'left' : k === count - 1 ? 'right' : 'center';
         ctx.fillText(shortDate(d.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
       }
+    }
+
+    // sell target line
+    if (tgt) {
+      const inView = tgt.px <= max && tgt.px >= min;
+      const ty = inView ? Math.round(yAt(tgt.px)) + 0.5 : (tgt.px > max ? Top - 2 : PB);
+      ctx.strokeStyle = T.gold; ctx.lineWidth = 1.5; ctx.setLineDash([7, 4]);
+      if (inView) { ctx.beginPath(); ctx.moveTo(L, ty); ctx.lineTo(R, ty); ctx.stroke(); }
+      ctx.setLineDash([]);
+      ctx.font = `600 11px ${T.mono}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      const gap = d.c[n - 1] > 0 ? tgt.px / d.c[n - 1] - 1 : 0;
+      let text = `${tgt.label || 'Sell target'} ${d.fmt(tgt.px)} (${gap >= 0 ? '+' : ''}${(gap * 100).toFixed(1)}%)${inView ? '' : tgt.px > max ? ' ↑' : ' ↓'}`;
+      if (tgt.note) text += ` · ${tgt.note.length > 40 ? tgt.note.slice(0, 39) + '…' : tgt.note}`;
+      const tw = Math.min(ctx.measureText(text).width, R - L - 12);
+      const ly2 = Math.max(Top + 2, Math.min(PB - 10, ty - 11));
+      ctx.fillStyle = T.surface; ctx.globalAlpha = 0.9; ctx.fillRect(L + 4, ly2 - 8, tw + 10, 16); ctx.globalAlpha = 1;
+      ctx.fillStyle = T.gold; ctx.fillText(text, L + 9, ly2, R - L - 16);
+      if (inView) { ctx.fillRect(R + 2, ty - 9, labelW - 4, 18); ctx.fillStyle = '#ffffff'; ctx.fillText(d.fmt(tgt.px), R + 7, ty); }
     }
 
     // last price marker on the axis

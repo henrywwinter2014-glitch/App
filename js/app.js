@@ -269,6 +269,62 @@
     }).join('');
   }
 
+  /* ---------- chart note: target sell price ---------- */
+  const noteOf = (t) => (S().notes || {})[t] || null;
+  function targetOpt(t) {
+    const n = noteOf(t);
+    return n && n.px ? { px: n.px, label: n.hit ? 'Target reached' : 'Sell target', note: n.text } : null;
+  }
+  function openNote() {
+    const t = chartTicker(), m = E.BY[t], n = noteOf(t), h = S().holdings[t];
+    const box = $('noteBox');
+    box.dataset.t = t;
+    $('noteTitle').textContent = `Note for ${t}`;
+    $('noteNow').textContent = `· now ${money(E.price(t), m.cur)}`;
+    $('notePx').value = n && n.px ? n.px : '';
+    $('noteText').value = n ? n.text : '';
+    $('noteAlert').checked = n ? n.alert || !n.px : true;
+    $('noteClear').hidden = !n;
+    $('noteMsg').textContent = '';
+    $('noteOrder').hidden = !(h && n && n.px);
+    if (h) $('noteQty').value = +h.qty.toFixed(4);
+    box.hidden = false;
+    const tools = document.querySelector('.pane-chart .pane-tools');
+    box.style.top = tools ? `${tools.offsetTop + tools.offsetHeight + 6}px` : '';
+    $('chNote').setAttribute('aria-expanded', 'true');
+    $('notePx').focus();
+  }
+  function closeNote() {
+    $('noteBox').hidden = true;
+    $('chNote').setAttribute('aria-expanded', 'false');
+  }
+  function saveNote(e) {
+    e.preventDefault();
+    const t = $('noteBox').dataset.t, m = E.BY[t];
+    const raw = $('notePx').value.trim();
+    const px = raw === '' ? 0 : +raw;
+    if (raw !== '' && !(px > 0)) { $('noteMsg').textContent = 'Enter a price above zero, or leave it empty for a note only.'; return; }
+    const n = E.setNote(t, { px, text: $('noteText').value, alert: $('noteAlert').checked });
+    save();
+    renderMainChart();
+    if (!n) { closeNote(); toast(`Note for ${t} removed.`); return; }
+    const p = E.price(t);
+    toast(n.px ? `${t} sell target set at ${money(n.px, m.cur)} (${pct(n.px / p - 1)} from now).${n.alert ? ' You’ll get an alert when it’s reached.' : ''}` : `Note saved for ${t}.`);
+    if (n.px && n.px <= p) toast(`${t} is already at or above your target.`);
+    if (n.px && S().holdings[t]) { openNote(); $('noteMsg').textContent = 'Saved. You can also place a limit sell below.'; }
+    else closeNote();
+  }
+  function noteLimitSell() {
+    const t = $('noteBox').dataset.t, n = noteOf(t);
+    if (!n || !n.px) return;
+    const res = E.placeOrder(t, 'sell', 'limit', +$('noteQty').value, n.px);
+    if (!res.ok) { $('noteMsg').textContent = res.msg; return; }
+    save();
+    closeNote();
+    toast(`Limit sell placed: ${qtyFmt(res.order.qty)} ${t} at ${money(n.px, E.BY[t].cur)}. See the Orders tab.`);
+    refresh();
+  }
+
   function renderMainChart() {
     const t = chartTicker();
     const m = E.BY[t];
@@ -282,8 +338,12 @@
     const y = E.fwdYield(t);
     $('chStats').innerHTML = `<span class="${cls(chg)}">${pct(chg)} today</span>${y > 0 ? ` · Yield ${(y * 100).toFixed(2)}%` : ''}${s.holdings[t] ? ` · You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}` : ''}`;
     $('chWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
+    const note = noteOf(t);
+    $('chNote').textContent = note && note.px ? `Target ${money(note.px, m.cur)}${note.hit ? ' ✓' : ''}` : note ? 'Note ✎' : 'Note';
+    $('chNote').classList.toggle('on', !!note);
+    if (!$('noteBox').hidden && $('noteBox').dataset.t !== t) closeNote();
     const d = ohlcFor(t, ui.chartRange);
-    C.candles($('mainChart'), Object.assign(d, { timeAxis: true, type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles($('mainChart'), Object.assign(d, { timeAxis: true, target: targetOpt(t), type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     const tr = window.Learn && window.Learn.trendOf(s.sec[t].h.slice(-126));
     const badge = $('chTrend');
     if (tr) {
@@ -743,6 +803,7 @@
         if (ev.res.ok) toast(`${o.kind === 'limit' ? 'Limit' : 'Stop'} order filled: ${o.side === 'buy' ? 'bought' : 'sold'} ${qtyFmt(o.qty)} ${o.t} at ${money(E.price(o.t), E.BY[o.t].cur)}`);
         else toast(`Order for ${o.t} cancelled: ${ev.res.msg}`);
       }
+      if (ev.kind === 'target') toast(`${ev.t} reached your sell target of ${money(ev.px, E.BY[ev.t].cur)}.${S().holdings[ev.t] ? ' Time to decide whether to sell.' : ''}`);
       if (ev.kind === 'split' && S().holdings[ev.t]) toast(`${ev.t} split ${ev.r >= 1 ? ev.r + '-for-1' : '1-for-10'}. Your share count was adjusted.`);
       if (ev.kind === 'macro' && ui.playing && ui.speed <= 1) toast(ev.text);
     }
@@ -767,7 +828,7 @@
     for (let i = 0; i < days; i++) all.push(...E.step());
     if (days > 1) {
       // Collapse a long skip into one summary instead of a toast per event.
-      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split');
+      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split' || e.kind === 'target');
       const divs = all.filter((e) => e.kind === 'div');
       reportEvents([...fills.slice(-3), ...divs]);
     } else {
@@ -835,7 +896,7 @@
       while (job.done < job.total && !job.stop && performance.now() - t0 < 40) {
         const ev = E.step();
         job.done++;
-        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div') job.events.push(e);
+        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div' || e.kind === 'target') job.events.push(e);
         if (opts.untilPay && ev.some((e) => e.kind === 'div')) { job.found = true; job.stop = true; }
       }
       if (showBar) {
@@ -1239,7 +1300,7 @@
     const avail = $('focus').clientHeight - document.querySelector('.focus-bar').offsetHeight - 16;
     canvas.dataset.h = Math.max(220, Math.round(avail));
     const fd = ohlcFor(t, ui.chartRange);
-    C.candles(canvas, Object.assign(fd, { timeAxis: true, type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles(canvas, Object.assign(fd, { timeAxis: true, target: targetOpt(t), type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     if (!$('quickTicket').hidden) renderQuick();
   }
 
@@ -1468,6 +1529,12 @@
     $('chSell').addEventListener('click', () => openSheet(chartTicker(), false, 'sell'));
     $('chBuy').addEventListener('click', () => openSheet(chartTicker(), false, 'buy'));
     $('chWatch').addEventListener('click', () => toggleWatch(chartTicker()));
+    $('chNote').addEventListener('click', () => ($('noteBox').hidden ? openNote() : closeNote()));
+    $('noteClose').addEventListener('click', closeNote);
+    $('noteBox').addEventListener('submit', saveNote);
+    $('noteClear').addEventListener('click', () => { E.setNote($('noteBox').dataset.t, {}); save(); closeNote(); renderMainChart(); toast('Note removed.'); });
+    $('noteLimit').addEventListener('click', noteLimitSell);
+    $('noteBox').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeNote(); $('chNote').focus(); } });
     $('nwRange').addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
       ui.nwRange = +b.dataset.r;

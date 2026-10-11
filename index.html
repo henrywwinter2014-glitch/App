@@ -118,12 +118,26 @@
               <button type="button" data-ct="candles" class="on">Candles</button><button type="button" data-ct="line">Line</button>
             </div>
             <button type="button" class="btn" id="chMA" aria-pressed="false" title="Show 20-day and 50-day moving averages">Averages</button>
+            <button type="button" class="btn" id="chNote" aria-expanded="false" aria-controls="noteBox" title="Note a target price to sell at">Note</button>
             <button type="button" class="trend-badge" id="chTrend" title="What does this mean? Open the trend lessons"></button>
             <span class="ch-stats" id="chStats"></span>
             <button type="button" class="btn btn-ghost" id="chWatch">Watch</button>
             <button type="button" class="btn" id="chFull" title="Full-screen chart (or double-click the chart)">&#x26F6; Full screen</button>
             <button type="button" class="btn btn-primary" id="chTrade">Trade</button>
           </div>
+          <form class="note-box" id="noteBox" hidden autocomplete="off">
+            <div class="note-head"><b id="noteTitle">Note</b><button type="button" class="focus-x small" id="noteClose" aria-label="Close note">&times;</button></div>
+            <label class="field"><span>Highest price to sell at <small class="muted" id="noteNow"></small></span><input id="notePx" type="number" min="0" step="any" inputmode="decimal" placeholder="e.g. 250"></label>
+            <label class="field"><span>Note <small class="muted">(optional)</small></span><textarea id="noteText" rows="2" maxlength="200" placeholder="Why this price? e.g. sell before earnings, P/E too high above here"></textarea></label>
+            <label class="check"><input type="checkbox" id="noteAlert" checked> Alert me when the price reaches it</label>
+            <div class="note-btns"><button type="submit" class="btn btn-primary">Save note</button><button type="button" class="btn btn-ghost" id="noteClear">Remove</button></div>
+            <div class="note-order" id="noteOrder" hidden>
+              <span>Sell automatically at this price?</span>
+              <div class="note-order-row"><label class="field small"><span>Shares</span><input id="noteQty" type="number" min="0" step="any" inputmode="decimal"></label><button type="button" class="btn" id="noteLimit">Place limit sell</button></div>
+              <small class="muted">A limit sell order fills when the price reaches your target. You can cancel it on the Orders tab.</small>
+            </div>
+            <p class="msg" id="noteMsg" role="status"></p>
+          </form>
           <canvas id="mainChart" class="chart" height="380"></canvas>
         </div>
 
