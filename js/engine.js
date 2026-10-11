@@ -8,6 +8,7 @@
 
   const D = window.MARKET_DATA;
   const HIST = 261;            // ~1 trading year of closes kept per security
+  const HIST_V = 2;            // version of the back-history model, so saved games can be refreshed
   const TD = 252;              // trading days per year
   const START_DATE = '2026-10-09';
   const SECTORS = Object.keys(D.stocks);
@@ -216,6 +217,7 @@
   function freshState(startCash) {
     return {
       v: 1,
+      histV: HIST_V,
       date: START_DATE,
       day: 0,
       startCash, cash: startCash,
@@ -238,7 +240,36 @@
     };
   }
 
+  // Real-world anchors for the back history: [months before day 1, level then].
+  const REAL = D.history || { market: [], stocks: {} };
+  const anchorIdx = (months) => Math.max(0, HIST - 1 - Math.round(months * 21));
+
+  // Bend a log-price path so it passes through the anchors (relative to its last value). The
+  // correction is spread linearly between anchors, so the day-to-day noise stays realistic.
+  function bendLogPath(lp, anchors, endLevel) {
+    const n = lp.length;
+    const pts = anchors.map(([mo, lvl]) => [anchorIdx(mo), Math.log(lvl / endLevel)])
+      .filter(([i]) => i < n - 1).sort((a, b) => a[0] - b[0]);
+    if (!pts.length) return lp;
+    pts.push([n - 1, 0]);
+    const delta = pts.map(([i, want]) => want - (lp[i] - lp[n - 1]));
+    delta[delta.length - 1] = 0;
+    const out = lp.slice();
+    for (let k = 0; k < n; k++) {
+      let d;
+      if (k <= pts[0][0]) d = delta[0];
+      else {
+        let j = 1; while (pts[j][0] < k) j++;
+        const [i0] = pts[j - 1], [i1] = pts[j];
+        d = delta[j - 1] + (delta[j] - delta[j - 1]) * (k - i0) / (i1 - i0);
+      }
+      out[k] = lp[k] + d;
+    }
+    return out;
+  }
+
   // Generate a year of deterministic back history so charts and 52-week stats exist on day one.
+  // It follows the shape of the real market year, and real price points for well-known names.
   function backfill(m, bfFactors) {
     const rng = mulberry(m.h ^ 0x9e3779b9);
     const n = HIST;
@@ -252,9 +283,17 @@
       // No dividend drops are simulated in back history, so leave out the yield carry too.
       for (let k = 1; k < n; k++) rets.push(factorReturn(m, bfFactors[k], gauss(rng)) - m.carry);
     }
-    S._bfRets[m.t] = rets;
     prices[0] = 1;
     for (let k = 1; k < n; k++) prices[k] = Math.max(prices[k - 1] * (1 + rets[k]), 1e-6);
+    // S&P 500 trackers follow the index itself.
+    const tracksIndex = !REAL.stocks[m.t] && ['SPY', 'VOO', 'IVV', 'VTI'].includes(m.t) && REAL.market.length;
+    const anchors = tracksIndex ? REAL.market : REAL.stocks[m.t];
+    if (anchors) {
+      const lp = bendLogPath(prices.map(Math.log), anchors, tracksIndex ? REAL.market[REAL.market.length - 1][1] : m.base);
+      for (let k = 0; k < n; k++) prices[k] = Math.exp(lp[k]);
+      rets = prices.map((p, k) => (k ? p / prices[k - 1] - 1 : 0));
+    }
+    S._bfRets[m.t] = rets;
     const scale = m.base / prices[n - 1];
     return prices.map((p) => round(p * scale));
   }
@@ -263,12 +302,18 @@
     const rng = mulberry(424242);
     const out = [];
     for (let k = 0; k < HIST; k++) out.push(drawFactors(rng));
-    // Anchor the back history to a typical year: the market up about 10%, every other factor flat.
+    // Anchor the back history to the real market year; every other factor ends flat.
+    const mkt = REAL.market && REAL.market.length ? REAL.market : [[12, 1 / 1.095], [0, 1]];
     for (const key of Object.keys(out[0])) {
-      const target = key === 'mkt' ? 0.095 : 0;
+      const target = key === 'mkt' ? Math.log(mkt[mkt.length - 1][1] / mkt[0][1]) * (HIST - 1) / Math.max(1, HIST - 1 - anchorIdx(mkt[0][0])) : 0;
       const shift = (out.reduce((a, F) => a + F[key], 0) - target) / (HIST - 1);
       for (let k = 1; k < HIST; k++) out[k][key] -= shift;
     }
+    // Then bend the market's path through the real highs and lows.
+    const cum = [0];
+    for (let k = 1; k < HIST; k++) cum.push(cum[k - 1] + out[k].mkt);
+    const bent = bendLogPath(cum, mkt, mkt[mkt.length - 1][1]);
+    for (let k = 1; k < HIST; k++) out[k].mkt += (bent[k] - bent[k - 1]) - (cum[k] - cum[k - 1]);
     return out;
   }
 
@@ -329,7 +374,29 @@
     S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us' }, S.settings);
     build(S.custom);
     ensureAllSecStates();
+    if (S.histV !== HIST_V) refreshBackHistory();
     return S;
+  }
+
+  // Redraw the part of each chart from before day 1 with the current back-history model,
+  // joined onto the saved prices so nothing that happened in the game changes.
+  function refreshBackHistory() {
+    const keep = HIST - S.day;
+    if (keep > 1) {
+      const bf = makeBackfillFactors();
+      S._bfRets = {};
+      for (const m of U) {
+        const st = S.sec[m.t];
+        if (m.track && !S._bfRets[m.track]) continue;
+        const fresh = backfill(m, bf);
+        if (!st || st.h.length !== HIST) continue;
+        const join = st.h[keep - 1];
+        const k = join / fresh[HIST - 1];
+        for (let i = 0; i < keep - 1; i++) st.h[i] = round(fresh[HIST - keep + i] * k);
+      }
+      delete S._bfRets;
+    }
+    S.histV = HIST_V;
   }
 
   /* ---------- queries ---------- */

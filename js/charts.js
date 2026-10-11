@@ -39,6 +39,11 @@
     return out;
   }
 
+  // Time axis: each bar is a 5-minute slot in a 9:30-16:00 session, the last bar closing at 16:00.
+  const SESSION_OPEN = 9 * 60 + 30, SLOTS = 78;
+  const barMinute = (i, n) => SESSION_OPEN + 5 * (SLOTS - 1 - ((n - 1 - i) % SLOTS));
+  const hhmm = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+
   function shortDate(s) {
     const [y, m, d] = s.split('-');
     const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m - 1];
@@ -203,7 +208,8 @@
 
   /*
    * Candlestick (or line) price chart with a volume histogram underneath.
-   * opts: { o, h, l, c, v, labels, type: 'candles'|'line', fmt }
+   * opts: { o, h, l, c, v, labels, type: 'candles'|'line', fmt, timeAxis }
+   * timeAxis: label the bottom axis in 5-minute steps instead of dates.
    */
   function candles(canvas, opts) {
     canvas._copts = opts;
@@ -305,13 +311,39 @@
       ctx.fillRect(Math.round(xAt(i) - bw / 2), XB - vh, Math.max(1, Math.round(bw)), vh);
     }
 
-    // dates
+    // bottom axis
     ctx.fillStyle = T.muted; ctx.textBaseline = 'alphabetic';
-    const count = Math.min(5, n);
-    for (let k = 0; k < count; k++) {
-      const i = Math.round((k / (count - 1 || 1)) * (n - 1));
-      ctx.textAlign = k === 0 ? 'left' : k === count - 1 ? 'right' : 'center';
-      ctx.fillText(shortDate(d.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
+    if (d.timeAxis) {
+      // A tick for every 5-minute bar, and a time label at the roundest step that fits.
+      ctx.strokeStyle = T.line; ctx.lineWidth = 1;
+      const tickEvery = Math.max(1, Math.ceil(3 / slot));
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        if ((n - 1 - i) % tickEvery) continue;
+        const x = Math.round(xAt(i)) + 0.5, open = barMinute(i, n) === SESSION_OPEN;
+        ctx.moveTo(x, XB + 1); ctx.lineTo(x, XB + (open ? 6 : 3));
+      }
+      ctx.stroke();
+      const step = [5, 10, 15, 30, 60, 120, 180].find((m) => (m / 5) * slot >= 46) || 390;
+      ctx.textAlign = 'center';
+      // Session opens (9:30) first, then round clock times that don't crowd them.
+      const placed = [];
+      const tryLabel = (i, open) => {
+        const x = Math.min(Math.max(xAt(i), L + 14), R - 14);
+        if (placed.some((px) => Math.abs(px - x) < 40)) return;
+        placed.push(x);
+        ctx.fillStyle = open ? T.fg : T.muted;
+        ctx.fillText(hhmm(barMinute(i, n)), x, h - 5);
+      };
+      for (let i = 0; i < n; i++) if (barMinute(i, n) === SESSION_OPEN) tryLabel(i, true);
+      for (let i = 0; i < n; i++) { const min = barMinute(i, n); if (min !== SESSION_OPEN && min % step === 0) tryLabel(i, false); }
+    } else {
+      const count = Math.min(5, n);
+      for (let k = 0; k < count; k++) {
+        const i = Math.round((k / (count - 1 || 1)) * (n - 1));
+        ctx.textAlign = k === 0 ? 'left' : k === count - 1 ? 'right' : 'center';
+        ctx.fillText(shortDate(d.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
+      }
     }
 
     // last price marker on the axis
@@ -335,9 +367,10 @@
       ctx.strokeStyle = T.muted; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, Top - 4); ctx.lineTo(x, XB); ctx.stroke(); ctx.setLineDash([]);
     }
+    const when = d.timeAxis ? hhmm(barMinute(idx, n)) : shortDate(d.labels[idx]);
     const parts = line
-      ? [shortDate(d.labels[idx]), 'Close ' + d.fmt(d.c[idx])]
-      : [shortDate(d.labels[idx]), 'O ' + d.fmt(d.o[idx]), 'H ' + d.fmt(d.h[idx]), 'L ' + d.fmt(d.l[idx]), 'C ' + d.fmt(d.c[idx])];
+      ? [when, 'Close ' + d.fmt(d.c[idx])]
+      : [when, 'O ' + d.fmt(d.o[idx]), 'H ' + d.fmt(d.h[idx]), 'L ' + d.fmt(d.l[idx]), 'C ' + d.fmt(d.c[idx])];
     const chg = idx ? d.c[idx] / d.c[idx - 1] - 1 : 0;
     ctx.textBaseline = 'top'; ctx.textAlign = 'left';
     let x = L + 2;

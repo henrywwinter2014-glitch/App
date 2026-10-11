@@ -283,7 +283,7 @@
     $('chStats').innerHTML = `<span class="${cls(chg)}">${pct(chg)} today</span>${y > 0 ? ` · Yield ${(y * 100).toFixed(2)}%` : ''}${s.holdings[t] ? ` · You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}` : ''}`;
     $('chWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
     const d = ohlcFor(t, ui.chartRange);
-    C.candles($('mainChart'), Object.assign(d, { type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles($('mainChart'), Object.assign(d, { timeAxis: true, type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     const tr = window.Learn && window.Learn.trendOf(s.sec[t].h.slice(-126));
     const badge = $('chTrend');
     if (tr) {
@@ -1239,7 +1239,7 @@
     const avail = $('focus').clientHeight - document.querySelector('.focus-bar').offsetHeight - 16;
     canvas.dataset.h = Math.max(220, Math.round(avail));
     const fd = ohlcFor(t, ui.chartRange);
-    C.candles(canvas, Object.assign(fd, { type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+    C.candles(canvas, Object.assign(fd, { timeAxis: true, type: ui.chartType, overlays: maOverlays(t, fd.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     if (!$('quickTicket').hidden) renderQuick();
   }
 

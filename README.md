@@ -29,6 +29,8 @@ Anything missing can be added under **Settings → List a new security**.
 ## Features
 
 - Trading-terminal layout: watchlist price tiles with Sell/Buy (bid/ask) prices and day range, a candlestick chart with volume, and a product list with change, trend, range, client sentiment and one-click Sell/Buy.
+- The price chart's bottom axis is labelled in 5-minute steps (a 9:30 to 16:00 session per bar block), with a tick for every 5-minute bar and the hover readout showing the bar's time.
+- The year of history before day 1 follows the real market year behind the reference prices (roughly autumn 2024 to autumn 2025): the S&P 500's actual path, including the April 2025 sell-off and rebound, and approximate real price points for about 25 well-known stocks and ETFs (Apple, Microsoft, NVIDIA, Tesla, UnitedHealth, QQQ, gold, bitcoin and others). The anchors in `js/data.js` are approximate levels, not exact closes.
 - Full-screen chart mode (button or double-click) with only Play/Pause, Sell and Buy, and a quick order box on the chart.
 - Market, limit and stop orders; buy by share count or dollar amount; optional fractional shares and commission.
 - Dividends on real-style schedules (monthly, quarterly, semi-annual, annual) with ex-dates, pay dates, and the price drop on the ex-date.
