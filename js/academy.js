@@ -1,7 +1,7 @@
 /*
  * Learn: a Duolingo-style course in fundamental stock analysis.
  * A path of units and lessons with teaching cards, multiple-choice, number, chart and
- * match-the-pairs questions; XP, streaks, hearts, ranks, daily quests and achievements;
+ * match-the-pairs questions; XP, streaks, ranks, daily quests and achievements;
  * spaced-repetition revision, unit tests, a timed final exam and a ratio sprint.
  * Progress lives in the game state (Engine.S.academy), so it saves and syncs with the game.
  */
@@ -24,8 +24,6 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  const MAX_HEARTS = 5;
-  const HEART_MS = 30 * 60 * 1000;
   const REVIEW_DAYS = [1, 3, 7, 16, 35];
   const LESSON_LEN = 8, TEST_LEN = 10, FINAL_LEN = 25, FINAL_SECS = 30 * 60, SPRINT_SECS = 120, PASS = 0.8;
   const QUEST_XP = 10;
@@ -36,13 +34,13 @@
     if (!S.academy) S.academy = {};
     const a = S.academy;
     const defaults = {
-      xp: 0, hearts: MAX_HEARTS, heartAt: Date.now(), streak: 0, bestStreak: 0, lastDay: '', today: { d: '', xp: 0 }, goal: 30,
+      xp: 0, streak: 0, bestStreak: 0, lastDay: '', today: { d: '', xp: 0 }, goal: 30,
       lessons: {}, tests: {}, review: {}, sprintBest: 0, final: { passed: false, best: 0, date: '' },
       quests: { d: '', list: [] }, badges: {}, counts: { correct: 0, lessons: 0, perfect: 0, reviews: 0, bestCombo: 0, charts: 0 }, sound: true,
     };
     for (const k in defaults) if (a[k] === undefined) a[k] = defaults[k];
     if (a.course !== COURSE) migrateCourse(a);
-    regenHearts(a);
+    delete a.hearts; delete a.heartAt; // hearts were removed
     return a;
   }
   function save() { if (window.App && window.App.save) window.App.save(); }
@@ -52,17 +50,6 @@
   function dayStr(d) { const x = d || new Date(); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; }
   function addDays(ds, n) { const [y, m, d] = ds.split('-').map(Number); return dayStr(new Date(y, m - 1, d + n)); }
 
-  function regenHearts(a) {
-    if (a.hearts >= MAX_HEARTS) { a.heartAt = Date.now(); return; }
-    const gained = Math.floor((Date.now() - a.heartAt) / HEART_MS);
-    if (gained > 0) { a.hearts = Math.min(MAX_HEARTS, a.hearts + gained); a.heartAt += gained * HEART_MS; if (a.hearts >= MAX_HEARTS) a.heartAt = Date.now(); }
-  }
-  function nextHeartMins(a) { return Math.max(1, Math.ceil((a.heartAt + HEART_MS - Date.now()) / 60000)); }
-  function loseHeart() {
-    const a = A();
-    if (a.hearts === MAX_HEARTS) a.heartAt = Date.now();
-    a.hearts = Math.max(0, a.hearts - 1);
-  }
 
   function addXP(n) {
     const a = A(), today = dayStr();
@@ -329,7 +316,6 @@
 
   function startLesson(u, l) {
     const a = A();
-    if (a.hearts <= 0) { openOverlay(); ses = { kind: 'noHearts', title: 'Out of hearts' }; return render(); }
     const L = UNITS[u].lessons[l];
     const keys = curatedKeys(u, l);
     const gens = L.gen && L.gen.length ? L.gen : [];
@@ -339,7 +325,7 @@
     shuffle(keys);
     if (L.m) keys.splice(Math.min(keys.length, 2 + Math.floor(Math.random() * 3)), 0, `m:${UNITS[u].id}:${l}`);
     const replay = lessonDone(u, l);
-    begin({ kind: 'lesson', u, l, title: `Unit ${u + 1} · ${L.t}`, items: keys.map(item).filter(Boolean), hearts: true,
+    begin({ kind: 'lesson', u, l, title: `Unit ${u + 1} · ${L.t}`, items: keys.map(item).filter(Boolean),
       intro: { title: L.t, html: L.tip, say: replay ? 'Back for more? Practice makes permanent.' : l === 0 ? `Welcome to ${esc(UNITS[u].title)}! Here’s the key idea.` : 'New concept! Read this, then give it a go.' } });
   }
 
@@ -348,7 +334,7 @@
     const gens = unitGens(u);
     while (keys.length < TEST_LEN) keys.push(gens.length ? genKey(gens[keys.length % gens.length]) : shuffle(UNITS[u].lessons.flatMap((_, l) => curatedKeys(u, l)))[0]);
     begin({ kind: 'test', u, testOut, title: `Unit ${u + 1} test · ${UNITS[u].title}`, items: shuffle(keys).map(item).filter(Boolean), exam: true,
-      intro: { title: `${testOut ? 'Test out of' : 'Unit test:'} ${UNITS[u].title}`, say: 'Exam time. You’ve got this!', html: `${CALC_RULE}<p>${TEST_LEN} questions covering the whole unit. Score <b>${PASS * 100}%</b> or more to pass${testOut ? ' and skip ahead to this unit' : ' and unlock the next unit'}.</p><p>Like a real exam, you won’t see answers until the end. No hearts are used.</p>` } });
+      intro: { title: `${testOut ? 'Test out of' : 'Unit test:'} ${UNITS[u].title}`, say: 'Exam time. You’ve got this!', html: `${CALC_RULE}<p>${TEST_LEN} questions covering the whole unit. Score <b>${PASS * 100}%</b> or more to pass${testOut ? ' and skip ahead to this unit' : ' and unlock the next unit'}.</p><p>Like a real exam, you won’t see answers until the end.</p>` } });
   }
 
   function startFinal() {
@@ -372,7 +358,7 @@
     }
     const due = dueKeys().length;
     begin({ kind: 'review', title: 'Revision', items: keys.map(item).filter(Boolean),
-      intro: { title: 'Revision', say: due ? 'Let’s fix those mistakes for good.' : 'Nothing due, so here’s a mixed workout.', html: `<p>${due ? `You have <b>${due}</b> question${due === 1 ? '' : 's'} due. Questions you miss come back after 1, 3, 7, 16 and 35 days until they stick.` : 'Questions you get wrong come back here on a schedule until they stick.'}</p><p>No hearts are used, and finishing revision restores a heart${a.hearts < MAX_HEARTS ? '' : ' (you are already full)'}.</p>` } });
+      intro: { title: 'Revision', say: due ? 'Let’s fix those mistakes for good.' : 'Nothing due, so here’s a mixed workout.', html: `<p>${due ? `You have <b>${due}</b> question${due === 1 ? '' : 's'} due. Questions you miss come back after 1, 3, 7, 16 and 35 days until they stick.` : 'Questions you get wrong come back here on a schedule until they stick.'}</p>` } });
   }
 
   function startCharts() {
@@ -381,7 +367,7 @@
     UNITS.forEach((un, u) => un.lessons.forEach((L, l) => L.q.forEach((q, i) => { if (q.fig) figs.push(`c:${un.id}:${l}:${i}`); })));
     keys.push(...shuffle(figs).slice(0, 2));
     begin({ kind: 'charts', title: 'Chart practice', items: shuffle(keys).map(item).filter(Boolean),
-      intro: { title: 'Chart practice', say: 'Let’s read some real charts!', html: '<p>Six months of real products from the simulator, names hidden. Spot the trend: are the highs and lows stepping up, stepping down, or going sideways?</p><p>No hearts are used.</p>' } });
+      intro: { title: 'Chart practice', say: 'Let’s read some real charts!', html: '<p>Six months of real products from the simulator, names hidden. Spot the trend: are the highs and lows stepping up, stepping down, or going sideways?</p>' } });
   }
 
   function startSprint() {
@@ -390,7 +376,7 @@
   }
 
   function begin(s) {
-    ses = Object.assign({ i: 0, firstTry: 0, results: [], phase: 'intro', started: 0, xp: 0, heartsLost: 0, combo: 0, bestCombo: 0 }, s);
+    ses = Object.assign({ i: 0, firstTry: 0, results: [], phase: 'intro', started: 0, xp: 0, misses: 0, combo: 0, bestCombo: 0 }, s);
     ses.total = ses.items.length;
     openOverlay();
     render();
@@ -451,7 +437,7 @@
       sfx([3, 5, 10, 15, 20].includes(ses.combo) ? 'combo' : 'ok');
     } else {
       ses.combo = 0;
-      if (ses.hearts) { loseHeart(); ses.heartsLost++; }
+      ses.misses++;
       if (it.tries === 1) ses.items.push(Object.assign({}, it, it.q.match ? { matched: [], mistakes: 0, left: shuffle(it.left.slice()), right: shuffle(it.right.slice()) } : {}, { tries: 1, again: true }));
       sfx('bad');
     }
@@ -471,7 +457,6 @@
 
   function advance() {
     ses.checked = false; ses.sel = null; ses.mSel = null;
-    if (ses.hearts && A().hearts <= 0) { ses.phase = 'outOfHearts'; sfx('fail'); save(); return render(); }
     ses.i++;
     if (ses.i >= ses.items.length) return finish();
     render();
@@ -517,7 +502,6 @@
       ses.acc = ses.firstTry / Math.max(1, ses.total);
       if (ses.kind === 'review') {
         a.counts.reviews++; questEvent('review', 1);
-        if (a.hearts < MAX_HEARTS) { a.hearts++; ses.heartBack = true; }
       }
     } else if (ses.kind === 'sprint') {
       ses.newBest = ses.score > a.sprintBest;
@@ -551,22 +535,15 @@
     renderPage();
   }
 
-  const HEART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.4h2c.7-1.2 2.2-2.4 4.3-2.4 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg>';
-  function heartsHTML() {
-    const a = A();
-    return `<span class="ac-heart" title="${a.hearts < MAX_HEARTS ? `Next heart in ${nextHeartMins(a)} min` : 'Full'}">${HEART_SVG}${a.hearts}</span>`;
-  }
 
   function render() {
     if (!ses) return;
     const done = ses.kind === 'sprint' ? 0 : ses.phase === 'end' ? 1 : ses.phase === 'q' ? Math.min(1, ses.i / Math.max(1, ses.items.length)) : 0;
     $('acBar').style.width = (done * 100).toFixed(1) + '%';
-    $('acHearts').innerHTML = ses.hearts ? heartsHTML() : '';
     $('acTimer').textContent = '';
     $('acTimer').hidden = !ses.timer || ses.phase !== 'q';
     $('acKind').textContent = ses.title || '';
     $('acCombo').hidden = true;
-    if (ses.kind === 'noHearts' || ses.phase === 'outOfHearts') return renderNoHearts();
     if (ses.phase === 'intro') return renderIntro();
     if (ses.phase === 'end') return renderEnd();
     renderQuestion();
@@ -710,16 +687,8 @@
     const combo = ok && [3, 5, 10, 15, 20].includes(ses.combo) ? `<span class="ac-combo-pop">${ses.combo} in a row!</span>` : '';
     $('acFoot').className = 'ac-foot ' + (ok ? 'ok' : 'bad');
     $('acFoot').innerHTML = `<div class="ac-fb">${mascot(ok ? (combo ? 'wow' : 'happy') : 'sad')}<div><b>${head}</b>${combo}<p>${it.q.match && ok ? 'Every pair right first time.' : esc(it.q.why || '')}</p></div></div><button type="button" class="chunky ${ok ? '' : 'red'}" id="acNext">Continue</button>`;
-    $('acHearts').innerHTML = ses.hearts ? heartsHTML() : '';
     $('acCombo').hidden = true;
     $('acNext').focus();
-  }
-
-  function renderNoHearts() {
-    const a = A();
-    $('acMain').innerHTML = `<div class="ac-card ac-intro center">${speech('sad', 'Oh no, you’re out of hearts!')}<div class="ac-big">${heartsHTML()}</div><div class="ac-tip"><p>Every wrong answer in a lesson costs a heart. Hearts refill one every 30 minutes (next in ${nextHeartMins(a)} min).</p><p>Or earn one back now: revision doesn’t use hearts, and finishing a revision set restores one.</p></div></div>`;
-    $('acFoot').className = 'ac-foot';
-    $('acFoot').innerHTML = `<button type="button" class="btn btn-ghost" id="acQuit">Back to the path</button><button type="button" class="chunky" id="acRevise">Revise to earn a heart</button>`;
   }
 
   function fmtSecs(s) { return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
@@ -747,7 +716,7 @@
       const pct = Math.round(ses.acc * 100);
       head = ses.kind === 'review' ? 'Revision complete!' : ses.kind === 'charts' ? 'Chart practice done!' : pct === 100 ? 'Perfect lesson!' : 'Lesson complete!';
       if (pct === 100) mood = 'wow';
-      sub = ses.kind === 'review' ? (ses.heartBack ? 'You earned a heart back.' : 'Keep revising to make it stick.') : ses.heartsLost ? `You lost ${ses.heartsLost} heart${ses.heartsLost === 1 ? '' : 's'}. Missed questions go into your revision queue.` : 'No mistakes. Great work.';
+      sub = ses.kind === 'review' ? 'Keep revising to make it stick.' : ses.misses ? `You missed ${ses.misses} question${ses.misses === 1 ? '' : 's'}. Missed questions go into your revision queue.` : 'No mistakes. Great work.';
       tiles = [['XP', `+<span data-count="${ses.xpGained}">0</span>`], ['Accuracy', pct + '%'], ['Best combo', ses.bestCombo], ['Time', fmtSecs(ses.secs)]];
     }
     const rk = rankOf(a.xp);
@@ -790,7 +759,7 @@
     return `<div class="ac-stats ${cls || ''}">
         <div class="ac-stat streak${liveStreak(a) ? ' on' : ''}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c1 3.5 5 5.5 5 10.5A5 5 0 0 1 7 12.5c0-2 1-3.5 2-4.5.3 1.5 1 2.5 2 3 0-3 .5-6 1-9z"/></svg><b>${liveStreak(a)}</b><span>day streak</span></div>
         <div class="ac-stat xp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg><b>${a.xp}</b><span>total XP</span></div>
-        <div class="ac-stat hearts">${HEART_SVG}<b>${a.hearts}</b><span>${a.hearts < MAX_HEARTS ? `+1 in ${nextHeartMins(a)}m` : 'hearts'}</span></div>
+        <div class="ac-stat lessons"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><b>${Object.keys(a.lessons).length}</b><span>lessons done</span></div>
       </div>`;
   }
 
@@ -865,7 +834,7 @@
       </div>
       <div class="card ac-side-card">
         <div class="ac-row"><b>Revision</b><span class="ac-badge${due ? ' on' : ''}">${due} due</span></div>
-        <p class="muted small">Mistakes come back on a schedule until they stick. Revising doesn’t use hearts and restores one.</p>
+        <p class="muted small">Mistakes come back on a schedule until they stick.</p>
         <button type="button" class="chunky small block" id="acReviseBtn">${due ? `Revise ${due} question${due === 1 ? '' : 's'}` : 'Practise'}</button>
       </div>
       <div class="card ac-side-card">
@@ -890,7 +859,7 @@
     ses = { kind: 'guide', phase: 'guide', title: `Unit ${u + 1} guidebook` };
     openOverlay();
     $('acBar').style.width = '0%';
-    $('acHearts').innerHTML = ''; $('acTimer').hidden = true; $('acKind').textContent = ses.title; $('acCombo').hidden = true;
+    $('acTimer').hidden = true; $('acKind').textContent = ses.title; $('acCombo').hidden = true;
     let body = un.lessons.map((L, l) => `<section class="ac-guide"><h3>${l + 1}. ${esc(L.t)}</h3><div class="ac-tip">${L.tip}</div>${L.m ? `<dl class="ac-terms">${L.m.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>` : ''}</section>`).join('');
     if (un.guideFromLearn && window.Learn) {
       body += `<h3 class="ac-guide-more">Chart school: the full notes</h3>` + window.Learn.LESSONS.map((L, i) => `<section class="ac-guide"><h3>${esc(L.title)}</h3><figure class="ac-fig"><canvas id="acGuideFig${i}" height="200"></canvas></figure><div class="ac-tip">${L.body}</div></section>`).join('');
@@ -973,7 +942,6 @@
       else if (id === 'acDone') closeOverlay();
       else if (id === 'acQuit' || id === 'acQuitYes') closeOverlay();
       else if (id === 'acKeep') render();
-      else if (id === 'acRevise') startReview();
       else if (id === 'acClose') askQuit();
     });
     document.addEventListener('keydown', (e) => {
@@ -1002,7 +970,7 @@
     if ($('acInput')) $('acInput').value = '';
     ses.checked = true; ses.lastOk = false; it.tries++; ses.combo = 0;
     if (it.q.match) it.mistakes = Math.max(it.mistakes, 1);
-    if (ses.hearts) { loseHeart(); ses.heartsLost++; }
+    ses.misses++;
     if (it.tries === 1) ses.items.push(Object.assign({}, it, it.q.match ? { matched: [], mistakes: 0 } : {}, { tries: 1, again: true }));
     markReview(it.key, false);
     ses.results.push({ it, ok: false });
@@ -1011,7 +979,7 @@
   }
 
   function askQuit() {
-    if (!ses || ses.phase === 'end' || ses.phase === 'intro' || ses.phase === 'guide' || ses.kind === 'noHearts' || ses.phase === 'outOfHearts') return closeOverlay();
+    if (!ses || ses.phase === 'end' || ses.phase === 'intro' || ses.phase === 'guide') return closeOverlay();
     $('acFoot').className = 'ac-foot bad';
     $('acFoot').innerHTML = `<div class="ac-fb">${mascot('sad')}<div><b>Wait, don’t go!</b><p>${ses.exam ? 'This attempt won’t count.' : 'You’ll lose your progress in this lesson.'}</p></div></div><div class="ac-quit"><button type="button" class="btn" id="acKeep">Keep learning</button><button type="button" class="chunky red" id="acQuitYes">Quit</button></div>`;
   }

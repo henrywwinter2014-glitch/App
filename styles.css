@@ -719,7 +719,7 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .ac-stat svg { width: 24px; height: 24px; fill: var(--line-strong); }
 .ac-stat.streak.on svg { fill: #ff9600; }
 .ac-stat.xp svg { fill: #e6b422; }
-.ac-stat.hearts svg { fill: #ff4b4b; }
+.ac-stat.lessons svg { fill: #1cb0f6; }
 .ac-stat b { font-size: 20px; font-weight: 800; }
 .ac-stat span { font-size: 11px; color: var(--muted); }
 .ac-side-card { display: grid; gap: 8px; padding: 14px 16px; border-radius: 12px; }
@@ -754,8 +754,6 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .acad-top { display: flex; align-items: center; gap: 14px; padding: calc(14px + env(safe-area-inset-top, 0px)) 20px 6px; max-width: 980px; width: 100%; margin: 0 auto; }
 .acad-prog { flex: 1; height: 16px; border-radius: 8px; background: var(--surface-2); overflow: hidden; }
 .acad-prog i { display: block; height: 100%; width: 0; background: #58cc02; border-radius: 8px; transition: width 0.35s ease; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.08); }
-.ac-heart { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; color: #ff4b4b; font-size: 17px; }
-.ac-heart svg { width: 24px; height: 24px; fill: #ff4b4b; }
 .acad-timer { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 16px; min-width: 52px; text-align: right; }
 .acad-timer.low { color: #ff4b4b; }
 .acad-kind { max-width: 980px; width: 100%; margin: 0 auto; padding: 0 20px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
@@ -820,8 +818,6 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .ac-rev-q { font-weight: 600; }
 .ac-rev .bad { color: #ff4b4b; }
 .ac-rev .ok { color: #46a302; }
-.ac-big .ac-heart { font-size: 30px; }
-.ac-big .ac-heart svg { width: 48px; height: 48px; }
 .ac-guide h3 { font-size: 17px; margin: 10px 0 6px; }
 .ac-stats-m { display: none; }
 /* academy: mascot, matches, charts, quests, badges */
