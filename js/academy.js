@@ -254,8 +254,11 @@
 
   function parseAnswer(str, allowSums) {
     // Accept the number with the extras people naturally type: currency, "x", units, "percent", "about".
-    let s = String(str).toLowerCase().trim()
+    // If the working is shown ("400/500 = 0.8"), the answer is what comes after the last "=".
+    let s = String(str).toLowerCase().split('=').filter((x) => x.trim()).pop() || '';
+    s = s.trim()
       .replace(/[−–—]/g, '-')
+      .replace(/÷|\bover\b|\bout of\b/g, '/')
       .replace(/^(about|approx\.?|around|roughly|≈|~|=)+/, '')
       .replace(/[$£€,\s]/g, '')
       .replace(/^\+/, '');
@@ -264,12 +267,16 @@
     if (/(%|percent|pc)$/.test(s)) { pct = true; s = s.replace(/(%|percent|pc)$/, ''); }
     // Units the question already states ("in $ millions", "P/E", "years") don't change the value.
     s = s.replace(/(x|times|years?|yrs?|millions?|mn|m|billions?|bn|b|dollars?|usd|pershare|ashare|\/share)$/, '');
+    // A fraction written as a percentage: 400/500×100, (400/500)*100, 400/500 x 100.
+    const asPct = /^\(?(-?\d*\.?\d+\/\d*\.?\d+)\)?[x×*]100$/.exec(s);
+    if (asPct) { s = asPct[1]; pct = 'fraction'; }
     let v;
     if (/^-?\d*\.?\d+\/\d*\.?\d+$/.test(s)) { const [a, b] = s.split('/').map(Number); v = a / b; }
     else if (/^-?(\d+\.?\d*|\.\d+)$/.test(s)) v = Number(s);
     else if (allowSums && /[\d)]/.test(s)) { v = calcEval(s); if (v == null) return null; }
     else return null;
     if (!isFinite(v)) return null;
+    if (pct === 'fraction') return { v, pct: true };
     return { v: pct ? v / 100 : v, pct };
   }
 
@@ -452,7 +459,7 @@
     i.classList.remove('shake'); void i.offsetWidth; i.classList.add('shake'); i.focus();
     const q = currentItem() && currentItem().q;
     const e = $('acErr');
-    if (e) { e.hidden = false; e.textContent = `I couldn’t read “${i.value.trim()}” as a number. Type just the number, like ${q && q.pct ? '12.5%, 0.125 or 400/460' : '42, 1.5 or 400/460'}.`; }
+    if (e) { e.hidden = false; e.textContent = `I couldn’t read “${i.value.trim()}” as a number. Type just the number, like ${q && q.pct ? '80%, 0.8 or 400/500' : '42, 1.5 or 400/500'}.`; }
   }
 
   function advance() {
@@ -624,7 +631,7 @@
     else if (q.opts) body = `<div class="ac-opts${q.opts.length === 3 && isChart(q) ? ' three' : ''}">${it.opts.map((o, i) => `<button type="button" class="ac-opt${ses.sel === i ? ' sel' : ''}" data-opt="${i}"><kbd>${i + 1}</kbd><span>${esc(o)}</span></button>`).join('')}</div>`;
     else {
       const calc = calcAllowed(q);
-      body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a %, a decimal or a fraction, e.g. 12.5%, 0.125 or 400/460' : 'Fractions like 400/460 are fine'}${calc ? '. You can also type a whole sum, like (460 − 400) / 400' : ''}</span><div class="ac-anskeys" aria-label="Extra keys">${['/', '%', '−', '.'].map((k) => `<button type="button" class="btn btn-ghost small" data-ak="${k}" aria-label="Type ${k === '/' ? 'divide' : k === '%' ? 'percent' : k === '−' ? 'minus' : 'decimal point'}">${k}</button>`).join('')}</div><span class="ac-err" id="acErr" role="alert" hidden></span></div>
+      body = `<div class="ac-num"><input id="acInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Your answer" aria-label="Your answer"><span class="ac-hint">${q.pct ? 'Enter a %, a decimal or a fraction, e.g. 80%, 0.8, 400/500 or 400/500 × 100' : 'Fractions like 400/500 are fine'}${calc ? '. You can also type a whole sum, like (460 − 400) / 400' : ''}</span><div class="ac-anskeys" aria-label="Extra keys">${['/', '×', '%', '−', '.'].map((k) => `<button type="button" class="btn btn-ghost small" data-ak="${k}" aria-label="Type ${k === '/' ? 'divide' : k === '×' ? 'times' : k === '%' ? 'percent' : k === '−' ? 'minus' : 'decimal point'}">${k}</button>`).join('')}</div><span class="ac-err" id="acErr" role="alert" hidden></span></div>
         <div class="ac-calcrow"><span class="ac-calcchip ${calc ? 'yes' : 'no'}">${calc ? CALC_SVG : CALC_SVG.replace('</svg>', '<path d="M3 3l18 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>')}${calc ? 'Calculator allowed' : 'No calculator: mental maths'}</span>${calc ? '<button type="button" class="btn btn-ghost small" id="acCalcBtn" aria-expanded="false">Open calculator</button>' : ''}</div>
         ${calc ? `<div class="ac-calc" id="acCalcBox" hidden><input id="acCalc" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="Type a sum, e.g. 3.75 / 75 * 100" aria-label="Calculator"><div class="ac-calc-keys">${['(', ')', '^', '√', '÷', '×', '−', '+'].map((k) => `<button type="button" class="btn btn-ghost small" data-ck="${k}">${k}</button>`).join('')}</div><div class="ac-calc-out"><span id="acCalcOut" aria-live="polite">= </span><button type="button" class="btn small" id="acCalcUse" disabled>Use this answer</button></div></div>` : ''}`;
     }
