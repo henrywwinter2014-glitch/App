@@ -185,26 +185,8 @@
     return out;
   }
 
-  // Daily candles built from the simulated closes.
-  function ohlcFor(t, n) {
-    const s = S(), m = E.BY[t], h = s.sec[t].h, dates = s.dates;
-    const sd = Math.min(0.08, Math.max(0.002, (m.vol || 0.3) / Math.sqrt(252)));
-    const len = h.length, start = Math.max(1, len - n);
-    const out = { o: [], h: [], l: [], c: [], v: [], labels: [] };
-    const baseVol = 1e6 * (1 + (rand4(t)[0] * 9));
-    for (let i = start; i < len; i++) {
-      const c = h[i], pc = h[i - 1];
-      const [r1, r2, r3, r4] = rand4(t + (dates[i] || i));
-      const o = pc * (1 + (r1 - 0.5) * sd * 0.7);
-      out.o.push(o);
-      out.h.push(Math.max(o, c) * (1 + r2 * sd * 0.9));
-      out.l.push(Math.min(o, c) * (1 - r3 * sd * 0.9));
-      out.c.push(c);
-      out.v.push(baseVol * (0.5 + r4) * (1 + Math.abs(c / pc - 1) / sd * 0.6));
-      out.labels.push(dates[i] || '');
-    }
-    return out;
-  }
+  // The engine owns the bars, so the candles drawn here are the ones orders trade against.
+  function ohlcFor(t, n) { return E.bars(t, n); }
 
   function dayRange(t) {
     const d = ohlcFor(t, 1);
@@ -940,9 +922,10 @@
       if (ev.kind === 'div') { divAmt += ev.amt; divT.add(ev.t); }
       if (ev.kind === 'fill') {
         const o = ev.order;
-        if (ev.res.ok) toast(`${o.kind === 'limit' ? 'Limit' : 'Stop'} order filled: ${o.side === 'buy' ? 'bought' : 'sold'} ${qtyFmt(o.qty)} ${o.t} at ${money(E.price(o.t), E.BY[o.t].cur)}.${plNote(ev.res.q)}`);
+        if (ev.res.ok) toast(`${o.kind === 'limit' ? 'Limit' : 'Stop'} order ${ev.partial ? 'partly filled' : 'filled'}: ${o.side === 'buy' ? 'bought' : 'sold'} ${qtyFmt(ev.qty ?? o.qty)} ${o.t} at ${money(ev.res.q.px, E.BY[o.t].cur)}.${ev.partial ? ` ${qtyFmt(o.qty - o.filled)} still working.` : ''}${plNote(ev.res.q)}`);
         else toast(`Order for ${o.t} cancelled: ${ev.res.msg}`);
       }
+      if (ev.kind === 'expired') toast(`Your order to ${ev.order.side} ${qtyFmt(ev.order.qty - ev.order.filled)} ${ev.order.t} expired without filling.`);
       if (ev.kind === 'split' && S().holdings[ev.t]) toast(`${ev.t} split ${ev.r >= 1 ? ev.r + '-for-1' : '1-for-10'}. Your share count was adjusted.`);
       if (ev.kind === 'macro' && ui.playing && ui.speed <= 1) toast(ev.text);
     }
@@ -967,7 +950,7 @@
     for (let i = 0; i < days; i++) all.push(...E.step());
     if (days > 1) {
       // Collapse a long skip into one summary instead of a toast per event.
-      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split');
+      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split' || e.kind === 'expired');
       const divs = all.filter((e) => e.kind === 'div');
       reportEvents([...fills.slice(-3), ...divs]);
     } else {
@@ -1035,7 +1018,7 @@
       while (job.done < job.total && !job.stop && performance.now() - t0 < 40) {
         const ev = E.step();
         job.done++;
-        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div') job.events.push(e);
+        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div' || e.kind === 'expired') job.events.push(e);
         if (opts.untilPay && ev.some((e) => e.kind === 'div')) { job.found = true; job.stop = true; }
       }
       if (showBar) {

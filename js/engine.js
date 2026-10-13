@@ -690,6 +690,46 @@
     for (const p of S.pending) if (p.t === m.t) { p.qty *= r; p.dps /= r; }
   }
 
+  /* ---------- daily bars ---------- */
+  // The open, high, low and volume behind each close. Deterministic, so the bar a reader sees on
+  // the chart is the same bar the order book trades against: an order can only fill at a price
+  // the day actually reached.
+  function rand4(key) {
+    let h = 2166136261;
+    for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+    const out = [];
+    for (let k = 0; k < 4; k++) { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; out.push(((h >>> 0) % 10000) / 10000); }
+    return out;
+  }
+  function barAt(t, i) {
+    const m = BY[t], h = S.sec[t].h;
+    if (i < 1 || i >= h.length) return null;
+    const c = h[i], pc = h[i - 1];
+    const sd = Math.min(0.08, Math.max(0.002, (m.vol || 0.3) / Math.sqrt(TD)));
+    const [r1, r2, r3, r4] = rand4(t + (S.dates[i] || i));
+    const o = pc * (1 + (r1 - 0.5) * sd * 0.7);
+    const baseVol = 1e6 * (1 + (rand4(t)[0] * 9));
+    return {
+      o, c,
+      h: Math.max(o, c) * (1 + r2 * sd * 0.9),
+      l: Math.min(o, c) * (1 - r3 * sd * 0.9),
+      v: baseVol * (0.5 + r4) * (1 + Math.abs(c / pc - 1) / sd * 0.6),
+      d: S.dates[i] || '',
+    };
+  }
+  const lastBar = (t) => barAt(t, S.sec[t].h.length - 1);
+  function bars(t, n) {
+    const h = S.sec[t].h, len = h.length, start = Math.max(1, len - n);
+    const out = { o: [], h: [], l: [], c: [], v: [], labels: [] };
+    for (let i = start; i < len; i++) {
+      const b = barAt(t, i);
+      out.o.push(b.o); out.h.push(b.h); out.l.push(b.l); out.c.push(b.c); out.v.push(b.v); out.labels.push(b.d);
+    }
+    return out;
+  }
+  // A typical day's volume, used to size market impact and the most you can fill in one day.
+  function typicalVolume(t) { const b = lastBar(t); return b ? b.v : 1e6; }
+
   /* ---------- trading ---------- */
   /* ---------- real-world frictions ---------- */
   // Half of the typical bid/ask spread. Big liquid names trade a cent wide; penny stocks much wider.
@@ -755,16 +795,28 @@
     return { commission, stamp, total: commission + stamp };
   }
 
-  // Buys fill at the ask and sells at the bid, around the mid (last) price.
+  /*
+   * Market impact: a big order has to walk the book, so it pays more than the quoted spread.
+   * Impact grows with the square root of the order's share of a normal day's volume, the usual
+   * rule of thumb on a trading desk. At ordinary retail sizes this rounds to nothing.
+   */
+  function impact(t, qty) {
+    const v = typicalVolume(t);
+    if (!(v > 0) || !(qty > 0)) return 0;
+    return Math.min(0.10, 0.02 * Math.sqrt(qty / v));
+  }
+
+  // Buys fill at the ask and sells at the bid, around the mid (last) price, plus market impact.
   function quote(t, side, qty, atPrice) {
     const m = BY[t];
     const mid = atPrice || price(t);
-    const hs = halfSpread(m);
+    const hs = halfSpread(m) + impact(t, qty);
     const px = mid * (side === 'buy' ? 1 + hs : 1 - hs);
     const gross = qty * px * fxOf(m);
     const f = fees(m, side, gross);
     const total = side === 'buy' ? gross + f.total : gross - f.total;
-    return { px, mid, bid: mid * (1 - hs), ask: mid * (1 + hs), spreadCost: qty * mid * hs * fxOf(m), gross, fee: f, total };
+    const q = halfSpread(m);
+    return { px, mid, bid: mid * (1 - q), ask: mid * (1 + q), slip: mid * impact(t, qty) * qty * fxOf(m), spreadCost: qty * mid * q * fxOf(m), gross, fee: f, total };
   }
 
   function validateQty(qty) {
@@ -773,13 +825,19 @@
     return null;
   }
 
-  function execute(t, side, qty, source) {
+  function execute(t, side, qty, source, atPrice, ignoreReserved) {
     const m = BY[t];
     const err = validateQty(qty);
     if (err) return { ok: false, msg: err };
-    const q = quote(t, side, qty);
+    const q = quote(t, side, qty, atPrice);
     if (side === 'buy') {
-      if (q.total > S.cash + 1e-9) return { ok: false, msg: `Not enough cash. This order needs ${fmtMoney(q.total)} and you have ${fmtMoney(S.cash)}.` };
+      const free = ignoreReserved ? S.cash : availableCash();
+      if (q.total > free + 1e-9) {
+        const held = S.cash - free;
+        return { ok: false, msg: held > 0.005
+          ? `Not enough free cash. This order needs ${fmtMoney(q.total)} and you have ${fmtMoney(free)} available (${fmtMoney(held)} is set aside for your open buy orders).`
+          : `Not enough cash. This order needs ${fmtMoney(q.total)} and you have ${fmtMoney(S.cash)}.` };
+      }
       S.cash -= q.total;
       const h = S.holdings[t] || (S.holdings[t] = { qty: 0, cost: 0, costN: 0, drip: null, opened: S.date });
       h.qty += qty;
@@ -788,6 +846,8 @@
     } else {
       const h = S.holdings[t];
       if (!h || h.qty < qty - 1e-9) return { ok: false, msg: `You only own ${h ? +h.qty.toFixed(4) : 0} shares of ${t}.` };
+      const freeQty = ignoreReserved ? h.qty : availableQty(t);
+      if (qty > freeQty + 1e-9) return { ok: false, msg: `Only ${+freeQty.toFixed(4)} of your ${+h.qty.toFixed(4)} ${t} shares are free to sell. The rest are committed to an open sell order, which you can cancel on the Orders tab.` };
       const basis = h.cost * (qty / h.qty);
       S.cash += q.total;
       if (h.costN != null) h.costN -= h.costN * (qty / h.qty);
@@ -805,35 +865,123 @@
 
   function fmtMoney(v) { return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-  function placeOrder(t, side, kind, qty, px) {
+  // Cash and shares already promised to open orders, so they cannot be spent or sold twice.
+  function orderCost(o) {
+    const m = BY[o.t];
+    if (!m) return 0;
+    const gross = o.qty * o.px * fxOf(m);
+    return gross + fees(m, 'buy', gross).total;
+  }
+  function reservedCash() {
+    let c = 0;
+    for (const o of S.orders) if (o.side === 'buy') c += orderCost(o);
+    return c;
+  }
+  function reservedQty(t) {
+    let q = 0;
+    for (const o of S.orders) if (o.t === t && o.side === 'sell') q += o.qty;
+    return q;
+  }
+  const availableCash = () => Math.max(0, S.cash - reservedCash());
+  const availableQty = (t) => Math.max(0, (S.holdings[t] ? S.holdings[t].qty : 0) - reservedQty(t));
+
+  const GTC_DAYS = 90;   // brokers expire a "good till cancelled" order after about 90 days
+
+  function placeOrder(t, side, kind, qty, px, tif) {
     const err = validateQty(qty);
     if (err) return { ok: false, msg: err };
+    if (!BY[t]) return { ok: false, msg: 'Unknown product.' };
     if (!(px > 0)) return { ok: false, msg: 'Enter a trigger price above zero.' };
+    const p = price(t);
+    // A limit or stop on the wrong side of the market would fill instantly; that is a market order.
+    if (kind === 'limit' && side === 'buy' && px > p * 1.5) return { ok: false, msg: `That limit is far above the ${t} price of ${fmtMoney(p)}. A buy limit sits below the price and waits for a dip.` };
+    if (kind === 'limit' && side === 'sell' && px < p * 0.5) return { ok: false, msg: `That limit is far below the ${t} price of ${fmtMoney(p)}. A sell limit sits above the price and waits for a rise.` };
+    if (kind === 'stop' && side === 'sell' && px > p) return { ok: false, msg: `A stop loss protects you on the way down, so it sits below the ${t} price of ${fmtMoney(p)}.` };
+    if (kind === 'stop' && side === 'buy' && px < p) return { ok: false, msg: `A buy stop sits above the ${t} price of ${fmtMoney(p)}.` };
     if (side === 'sell') {
       const h = S.holdings[t];
       if (!h || h.qty < qty - 1e-9) return { ok: false, msg: `You only own ${h ? +h.qty.toFixed(4) : 0} shares of ${t}.` };
+      const free = availableQty(t);
+      if (qty > free + 1e-9) return { ok: false, msg: `Only ${+free.toFixed(4)} of your ${+h.qty.toFixed(4)} ${t} shares are free. The rest are already committed to an open sell order.` };
+    } else {
+      const o = { t, qty, px };
+      const need = orderCost(o), free = availableCash();
+      if (need > free + 1e-9) return { ok: false, msg: `This order could cost ${fmtMoney(need)} and only ${fmtMoney(free)} of your ${fmtMoney(S.cash)} is uncommitted. Cancel an open buy order or reduce the size.` };
     }
-    const o = { id: S.nextId++, t, side, kind, qty, px, placed: S.date };
+    const o = { id: S.nextId++, t, side, kind, qty, px, placed: S.date, tif: tif === 'day' ? 'day' : 'gtc', filled: 0, status: 'open' };
     S.orders.push(o);
     return { ok: true, order: o };
   }
 
   function cancelOrder(id) { S.orders = S.orders.filter((o) => o.id !== id); }
 
+  /*
+   * Work the open orders against the day's range.
+   *
+   * An order only fills if the day actually traded at its price, and it fills at a price the day
+   * really reached: if the market gapped past the order at the open you get the open, which is
+   * better than you asked for on a limit and worse on a stop. That gap is why a stop loss cannot
+   * promise the price written on it.
+   */
   function processOrders(events) {
     const keep = [];
     for (const o of S.orders) {
       if (!BY[o.t]) continue;
-      const p = price(o.t);
-      let hit = false;
-      if (o.kind === 'limit') hit = o.side === 'buy' ? p <= o.px : p >= o.px;
-      else if (o.kind === 'stop') hit = o.side === 'sell' ? p <= o.px : p >= o.px;
-      if (!hit) { keep.push(o); continue; }
-      const res = execute(o.t, o.side, o.qty, o.kind === 'limit' ? 'Limit order' : 'Stop order');
-      events.push({ kind: 'fill', order: o, res });
-      if (!res.ok) addNews('order', `Order to ${o.side} ${o.qty} ${o.t} was cancelled: ${res.msg}`, o.t);
+      const bar = lastBar(o.t);
+      if (!bar) { keep.push(o); continue; }
+
+      const buy = o.side === 'buy';
+      const triggered = o.kind === 'limit'
+        ? (buy ? bar.l <= o.px : bar.h >= o.px)
+        : (buy ? bar.h >= o.px : bar.l <= o.px);
+
+      if (!triggered) {
+        if (expired(o, events)) continue;
+        keep.push(o); continue;
+      }
+
+      // Price the fill from the day's open, capped by what the order asked for.
+      const fillPx = buy
+        ? (o.kind === 'limit' ? Math.min(o.px, bar.o) : Math.max(o.px, bar.o))
+        : (o.kind === 'limit' ? Math.max(o.px, bar.o) : Math.min(o.px, bar.o));
+
+      // You cannot take more than a slice of a day's volume; the rest keeps working.
+      const want = o.qty - o.filled;
+      const canFill = Math.max(0, Math.min(want, bar.v * 0.25));
+      const qty = S.settings.fractional ? canFill : Math.floor(canFill);
+      if (qty < 1e-9) { keep.push(o); continue; }
+
+      const res = execute(o.t, o.side, qty, o.kind === 'limit' ? 'Limit order' : 'Stop order', fillPx, true);
+      if (!res.ok) {
+        o.status = 'cancelled';
+        events.push({ kind: 'fill', order: o, res });
+        addNews('order', `Order to ${o.side} ${+(o.qty - o.filled).toFixed(4)} ${o.t} was cancelled: ${res.msg}`, o.t);
+        continue;
+      }
+      o.filled += qty;
+      const done = o.filled >= o.qty - 1e-9;
+      o.status = done ? 'filled' : 'partial';
+      events.push({ kind: 'fill', order: o, res, qty, partial: !done });
+      if (!done) { addNews('order', `Part of your order filled: ${+qty.toFixed(4)} of ${+o.qty.toFixed(4)} ${o.t}. The rest is still working.`, o.t); keep.push(o); }
     }
     S.orders = keep;
+  }
+
+  // Day orders die at the end of their day; GTC orders after about 90 days.
+  function expired(o, events) {
+    const age = o.placed ? tradingDaysBetween(o.placed, S.date) : 0;
+    if (o.tif === 'day' ? age >= 1 : age >= GTC_DAYS) {
+      o.status = 'expired';
+      events.push({ kind: 'expired', order: o });
+      addNews('order', `Your ${o.tif === 'day' ? 'day' : 'good-till-cancelled'} order to ${o.side} ${+(o.qty - o.filled).toFixed(4)} ${o.t} expired without filling.`, o.t);
+      return true;
+    }
+    return false;
+  }
+  function tradingDaysBetween(a, b) {
+    const i = S.dates.indexOf(a), j = S.dates.indexOf(b);
+    if (i >= 0 && j >= 0) return j - i;
+    return Math.round((parseISO(b) - parseISO(a)) / 86400000 * (TD / 365));
   }
 
   function setDrip(t, on) { if (S.holdings[t]) S.holdings[t].drip = on; }
@@ -868,5 +1016,7 @@
     addTradingDays, nextTradingDay, parseISO, addNews,
     perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,
     halfSpread, dividendTax, taxRateEstimate, isOrdinaryIncome, ACCOUNTS,
+    bars, barAt, lastBar, typicalVolume, impact,
+    availableCash, availableQty, reservedCash, reservedQty,
   };
 })();
