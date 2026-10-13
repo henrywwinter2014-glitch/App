@@ -214,10 +214,45 @@
   /* ---------- simulation state ---------- */
   let S = null;
 
+  /* ---------- replay mode ----------
+   * 'sim' invents a market. 'real' replays recorded history one trading day at a time: prices,
+   * dividends and splits are the ones that happened, and nothing past the current day is readable.
+   */
+  const RD = () => window.RealData;
+  const realOn = () => S && S.mode === 'real' && RD() && RD().ready;
+  const hasReal = (t) => !!(RD() && RD().ready && RD().has(t));
+  /*
+   * Had this product listed yet? A replay of February 2020 must not show a fund that floated in
+   * May, so anything whose history starts after the current day is hidden until it arrives.
+   */
+  function listed(t) {
+    if (!realOn()) return true;
+    if (!hasReal(t)) return false;
+    const s0 = RD().get(t);
+    return !!s0 && s0.start <= S.rIdx;
+  }
+  // In a replay you can only trade what was listed and has real history.
+  const tradeable = (t) => !realOn() || listed(t);
+
+  // Clamp a requested replay start to a day with a full year of history behind it.
+  function realStartIndex(dateStr) {
+    const R = RD(), cal = R.calendar;
+    let i = R.indexOf(dateStr);
+    if (i < 0) { i = cal.findIndex((d) => d >= dateStr); if (i < 0) i = cal.length - 1; }
+    return Math.max(HIST - 1, Math.min(cal.length - 1, i));
+  }
+  function realBounds() {
+    if (!(RD() && RD().ready)) return null;
+    const cal = RD().calendar;
+    return { first: cal[HIST - 1], last: cal[cal.length - 1] };
+  }
+
   function freshState(startCash) {
     return {
       v: 1,
       histV: HIST_V,
+      mode: 'sim',
+      rIdx: 0,
       date: START_DATE,
       day: 0,
       startCash, cash: startCash,
@@ -332,6 +367,33 @@
     return clamp(r, -0.6, 1.5);
   }
 
+  // A replay's opening history is the real year of closes ending on the start day.
+  function initSecStateReal(m) {
+    const R = RD(), end = S.rIdx, s0 = R.get(m.t);
+    const h = [];
+    let last = s0 ? s0.c[0] : m.base;        // before it listed, its first recorded close
+    for (let i = end - HIST + 1; i <= end; i++) {
+      const b = R.barOn(m.t, i);
+      if (b) last = b.c;
+      h.push(round(last));
+    }
+    const st = { h, dps: 0, lx: '' };
+    S.sec[m.t] = st;
+    st.dps = trailingDps(m, end);
+    return st;
+  }
+  // Dividend per payment, from what the company actually paid over the past year.
+  function trailingDps(m, end) {
+    if (!m.q || !hasReal(m.t)) return 0;
+    const R = RD();
+    let sum = 0, n = 0;
+    for (let i = Math.max(0, end - TD); i <= end; i++) {
+      const a = R.actionOn(m.t, i);
+      if (a && a.div > 0) { sum += a.div; n++; }
+    }
+    return n ? sum / n : 0;
+  }
+
   function initSecState(m, bf) {
     const hist = backfill(m, bf);
     const st = { h: hist, dps: m.q ? (m.base * m.y / 100) / m.q : 0, lx: '' };
@@ -340,6 +402,19 @@
   }
 
   function ensureAllSecStates() {
+    if (S.mode === 'real') {
+      if (!(RD() && RD().ready)) return;              // data not loaded yet; caller retries
+      for (const m of U) if (!S.sec[m.t]) {
+        if (hasReal(m.t)) initSecStateReal(m);
+        else S.sec[m.t] = { h: new Array(HIST).fill(round(m.base)), dps: 0, lx: '', noReal: true };
+      }
+      if (!S.dates.length) {
+        const R = RD();
+        for (let i = S.rIdx - HIST + 1; i <= S.rIdx; i++) S.dates.push(R.dateAt(i));
+      }
+      if (!S.nw.length) S.nw.push({ d: S.date, v: S.cash, b: price('SPY') });
+      return;
+    }
     let bf = null;
     S._bfRets = {};
     for (const m of U) {
@@ -362,11 +437,20 @@
     if (!S.nw.length) S.nw.push({ d: S.date, v: S.cash, b: price('SPY') });
   }
 
-  function newGame(startCash) {
+  function newGame(startCash, opts) {
     S = freshState(startCash);
+    const wantReal = opts && opts.mode === 'real' && RD() && RD().ready;
+    if (wantReal) {
+      S.mode = 'real';
+      S.rIdx = realStartIndex(opts.startDate || RD().calendar[HIST - 1]);
+      S.date = RD().dateAt(S.rIdx);
+      S.realFrom = S.date;
+    }
     build(S.custom);
     ensureAllSecStates();
-    addNews('macro', `Market open. You have ${fmtUSD(startCash)} to invest. Prices move once per simulated trading day.`);
+    addNews('macro', wantReal
+      ? `Replay started on ${S.date} with ${fmtUSD(startCash)}. Prices, dividends and splits from here are the ones that really happened. Nothing after today is visible.`
+      : `Market open. You have ${fmtUSD(startCash)} to invest. Prices move once per simulated trading day.`);
     return S;
   }
 
@@ -376,7 +460,8 @@
     build(S.custom);
     ensureAllSecStates();
     if (!S.drawings) S.drawings = {};
-    if (S.histV !== HIST_V) refreshBackHistory();
+    if (S.histV !== HIST_V && S.mode !== 'real') refreshBackHistory();
+    else S.histV = HIST_V;
     return S;
   }
 
@@ -445,6 +530,7 @@
    * from the day after today up to and including `toISO`.
    */
   function futureEvents(tickers, toISO, opts = {}) {
+    if (S.mode === 'real') return futureEventsReal(tickers, toISO);
     const ms = tickers.map((t) => BY[t]).filter(Boolean);
     const lx = {};
     for (const m of ms) lx[m.t] = S.sec[m.t].lx;
@@ -466,6 +552,30 @@
       if (opts.first && out.some((e) => e.kind === 'ex')) break;
     }
     return out;
+  }
+
+  /*
+   * Upcoming real dividends. Companies announce a quarter or so ahead, so the replay looks no
+   * further than 100 days: enough to plan around, not a window onto the rest of the history.
+   */
+  function futureEventsReal(tickers, toISO) {
+    const R = RD();
+    if (!(R && R.ready)) return [];
+    const cal = R.calendar, out = [];
+    const cap = iso(new Date(parseISO(S.date).getTime() + 100 * 86400000));
+    const limit = toISO < cap ? toISO : cap;
+    for (const t of tickers) {
+      const m = BY[t];
+      if (!m || !hasReal(t)) continue;
+      for (let i = S.rIdx + 1; i < cal.length && cal[i] <= limit; i++) {
+        const a = R.actionOn(t, i);
+        if (a && a.div > 0) {
+          out.push({ d: cal[i], t, kind: 'ex', dps: a.div });
+          out.push({ d: addTradingDays(cal[i], payLagOf(m)), t, kind: 'pay', dps: a.div });
+        }
+      }
+    }
+    return out.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
   }
 
   function nextExDate(t) {
@@ -523,6 +633,7 @@
 
   /* ---------- one simulated trading day ---------- */
   function step() {
+    if (S.mode === 'real') return stepReal();
     const events = [];
     S.date = nextTradingDay(S.date);
     S.day++;
@@ -577,6 +688,78 @@
     return events;
   }
 
+  /*
+   * One real trading day. The recorded close becomes today's price; a ticker with no bar that
+   * day did not trade, so its last price carries forward.
+   */
+  function stepReal() {
+    const events = [];
+    const R = RD(), cal = R.calendar;
+    if (S.rIdx >= cal.length - 1) {
+      if (!S.replayEnded) { S.replayEnded = true; addNews('macro', `The replay has reached ${S.date}, the last day there is data for.`); events.push({ kind: 'replayEnd' }); }
+      return events;
+    }
+    S.rIdx++;
+    S.date = cal[S.rIdx];
+    S.day++;
+    for (const m of U) {
+      const st = S.sec[m.t];
+      const b = R.barOn(m.t, S.rIdx);
+      st.h.push(b ? round(b.c) : st.h[st.h.length - 1]);
+      if (st.h.length > HIST) st.h.shift();
+    }
+    S.dates.push(S.date);
+    if (S.dates.length > HIST) S.dates.shift();
+
+    realSplits(events);
+    realDividends(events);
+    processOrders(events);
+    S.nw.push({ d: S.date, v: netWorth(), b: price('SPY') });
+    if (S.nw.length > 5000) S.nw.splice(0, S.nw.length - 5000);
+    return events;
+  }
+
+  /*
+   * Real splits. The replayed prices are the ones that printed, so the series already shows the
+   * drop; only the share count changes. Your position is worth the same either side.
+   */
+  function realSplits(events) {
+    const R = RD();
+    for (const m of U) {
+      const a = R.actionOn(m.t, S.rIdx);
+      if (!a || !a.split || a.split <= 0) continue;
+      const r = a.split;
+      const h = S.holdings[m.t];
+      if (h) {
+        h.qty *= r;
+        S.tx.unshift({ id: S.nextId++, d: S.date, kind: 'SPLIT', t: m.t, qty: h.qty, px: price(m.t), cur: m.cur, amt: 0, fee: 0, note: r >= 1 ? `${+r.toFixed(4)}-for-1` : `1-for-${Math.round(1 / r)}` });
+      }
+      for (const o of S.orders) if (o.t === m.t) { o.qty *= r; o.px /= r; }
+      for (const p of S.pending) if (p.t === m.t) { p.qty *= r; p.dps /= r; }
+      for (const dr of (S.drawings || {})[m.t] || []) for (const pt of dr.pts) pt.p /= r;
+      addNews('split', `${m.n} completes a ${r >= 1 ? +r.toFixed(4) + '-for-1' : '1-for-' + Math.round(1 / r)} stock split`, m.t);
+      events.push({ kind: 'split', t: m.t, r });
+    }
+  }
+
+  /*
+   * Real dividends. The ex-day fall is already in the recorded price, so nothing is deducted
+   * here; holders on the ex-date are simply queued to be paid, as in the simulated market.
+   */
+  function realDividends(events) {
+    const R = RD();
+    for (const m of U) {
+      const a = R.actionOn(m.t, S.rIdx);
+      if (!a || !(a.div > 0)) continue;
+      const st = S.sec[m.t];
+      st.dps = a.div;
+      st.lx = S.date;
+      const h = S.holdings[m.t];
+      if (h && h.qty > 0) S.pending.push({ id: S.nextId++, t: m.t, qty: h.qty, dps: a.div, ex: S.date, pay: addTradingDays(S.date, payLagOf(m)) });
+    }
+    payDue(events);
+  }
+
   function processDividends(events) {
     for (const m of U) {
       const st = S.sec[m.t];
@@ -596,6 +779,10 @@
       }
     }
 
+    payDue(events);
+  }
+
+  function payDue(events) {
     const due = S.pending.filter((p) => p.pay <= S.date);
     if (!due.length) return;
     S.pending = S.pending.filter((p) => p.pay > S.date);
@@ -704,6 +891,14 @@
   function barAt(t, i) {
     const m = BY[t], h = S.sec[t].h;
     if (i < 1 || i >= h.length) return null;
+    if (S.mode === 'real' && hasReal(t)) {
+      // The recorded bar for that calendar day.
+      const ci = S.rIdx - (h.length - 1 - i);
+      const b = RD().barOn(t, ci);
+      if (b) return { o: b.o, c: b.c, h: b.h, l: b.l, v: b.v, d: S.dates[i] || '' };
+      const c = h[i];
+      return { o: c, c, h: c, l: c, v: 0, d: S.dates[i] || '' };
+    }
     const c = h[i], pc = h[i - 1];
     const sd = Math.min(0.08, Math.max(0.002, (m.vol || 0.3) / Math.sqrt(TD)));
     const [r1, r2, r3, r4] = rand4(t + (S.dates[i] || i));
@@ -819,6 +1014,12 @@
     return { px, mid, bid: mid * (1 - q), ask: mid * (1 + q), slip: mid * impact(t, qty) * qty * fxOf(m), spreadCost: qty * mid * q * fxOf(m), gross, fee: f, total };
   }
 
+  function unlistedMsg(t) {
+    if (!hasReal(t)) return `There is no recorded history for ${t}, so it cannot be traded in a replay.`;
+    const s0 = RD().get(t);
+    return `${t} had not listed yet on ${S.date}. It starts trading on ${RD().dateAt(s0.start)}.`;
+  }
+
   function validateQty(qty) {
     if (!(qty > 0) || !isFinite(qty)) return 'Enter a quantity above zero.';
     if (!S.settings.fractional && !Number.isInteger(qty)) return 'Fractional shares are off. Enter a whole number, or turn them on in Settings.';
@@ -829,6 +1030,7 @@
     const m = BY[t];
     const err = validateQty(qty);
     if (err) return { ok: false, msg: err };
+    if (!tradeable(t)) return { ok: false, msg: unlistedMsg(t) };
     const q = quote(t, side, qty, atPrice);
     if (side === 'buy') {
       const free = ignoreReserved ? S.cash : availableCash();
@@ -891,6 +1093,7 @@
     const err = validateQty(qty);
     if (err) return { ok: false, msg: err };
     if (!BY[t]) return { ok: false, msg: 'Unknown product.' };
+    if (!tradeable(t)) return { ok: false, msg: unlistedMsg(t) };
     if (!(px > 0)) return { ok: false, msg: 'Enter a trigger price above zero.' };
     const p = price(t);
     // A limit or stop on the wrong side of the market would fill instantly; that is a market order.
@@ -1017,6 +1220,7 @@
     perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,
     halfSpread, dividendTax, taxRateEstimate, isOrdinaryIncome, ACCOUNTS,
     bars, barAt, lastBar, typicalVolume, impact,
+    realOn, hasReal, listed, tradeable, realBounds, realStartIndex,
     availableCash, availableQty, reservedCash, reservedQty,
   };
 })();

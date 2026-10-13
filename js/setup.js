@@ -9,7 +9,14 @@
   const $ = (id) => document.getElementById(id);
   const PRESETS = [1000, 10000, 100000, 1000000];
 
-  const choice = { theme: 'system', cash: 100000, keep: false, tour: true };
+  const choice = { theme: 'system', cash: 100000, keep: false, tour: true, market: 'sim', date: '' };
+  // Periods worth replaying, each named for what it teaches.
+  const ERAS = [
+    ['2020-02-14', 'The Covid crash', 'A record high, then a third wiped off in five weeks'],
+    ['2021-11-01', 'The 2022 bear market', 'The top, then a long grinding fall'],
+    ['2023-01-03', 'The AI rally', 'Two years of gains led by a handful of chip names'],
+    ['2025-02-14', 'The tariff shock', 'A sharp spring sell-off and a fast recovery'],
+  ];
   let freshAtOpen = true;
 
   function fmt(v) { return '$' + Math.round(v).toLocaleString('en-US'); }
@@ -30,6 +37,22 @@
     document.querySelectorAll('[data-setup-tour]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.setupTour === 'yes') === choice.tour)));
     $('setupNote').textContent = choice.keep ? 'Your current game carries on as it is.'
       : !fresh ? `This starts a new game with ${fmt(choice.cash)} and replaces your current one.` : '';
+    const R = window.Engine && window.Engine.realBounds && window.Engine.realBounds();
+    $('setupMarketWrap').hidden = !R;
+    if (R) {
+      const real = choice.market === 'real';
+      document.querySelectorAll('[data-setup-market]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.setupMarket === 'real') === real)));
+      $('setupDateWrap').classList.toggle('on', real);
+      $('setupEras').hidden = !real;
+      const d = $('setupDate');
+      d.min = R.first; d.max = R.last;
+      if (!choice.date) choice.date = ERAS[0][0];
+      d.value = choice.date;
+      $('setupEras').innerHTML = real ? ERAS.map(([dt, t, sub]) => `<button type="button" class="opt" data-setup-era="${dt}" aria-pressed="${choice.date === dt}"><b>${t}</b><span>${sub}</span></button>`).join('') : '';
+      $('setupMarketNote').textContent = real
+        ? `Recorded history runs from ${R.first} to ${R.last}. 602 of the 761 products have real data; the rest are hidden while you replay.`
+        : '';
+    }
     $('setupGo').textContent = choice.tour ? 'Start and show me around' : 'Start';
   }
 
@@ -56,7 +79,7 @@
       if (!(custom >= 100 && custom <= 1e9)) { $('setupNote').textContent = 'Enter an amount between $100 and $1,000,000,000.'; $('setupCustom').focus(); return; }
       choice.cash = custom;
     }
-    if (!choice.keep) window.App.newGame(choice.cash);
+    if (!choice.keep) window.App.newGame(choice.cash, choice.market === 'real' ? { mode: 'real', startDate: choice.date } : null);
     try {
       localStorage.setItem(DONE_KEY, '1');
       if (!choice.tour) localStorage.setItem('bullpen-tour-done', '1');
@@ -77,7 +100,18 @@
         render(); return;
       }
       const t = e.target.closest('[data-setup-tour]');
-      if (t) { choice.tour = t.dataset.setupTour === 'yes'; render(); }
+      if (t) { choice.tour = t.dataset.setupTour === 'yes'; render(); return; }
+      const mk = e.target.closest('[data-setup-market]');
+      if (mk) { choice.market = mk.dataset.setupMarket; choice.keep = false; render(); return; }
+      const era = e.target.closest('[data-setup-era]');
+      if (era) { choice.date = era.dataset.setupEra; render(); }
+    });
+    $('setupDate').addEventListener('change', () => {
+      const R = window.Engine.realBounds();
+      let v = $('setupDate').value;
+      if (R && v) { if (v < R.first) v = R.first; if (v > R.last) v = R.last; }
+      choice.date = v;
+      render();
     });
     $('setupCustom').addEventListener('input', () => {
       const v = parseFloat($('setupCustom').value);

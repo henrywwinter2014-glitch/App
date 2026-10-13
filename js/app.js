@@ -103,6 +103,16 @@
     $('simDate').textContent = longDate(s.date);
     const ds = E.divSpeed();
     $('simDay').textContent = `Day ${s.day + 1}${ds !== 'normal' ? ` · dividends ${ds}` : ''}`;
+    const badge = $('modeBadge');
+    if (badge) {
+      const real = E.realOn();
+      badge.hidden = false;
+      badge.className = 'mode-badge ' + (real ? 'replay' : 'sim');
+      badge.textContent = real ? 'REPLAY · real history' : 'SIMULATED';
+      badge.title = real
+        ? `Replaying recorded history from ${s.realFrom || s.date}. These are the prices, dividends and splits that really happened. Not live data, and nothing after ${longDate(s.date)} is visible.`
+        : 'An invented market. These prices are not real and never were.';
+    }
     const nw = E.netWorth();
     $('hdrWorth').textContent = money(nw);
     const prev = s.nw.length > 1 ? s.nw[s.nw.length - 2].v : s.startCash;
@@ -119,7 +129,7 @@
     const s = S();
     let html = '';
     for (const [t, lbl] of TAPE) {
-      if (!E.BY[t]) continue;
+      if (!E.BY[t] || !E.listed(t)) continue;
       const p = E.price(t), c = p / E.prevClose(t) - 1;
       html += `<button class="tape-item" type="button" data-open="${t}"><span class="lbl">${lbl}</span><b>${t}</b><span class="num ${cls(c)}">${pct(c)}</span></button>`;
     }
@@ -133,7 +143,7 @@
     let html = '';
     for (const [key, label, fn] of FILTERS) {
       let n = 0;
-      for (const m of E.U) if (fn(m)) n++;
+      for (const m of E.U) if (E.listed(m.t) && fn(m)) n++;
       if (!n && !['watch', 'owned', 'all'].includes(key)) continue;
       html += `<option value="${key}"${ui.filter === key ? ' selected' : ''}>${key === 'all' ? 'All categories' : label} (${n})</option>`;
     }
@@ -156,6 +166,7 @@
     const q = ui.q.trim().toLowerCase();
     const rows = [];
     for (const m of E.U) {
+      if (!E.listed(m.t)) continue;                   // not listed on this day of the replay
       if (ui.sector && m.sector !== ui.sector) continue;
       if (ui.exch && m.exch !== ui.exch) continue;
       if (q && !(m.t.toLowerCase().startsWith(q) || m.n.toLowerCase().includes(q) || m.type.toLowerCase().includes(q) || (m.cat || '').toLowerCase().includes(q))) continue;
@@ -212,7 +223,11 @@
   const ARROW_DN = '<svg class="arr" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3 L9 9 M9 4.5 V9 H4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 
   function chartTicker() {
-    if (!ui.chartT || !E.BY[ui.chartT]) ui.chartT = (S().watch.find((t) => E.BY[t]) || 'SPY');
+    // Never leave the chart on something that had not listed yet in a replay.
+    if (!ui.chartT || !E.BY[ui.chartT] || !E.listed(ui.chartT)) {
+      ui.chartT = S().watch.find((t) => E.BY[t] && E.listed(t))
+        || (E.listed('SPY') ? 'SPY' : (E.U.find((m) => E.listed(m.t)) || { t: 'SPY' }).t);
+    }
     return ui.chartT;
   }
 
@@ -223,7 +238,7 @@
 
   function renderWatchTiles() {
     const s = S();
-    const list = s.watch.filter((t) => E.BY[t]);
+    const list = s.watch.filter((t) => E.BY[t] && E.listed(t));
     $('watchCount').textContent = `${list.length} product${list.length === 1 ? '' : 's'}`;
     ui.lastPx = ui.lastPx || {};
     if (!list.length) {
@@ -1769,11 +1784,11 @@
     if (E.S) refresh();
   }
 
-  function startNewGame(cash) {
+  function startNewGame(cash, opts) {
     setPlaying(false);
     if (ui.sheet) closeSheet();
     const academy = S() && S().academy;   // course progress survives a new trading game
-    E.newGame(cash);
+    E.newGame(cash, opts);
     if (academy) S().academy = academy;
     ui.calMonth = null; ui.calSel = null; ui.calFollow = true;
     save();

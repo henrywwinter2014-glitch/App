@@ -20,6 +20,7 @@
 
     <div class="clock">
       <div class="clock-date"><span id="simDate">-</span><span class="clock-day" id="simDay"></span></div>
+      <span class="mode-badge sim" id="modeBadge" hidden></span>
       <div class="controls">
         <button class="btn btn-play" id="playBtn" type="button" aria-pressed="false">Play</button>
         <div class="seg speed" id="speedSeg" role="group" aria-label="Speed (trading days per second)">
@@ -592,6 +593,17 @@
       <label class="setup-custom" id="setupCustomWrap"><span>Or enter your own amount ($)</span><input id="setupCustom" type="number" min="100" max="1000000000" step="100" inputmode="numeric" placeholder="e.g. 25000"></label>
     </fieldset>
 
+    <fieldset id="setupMarketWrap">
+      <legend>Which market do you want to trade?</legend>
+      <div class="opts opts-2">
+        <button type="button" class="opt" data-setup-market="sim"><b>Simulated market</b><span>An invented market that starts today and moves on its own. Every product is tradeable.</span></button>
+        <button type="button" class="opt" data-setup-market="real"><b>Replay real history</b><span>Prices, dividends and splits that really happened, one day at a time. You never see past today.</span></button>
+      </div>
+      <label class="setup-custom" id="setupDateWrap"><span>Start the replay on</span><input id="setupDate" type="date"></label>
+      <div class="opts opts-cash" id="setupEras"></div>
+      <p class="note" id="setupMarketNote"></p>
+    </fieldset>
+
     <fieldset>
       <legend>Would you like a quick tutorial?</legend>
       <div class="opts opts-2">
@@ -625,6 +637,12 @@
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="js/data.js"></script>
+<script src="data/real-index.js"></script>
+<script src="data/real-0.js"></script>
+<script src="data/real-1.js"></script>
+<script src="data/real-2.js"></script>
+<script src="data/real-3.js"></script>
+<script src="js/realdata.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/calc.js"></script>

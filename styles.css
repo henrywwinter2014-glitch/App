@@ -987,3 +987,13 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 #drawClear.armed { color: var(--loss); font-weight: 600; }
 .chart.drawing { cursor: crosshair; touch-action: none; }
 .chart.drawing.erasing { cursor: pointer; }
+
+/* which market you are trading */
+.mode-badge { font-size: 10px; font-weight: 800; letter-spacing: 0.07em; padding: 2px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; cursor: help; }
+.mode-badge.sim { color: var(--muted); border-color: var(--line-strong); background: var(--surface-2); }
+.mode-badge.replay { color: #8a5a00; border-color: #e6b422; background: rgba(230, 180, 34, 0.16); }
+:root[data-theme="dark"] .mode-badge.replay { color: #e6b422; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .mode-badge.replay { color: #e6b422; } }
+#setupEras[hidden] { display: none; }
+#setupDateWrap { display: none; }
+#setupDateWrap.on { display: grid; }
