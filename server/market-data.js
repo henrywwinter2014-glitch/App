@@ -91,8 +91,11 @@ const SYMBOL = /^[A-Za-z0-9.\-^:=]{1,20}$/;
 const INTERVAL = /^(1min|5min|15min|30min|45min|60min|1h|1day|1week|1month)$/;
 
 function json(body, status, origin, cacheSeconds) {
-  return new Response(JSON.stringify(body), {
-    status: status || 200,
+  // A 204 must not carry a body. Constructing one with a body throws, which would have taken out
+  // the CORS preflight -- and so every cross-origin request, which is the only kind this gets.
+  const code = status || 200;
+  return new Response(code === 204 || code === 304 ? null : JSON.stringify(body), {
+    status: code,
     headers: {
       'content-type': 'application/json; charset=utf-8',
       'access-control-allow-origin': origin || '*',
