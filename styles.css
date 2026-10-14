@@ -1052,3 +1052,47 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .risk-calc .field small { font-weight: 400; }
 @media (max-width: 860px) { .risk-calc { grid-template-columns: 1fr; } }
 .set-rule { border: 0; border-top: 1px solid var(--line); margin: 6px 0 2px; }
+
+/* ---------- trading journal ---------- */
+.perf-views { margin-bottom: 12px; }
+.perf-views button.on { background: var(--fg); color: var(--surface); }
+.jr-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.jr-filters input, .jr-filters select { flex: 1 1 140px; min-width: 0; }
+.jr-pats { display: grid; gap: 8px; }
+.jr-pat { border-left: 3px solid var(--warn); padding: 6px 0 6px 12px; display: grid; gap: 2px; font-size: 13px; }
+.jr-pat.good { border-left-color: var(--gain); }
+.jr-card { padding: 0 !important; overflow: hidden; }
+.jr-top { width: 100%; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto; gap: 12px; align-items: center; padding: 12px 16px; background: none; border: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.jr-top:hover { background: var(--surface-2); }
+.jr-card.on .jr-top { border-bottom: 1px solid var(--line); }
+.jr-id { display: grid; min-width: 0; }
+.jr-id b { font-size: 15px; }
+.jr-id small { color: var(--muted); font-size: 12px; }
+.jr-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.jr-tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.jr-tag.soft { background: var(--surface-2); color: var(--muted); }
+.jr-tag.todo { background: rgba(255, 150, 0, 0.16); color: var(--warn); }
+.jr-pl { display: grid; justify-items: end; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.jr-pl small { font-weight: 600; font-size: 11px; }
+.jr-body { padding: 14px 16px 16px; display: grid; gap: 12px; }
+.jr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.jr-grid.three { grid-template-columns: repeat(3, 1fr); }
+.jr-body textarea { font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); padding: 8px 10px; resize: vertical; width: 100%; }
+.jr-body textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.jr-img { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.jr-img img { max-width: 240px; border-radius: 8px; border: 1px solid var(--line); }
+.jr-pick { cursor: pointer; }
+.jr-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+@media (max-width: 760px) {
+  .jr-top { grid-template-columns: 1fr auto; }
+  .jr-tags { grid-column: 1 / -1; }
+  .jr-grid, .jr-grid.three { grid-template-columns: 1fr; }
+}
+.bt-form { display: grid; gap: 12px; }
+.bt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: start; }
+.bt-form .field small { font-weight: 400; font-size: 11px; }
+.bt-form button[type="submit"] { justify-self: start; }
+.bt-split.warn { border-left: 3px solid var(--warn); }
+.bt-two { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.bt-two > div { display: grid; gap: 2px; }
+@media (max-width: 700px) { .bt-two { grid-template-columns: 1fr; gap: 12px; } }

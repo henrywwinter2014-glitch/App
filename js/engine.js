@@ -261,6 +261,7 @@
       dates: [],
       holdings: {},
       orders: [],
+      journal: {},          // trading journal, keyed by product and the day the position opened
       drawings: {},           // per ticker: chart drawings, points as { d: game day, p: price }
       pending: [],             // declared dividends awaiting payment
       tx: [],

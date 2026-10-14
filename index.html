@@ -290,6 +290,7 @@
             <div class="calc-src">
               <input id="calcTicker" list="calcList" placeholder="Ticker, e.g. SCHD" aria-label="Ticker">
               <datalist id="calcList"></datalist>
+<datalist id="jrStrats"></datalist>
               <button class="btn" type="button" id="calcUseTicker">Use</button>
               <button class="btn" type="button" id="calcUsePf">My portfolio</button>
             </div>
@@ -367,7 +368,12 @@
 
     <!-- Performance -->
     <section class="panel" id="tab-performance" hidden>
+      <div class="seg perf-views" id="perfViews" role="group" aria-label="Which view">
+        <button type="button" data-view="overview" class="on">Overview</button><button type="button" data-view="journal">Journal</button><button type="button" data-view="backtest">Backtest</button>
+      </div>
       <div class="perf" id="perf"></div>
+      <div class="perf" id="journal" hidden></div>
+      <div class="perf" id="backtest" hidden></div>
     </section>
 
     <!-- Orders -->
@@ -675,6 +681,9 @@
 <script src="js/engine.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/stats.js"></script>
+<script src="js/indicators.js"></script>
+<script src="js/journal.js"></script>
+<script src="js/backtest.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/firebase-config.js"></script>
 <script src="js/cloud.js"></script>

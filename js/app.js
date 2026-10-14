@@ -1521,7 +1521,7 @@
     if (tab === 'settings') renderSettings();
     if (tab === 'calculator') renderCalc();
     if (tab === 'academy' && window.Academy) window.Academy.render();
-    if (tab === 'performance') renderPerformance();
+    if (tab === 'performance') { const v = ui.perfView || 'overview'; if (v === 'journal') renderJournal(); else if (v === 'backtest') renderBacktest(); else renderPerformance(); }
     if (tab === 'calculator' && !$('riskCalc').hidden) resetRisk();
     if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
     refresh();
@@ -1656,6 +1656,8 @@
     $('mainChart').addEventListener('dblclick', () => { if (!draw.tool) openFocus(); });
     bindDrawing();
     bindRisk();
+    bindJournal();
+    bindBacktest();
     $('fcClose').addEventListener('click', closeFocus);
     $('fcPlay').addEventListener('click', () => setPlaying(!ui.playing));
     $('fcSell').addEventListener('click', () => showQuick('sell'));
@@ -2017,6 +2019,266 @@
     if (!$('rkEquity').value) $('rkEquity').value = Math.round(E.netWorth());
     if (!$('rkRisk').value) $('rkRisk').value = s.settings.riskPct || 1;
     renderRisk();
+  }
+
+  /* ---------- trading journal ---------- */
+  const jrUI = { open: null, q: '', strat: '', outcome: 'all' };
+
+  function renderJournal() {
+    const J = window.Journal;
+    const rows = J.positions().filter((p) => {
+      if (jrUI.q && !p.t.toLowerCase().startsWith(jrUI.q.toLowerCase())) return false;
+      if (jrUI.strat && (!p.entry || p.entry.strategy !== jrUI.strat)) return false;
+      if (jrUI.outcome === 'open' && !p.open) return false;
+      if (jrUI.outcome === 'won' && !(p.pl > 0)) return false;
+      if (jrUI.outcome === 'lost' && !(p.pl < 0)) return false;
+      if (jrUI.outcome === 'todo' && (p.open ? (p.entry && p.entry.plan) : (p.entry && p.entry.review))) return false;
+      return true;
+    });
+    const used = [...new Set(J.positions().map((p) => p.entry && p.entry.strategy).filter(Boolean))];
+    const pats = J.patterns();
+    const todo = J.positions().filter((p) => (p.open ? !(p.entry && p.entry.plan) : !(p.entry && p.entry.review))).length;
+
+    let html = `<div class="card jr-head">
+      <div class="ac-row"><b>Your trading journal</b><span class="muted small">${todo ? `${todo} still to write up` : 'All written up'}</span></div>
+      <p class="muted small">Every position opens an entry by itself. Write the plan before you buy and the review after you sell; the numbers come from what you actually did.</p>
+      <div class="jr-filters">
+        <input id="jrQ" type="search" placeholder="Filter by ticker" value="${esc(jrUI.q)}" aria-label="Filter by ticker">
+        <select id="jrStrat" aria-label="Filter by strategy"><option value="">Any strategy</option>${used.map((x) => `<option value="${esc(x)}"${jrUI.strat === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>
+        <select id="jrOutcome" aria-label="Filter by outcome">${[['all', 'All trades'], ['open', 'Still open'], ['won', 'Made money'], ['lost', 'Lost money'], ['todo', 'Not written up']].map(([v, l]) => `<option value="${v}"${jrUI.outcome === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      </div>
+    </div>`;
+
+    if (pats.length) {
+      html += `<div class="card"><div class="ac-row"><b>What your journal shows</b><span class="muted small">from entries you wrote</span></div>
+        <div class="jr-pats">${pats.map((p) => `<div class="jr-pat ${p.good ? 'good' : ''}"><b>${esc(p.title)}</b><span class="muted">${esc(p.detail)}</span></div>`).join('')}</div></div>`;
+    }
+
+    if (!rows.length) {
+      html += `<div class="card perf-empty"><b>Nothing to show yet</b><p class="muted">${J.positions().length ? 'No position matches those filters.' : 'Buy something and an entry appears here for you to fill in.'}</p></div>`;
+    }
+
+    for (const p of rows) {
+      const e = p.entry || {};
+      const isOpen = jrUI.open === p.k;
+      const need = p.open ? !e.plan : !e.review;
+      html += `<div class="card jr-card ${isOpen ? 'on' : ''}">
+        <button type="button" class="jr-top" data-jr="${esc(p.k)}" aria-expanded="${isOpen}">
+          <span class="jr-id"><b>${p.t}</b><small>${p.open ? 'Open since' : 'Closed'} ${C.shortDate(p.open ? p.opened : p.closed)} · ${p.held}d</small></span>
+          <span class="jr-tags">${e.strategy ? `<span class="jr-tag">${esc(e.strategy)}</span>` : ''}${e.emotion ? `<span class="jr-tag soft">${esc(e.emotion)}</span>` : ''}${need ? '<span class="jr-tag todo">To write up</span>' : ''}</span>
+          <span class="jr-pl ${cls(p.pl)}">${signedMoney(p.pl)}<small>${p.plPct == null ? '' : pct(p.plPct)}</small></span>
+        </button>
+        ${isOpen ? jrEditor(p, e) : ''}
+      </div>`;
+    }
+    $('journal').innerHTML = html;
+    const inp = $('jrQ');
+    if (inp && document.activeElement !== inp && jrUI.focusQ) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+    jrUI.focusQ = false;
+  }
+
+  function jrEditor(p, e) {
+    const J = window.Journal;
+    const opts = (list, val) => list.map((x) => `<option value="${esc(x)}"${val === x ? ' selected' : ''}>${esc(x)}</option>`).join('');
+    return `<div class="jr-body">
+      <div class="jr-grid">
+        <label class="field"><span>Why did you buy?</span><textarea data-jf="why" rows="3" placeholder="What made this worth owning?">${esc(e.why || '')}</textarea></label>
+        <label class="field"><span>What was your plan to get out?</span><textarea data-jf="plan" rows="3" placeholder="Where would you sell if right, and if wrong?">${esc(e.plan || '')}</textarea></label>
+      </div>
+      <div class="jr-grid three">
+        <label class="field"><span>Strategy</span><input data-jf="strategy" list="jrStrats" value="${esc(e.strategy || '')}" placeholder="e.g. Dividend income"></label>
+        <label class="field"><span>How risky did it feel?</span><select data-jf="risk"><option value="">—</option>${opts(J.RISKS, e.risk)}</select></label>
+        <label class="field"><span>How did you feel?</span><select data-jf="emotion"><option value="">—</option>${opts(J.EMOTIONS, e.emotion)}</select></label>
+      </div>
+      ${p.open ? `<p class="note">Still open. Come back and review it once you have sold.</p>` : `
+      <label class="field"><span>Looking back, what happened?</span><textarea data-jf="review" rows="3" placeholder="Did it go to plan? What would you do differently?">${esc(e.review || '')}</textarea></label>`}
+      <label class="field"><span>Notes</span><textarea data-jf="notes" rows="2" placeholder="Anything else worth remembering">${esc(e.notes || '')}</textarea></label>
+      <div class="jr-img">
+        ${e.img ? `<img src="${e.img}" alt="Screenshot attached to this entry"><button type="button" class="btn btn-ghost" data-jrimg="clear">Remove picture</button>` : `<label class="btn btn-ghost jr-pick">Attach a picture<input type="file" accept="image/*" data-jrimg="pick" hidden></label><span class="muted small">Shrunk before saving so your journal stays small.</span>`}
+      </div>
+      <div class="jr-actions"><button type="button" class="btn btn-ghost" data-jrdel="${esc(p.k)}">Delete entry</button><span class="muted small" id="jrSaved">Saved as you type</span></div>
+    </div>`;
+  }
+
+  function fillStrategies() {
+    const d = $('jrStrats');
+    if (d && !d.children.length) d.innerHTML = window.Journal.STRATEGIES.map((x) => `<option value="${esc(x)}">`).join('');
+  }
+
+  function bindJournal() {
+    fillStrategies();
+    $('journal').addEventListener('click', (e) => {
+      const top = e.target.closest('[data-jr]');
+      if (top) { jrUI.open = jrUI.open === top.dataset.jr ? null : top.dataset.jr; renderJournal(); return; }
+      const del = e.target.closest('[data-jrdel]');
+      if (del) { window.Journal.remove(del.dataset.jrdel); save(); renderJournal(); toast('Journal entry deleted.'); return; }
+      const clear = e.target.closest('[data-jrimg="clear"]');
+      if (clear && jrUI.open) { window.Journal.set(jrUI.open, { img: '' }); save(); renderJournal(); }
+    });
+    $('journal').addEventListener('change', (e) => {
+      if (e.target.id === 'jrStrat') { jrUI.strat = e.target.value; return renderJournal(); }
+      if (e.target.id === 'jrOutcome') { jrUI.outcome = e.target.value; return renderJournal(); }
+      const pick = e.target.closest('[data-jrimg="pick"]');
+      if (pick && pick.files && pick.files[0] && jrUI.open) {
+        window.Journal.shrinkImage(pick.files[0], (url) => {
+          if (!url) return toast('That picture could not be read.');
+          window.Journal.set(jrUI.open, { img: url });
+          save(); renderJournal();
+        });
+      }
+    });
+    $('journal').addEventListener('input', (e) => {
+      if (e.target.id === 'jrQ') { jrUI.q = e.target.value; jrUI.focusQ = true; return renderJournal(); }
+      const f = e.target.closest('[data-jf]');
+      if (!f || !jrUI.open) return;
+      window.Journal.set(jrUI.open, { [f.dataset.jf]: f.value });
+      save();
+      const tag = $('jrSaved');
+      if (tag) { tag.textContent = 'Saved'; clearTimeout(jrUI.t); jrUI.t = setTimeout(() => { if ($('jrSaved')) $('jrSaved').textContent = 'Saved as you type'; }, 1200); }
+    });
+    $('perfViews').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-view]');
+      if (!b) return;
+      const v = b.dataset.view;
+      document.querySelectorAll('#perfViews [data-view]').forEach((x) => x.classList.toggle('on', x === b));
+      $('perf').hidden = v !== 'overview';
+      $('journal').hidden = v !== 'journal';
+      $('backtest').hidden = v !== 'backtest';
+      ui.perfView = v;
+      if (v === 'overview') renderPerformance();
+      if (v === 'journal') renderJournal();
+      if (v === 'backtest') renderBacktest();
+    });
+  }
+
+  /* ---------- strategy backtester ---------- */
+  const btUI = { cfg: null, result: null };
+
+  function btDefaults() {
+    const b = E.realBounds();
+    return {
+      ticker: 'SPY', from: b ? b.first : '', to: b ? b.last : '',
+      entry: 'smaCross', exit: 'opposite', params: {},
+      stopPct: '', targetPct: '', sizePct: 100, cash: 100000,
+      commission: S().settings.commission || 0,
+    };
+  }
+
+  function renderBacktest() {
+    const B = window.Backtest;
+    if (!E.realBounds()) { $('backtest').innerHTML = `<div class="card perf-empty"><b>Recorded history has not loaded</b><p class="muted">The backtester needs the real price data.</p></div>`; return; }
+    const cfg = btUI.cfg || (btUI.cfg = btDefaults());
+    const ent = B.def(B.ENTRIES, cfg.entry), ext = B.def(B.EXITS, cfg.exit);
+    const b = E.realBounds();
+    const pfield = (p) => p.map(([k, label, dflt]) => `<label class="field"><span>${esc(label)}</span><input data-bp="${k}" type="number" step="any" value="${cfg.params[k] ?? dflt}"></label>`).join('');
+
+    let html = `<form class="card bt-form" id="btForm" autocomplete="off">
+      <div class="ac-row"><b>Test a set of rules on recorded history</b></div>
+      <p class="muted small">Rules are decided on one day's close and filled at the next day's open, so a rule can never see the bar it trades on. The run is split: the earlier part to tune on, a later part the rules never saw.</p>
+      <div class="bt-grid">
+        <label class="field"><span>Product</span><input data-bf="ticker" list="calcList" value="${esc(cfg.ticker)}"></label>
+        <label class="field"><span>From</span><input data-bf="from" type="date" min="${b.first}" max="${b.last}" value="${cfg.from}"></label>
+        <label class="field"><span>To</span><input data-bf="to" type="date" min="${b.first}" max="${b.last}" value="${cfg.to}"></label>
+        <label class="field"><span>Starting cash</span><input data-bf="cash" type="number" min="100" step="100" value="${cfg.cash}"></label>
+      </div>
+      <div class="bt-grid">
+        <label class="field"><span>Buy when</span><select data-bf="entry">${B.ENTRIES.map((x) => `<option value="${x.id}"${x.id === cfg.entry ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select><small class="muted">${esc(ent.desc)}</small></label>
+        ${pfield(ent.params || [])}
+      </div>
+      <div class="bt-grid">
+        <label class="field"><span>Sell</span><select data-bf="exit">${B.EXITS.map((x) => `<option value="${x.id}"${x.id === cfg.exit ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select><small class="muted">${esc(ext.desc)}</small></label>
+        ${pfield(ext.params || [])}
+        <label class="field"><span>Stop loss (%)<small class="muted"> optional</small></span><input data-bf="stopPct" type="number" min="0" step="any" value="${cfg.stopPct}" placeholder="none"></label>
+        <label class="field"><span>Take profit (%)<small class="muted"> optional</small></span><input data-bf="targetPct" type="number" min="0" step="any" value="${cfg.targetPct}" placeholder="none"></label>
+      </div>
+      <button class="btn btn-primary" type="submit" id="btRun">Run the test</button>
+    </form>`;
+
+    const r = btUI.result;
+    if (r && r.error) html += `<div class="card perf-empty"><b>Cannot run that</b><p class="muted">${esc(r.error)}</p></div>`;
+    else if (r) {
+      const st = r.stats, d = r.design.stats, hb = r.heldBack.stats;
+      const beat = st.ret - r.buyHold.ret;
+      // The honest headline: did it survive the period it was never tuned on?
+      const held = hb && hb.n ? hb.ret : null;
+      const fell = d && hb && d.ret > 0 && hb.ret < 0;
+      html += `<div class="card perf-hero">
+        <div><span class="ac-eyebrow">The rules returned</span><div class="perf-big ${cls(st.ret)}">${pct(st.ret)}</div><p class="muted small">${money(r.startCash)} became ${money(st.end)} over ${r.dates.length} trading days</p></div>
+        <div class="perf-vs"><span class="ac-eyebrow">Against buying and holding</span><div class="perf-mid ${cls(beat)}">${pct(beat)}</div><p class="muted small">Holding ${r.ticker} returned ${pct(r.buyHold.ret)}</p></div>
+        <div class="perf-vs"><span class="ac-eyebrow">Worst fall from a peak</span><div class="perf-mid loss">${pct(st.maxDD)}</div><p class="muted small">${st.n} trade${st.n === 1 ? '' : 's'} · ${Math.round(st.avgDays)} days each</p></div>
+      </div>`;
+
+      html += `<div class="card bt-split ${fell ? 'warn' : ''}">
+        <div class="ac-row"><b>The part it was tuned on, against the part it was not</b></div>
+        <div class="bt-two">
+          <div><span class="ac-eyebrow">Design period</span><div class="perf-mid ${cls(d ? d.ret : 0)}">${d ? pct(d.ret) : '—'}</div><p class="muted small">${C.shortDate(r.design.from)} to ${C.shortDate(r.design.to)} · ${d ? d.n : 0} trades</p></div>
+          <div><span class="ac-eyebrow">Held back</span><div class="perf-mid ${cls(held || 0)}">${held == null ? '—' : pct(held)}</div><p class="muted small">${C.shortDate(r.heldBack.from)} to ${C.shortDate(r.heldBack.to)} · ${hb ? hb.n : 0} trades</p></div>
+        </div>
+        <p class="note">${fell
+          ? 'These rules made money on the stretch they were built against and lost it on the stretch they had never seen. That is what fitting to noise looks like, and it is the usual result of adjusting a rule until the chart looks right.'
+          : held == null ? 'The held-back period produced no trades, so it tells you nothing yet. Try a longer run.'
+          : 'A strategy worth anything should hold up on days it was never tuned against. Compare the two numbers, not just the headline.'}</p>
+      </div>`;
+
+      const tiles = [
+        ['Trades', st.n, `${st.wins} won`],
+        ['Win rate', pctAbs(st.winRate), ''],
+        ['Profit factor', st.profitFactor === Infinity ? '∞' : nf2(st.profitFactor), 'Won per £1 lost'],
+        ['Average win', signedMoney(st.avgWin), ''],
+        ['Average loss', signedMoney(-st.avgLoss), ''],
+        ['Trading costs', money(r.costs), 'Spread and commission'],
+      ];
+      html += `<div class="card"><div class="ac-row"><b>How the rules behaved</b></div>
+        <div class="perf-tiles">${tiles.map(([k, v, sub]) => `<div><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`).join('')}</div></div>`;
+
+      html += `<div class="card"><div class="ac-row"><b>The strategy against buying and holding</b>
+        <span class="chart-key"><span class="key you">Rules</span><span class="key bench">Buy and hold</span></span></div>
+        <canvas id="btChart" class="chart" height="240"></canvas></div>`;
+
+      if (r.trades.length) {
+        html += `<div class="card"><div class="ac-row"><b>Every trade the rules made</b><span class="muted small">${r.trades.length} in total</span></div>
+          <div class="table-wrap"><table class="grid perf-tbl"><thead><tr><th>In</th><th>Out</th><th class="r">Held</th><th class="r">Entry</th><th class="r">Exit</th><th class="r">Result</th><th class="r">%</th><th>Why</th></tr></thead><tbody>
+          ${r.trades.slice(-40).reverse().map((t) => `<tr><td>${C.shortDate(t.in)}</td><td>${C.shortDate(t.out)}</td><td class="r">${t.days}d</td><td class="r">${money(t.entry)}</td><td class="r">${money(t.exit)}</td><td class="r ${cls(t.pl)}">${signedMoney(t.pl)}</td><td class="r ${cls(t.pl)}">${pct(t.plPct)}</td><td>${({ stop: 'Stop hit', target: 'Target hit', time: 'Time up', signal: 'Signal ended', end: 'Run ended' })[t.why]}</td></tr>`).join('')}
+          </tbody></table></div></div>`;
+      }
+    }
+    $('backtest').innerHTML = html;
+
+    if (r && !r.error) {
+      C.line($('btChart'), {
+        labels: r.dates,
+        series: [
+          { values: r.buyHold.curve, color: getComputedStyle(document.documentElement).getPropertyValue('--chart-b').trim() || '#9aa3ad' },
+          { values: r.equity, color: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), fill: true },
+        ],
+        fmt: (v) => money(v, 'USD', 0),
+        hover: true,
+      });
+    }
+  }
+
+  function bindBacktest() {
+    $('backtest').addEventListener('input', (e) => {
+      const f = e.target.closest('[data-bf]'), p = e.target.closest('[data-bp]');
+      if (f) btUI.cfg[f.dataset.bf] = f.type === 'number' ? e.target.value : e.target.value;
+      else if (p) btUI.cfg.params[p.dataset.bp] = e.target.value;
+    });
+    $('backtest').addEventListener('change', (e) => {
+      const f = e.target.closest('[data-bf]');
+      if (f && (f.dataset.bf === 'entry' || f.dataset.bf === 'exit')) { btUI.cfg.params = {}; renderBacktest(); }
+    });
+    $('backtest').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const c = btUI.cfg;
+      btUI.result = window.Backtest.run({
+        ticker: (c.ticker || '').trim().toUpperCase(), from: c.from, to: c.to,
+        entry: c.entry, exit: c.exit, params: c.params,
+        stopPct: +c.stopPct || 0, targetPct: +c.targetPct || 0,
+        sizePct: +c.sizePct || 100, cash: +c.cash || 100000,
+        commission: +S().settings.commission || 0,
+      });
+      renderBacktest();
+    });
   }
 
   function boot() {
