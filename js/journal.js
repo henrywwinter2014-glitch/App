@@ -57,6 +57,9 @@
       out.push({
         k: key(tr.t, tr.opened), t: tr.t, opened: tr.opened, closed: tr.closed,
         open: false, qty: tr.qty, px: tr.px, held: tr.held,
+        // What the trade actually did, carried through so the journal can show it beside what
+        // you planned. `entry` is the journal note; `paid` is the price you bought at.
+        paid: tr.entry, cur: tr.cur, fee: tr.fee, slip: tr.slip,
         pl: tr.pl, plPct: tr.plPct, entry: get(key(tr.t, tr.opened)),
       });
     }
@@ -66,6 +69,8 @@
       out.push({
         k: key(t, h.opened), t, opened: h.opened, closed: null,
         open: true, qty: h.qty, px: E().price(t),
+        paid: h.qty > 0 && h.costN != null ? h.costN / h.qty : null,
+        cur: (E().BY[t] || {}).cur || 'USD', fee: 0, slip: 0,
         held: Math.max(0, Math.round((new Date(s.date) - new Date(h.opened)) / 86400000)),
         pl: v - h.cost, plPct: h.cost > 0 ? v / h.cost - 1 : null, entry: get(key(t, h.opened)),
       });

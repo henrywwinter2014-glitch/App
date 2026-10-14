@@ -1054,6 +1054,13 @@ canvas { max-width: 100%; }
  */
 html, body { overflow-x: clip; }
 
+.jr-outcome { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 8px; }
+.jr-outcome .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 8px 16px; margin: 0; }
+.jr-outcome .stats > div { min-width: 0; }
+.jr-outcome dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.jr-outcome dd { margin: 2px 0 0; font-size: 15px; font-weight: 600; }
+.jr-outcome dd small { font-weight: 400; font-size: 11px; display: block; }
+
 .world { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 12px; display: grid; gap: 10px; }
 .world[hidden] { display: none; }
 .world-go { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

@@ -2759,7 +2759,7 @@
       const need = p.open ? !e.plan : !e.review;
       html += `<div class="card jr-card ${isOpen ? 'on' : ''}">
         <button type="button" class="jr-top" data-jr="${esc(p.k)}" aria-expanded="${isOpen}">
-          <span class="jr-id"><b>${p.t}</b><small>${p.open ? 'Open since' : 'Closed'} ${C.shortDate(p.open ? p.opened : p.closed)} · ${p.held}d</small></span>
+          <span class="jr-id"><b>${p.t}</b><small>${p.open ? 'Open since' : 'Closed'} ${C.shortDate(p.open ? p.opened : p.closed)} · ${p.held}d${isFinite(p.paid) && isFinite(p.px) ? ` · ${money(p.paid, p.cur)} → ${money(p.px, p.cur)}` : ''}</small></span>
           <span class="jr-tags">${e.strategy ? `<span class="jr-tag">${esc(e.strategy)}</span>` : ''}${e.emotion ? `<span class="jr-tag soft">${esc(e.emotion)}</span>` : ''}${need ? '<span class="jr-tag todo">To write up</span>' : ''}</span>
           <span class="jr-pl ${cls(p.pl)}">${signedMoney(p.pl)}<small>${p.plPct == null ? '' : pct(p.plPct)}</small></span>
         </button>
@@ -2772,10 +2772,42 @@
     jrUI.focusQ = false;
   }
 
+  /*
+   * What the trade actually did.
+   *
+   * The journal already held what you intended; this is the other half, taken from the recorded
+   * trade rather than typed, so it cannot be remembered generously. Two different percentages are
+   * shown on purpose: the price move from what you paid to what you sold at, and the return on
+   * the money after the spread, the fees and the tax. The gap between them is what trading cost
+   * you, and it is the number people are most surprised by.
+   */
+  function jrOutcome(p) {
+    const m = E.BY[p.t] || {};
+    const cur = p.cur || m.cur || 'USD';
+    const px = (v) => (isFinite(v) ? money(v, cur) : '—');
+    const costs = (p.fee || 0) + (p.slip || 0);
+    const move = isFinite(p.paid) && p.paid > 0 && isFinite(p.px) ? p.px / p.paid - 1 : null;
+    const rows = [
+      ['Bought at', px(p.paid), 'average price paid'],
+      [p.open ? 'Worth now' : 'Sold at', px(p.px), p.open ? 'at the current price' : `on ${C.shortDate(p.closed)}`],
+      ['Shares', qtyFmt(+(+p.qty).toFixed(4)), p.open ? 'still held' : 'sold'],
+      ['Held for', `${p.held} day${p.held === 1 ? '' : 's'}`, `from ${C.shortDate(p.opened)}`],
+      ['Price move', move == null ? '—' : `<span class="${cls(move)}">${pct(move)}</span>`, 'before costs'],
+      [p.open ? 'Profit so far' : 'Profit', `<span class="${cls(p.pl)}">${signedMoney(p.pl)}</span>`, p.open ? 'if you sold now' : 'booked'],
+      ['Return', p.plPct == null ? '—' : `<span class="${cls(p.plPct)}">${pct(p.plPct)}</span>`, 'after all costs'],
+    ];
+    if (costs > 0.005) rows.push(['Costs', money(costs), 'spread, impact and commission']);
+    return `<div class="jr-outcome">
+      <div class="ac-row"><b>${p.open ? 'Where it stands' : 'What happened'}</b><span class="muted small">${p.open ? 'open position' : 'from your trade record, not typed'}</span></div>
+      <dl class="stats">${rows.map(([k, v, sub]) => `<div><dt>${esc(k)}</dt><dd>${v}${sub ? `<small class="muted"> ${esc(sub)}</small>` : ''}</dd></div>`).join('')}</dl>
+    </div>`;
+  }
+
   function jrEditor(p, e) {
     const J = window.Journal;
     const opts = (list, val) => list.map((x) => `<option value="${esc(x)}"${val === x ? ' selected' : ''}>${esc(x)}</option>`).join('');
     return `<div class="jr-body">
+      ${jrOutcome(p)}
       <div class="jr-grid">
         <label class="field"><span>Why did you buy?</span><textarea data-jf="why" rows="3" placeholder="What made this worth owning?">${esc(e.why || '')}</textarea></label>
         <label class="field"><span>What was your plan to get out?</span><textarea data-jf="plan" rows="3" placeholder="Where would you sell if right, and if wrong?">${esc(e.plan || '')}</textarea></label>

@@ -26,13 +26,19 @@
     const out = [];
     for (const x of log) {
       if (!x.t) continue;
-      const p = open[x.t] || (open[x.t] = { qty: 0, opened: null, fee: 0, slip: 0 });
+      const p = open[x.t] || (open[x.t] = { qty: 0, opened: null, fee: 0, slip: 0, cost: 0 });
       if (x.kind === 'BUY' || x.kind === 'DRIP') {
-        if (p.qty < 1e-9) { p.opened = x.d; p.fee = 0; p.slip = 0; }
+        if (p.qty < 1e-9) { p.opened = x.d; p.fee = 0; p.slip = 0; p.cost = 0; }
         p.qty += x.qty;
         p.fee += x.fee || 0;
         p.slip += x.slip || 0;
+        // Running cost in the security's own currency, so the average price you paid can be
+        // reported in the same units as the price you sold at. Fees are counted separately --
+        // mixing them in would make "bought at" a number that never appeared on any screen.
+        p.cost += (x.px || 0) * (x.qty || 0);
       } else if (x.kind === 'SPLIT') {
+        // A split changes the share count without changing what the position cost, so the
+        // average price per share has to move with it or the next sale reports a fictional gain.
         p.qty = x.qty;                               // the log records the post-split total
       } else if (x.kind === 'SELL') {
         const part = p.qty > 1e-9 ? Math.min(1, x.qty / p.qty) : 1;
@@ -43,6 +49,9 @@
           held: days(p.opened || x.d, x.d),
           qty: x.qty,
           px: x.px,
+          // What you paid per share, on average, in the same currency as px above.
+          entry: p.qty > 1e-9 ? p.cost / p.qty : null,
+          cur: x.cur || 'USD',
           pl: x.pl || 0,
           plPct: x.plPct == null ? null : x.plPct,
           fee: (x.fee || 0) + p.fee * part,
@@ -52,7 +61,8 @@
         p.qty -= x.qty;
         p.fee *= 1 - part;
         p.slip *= 1 - part;
-        if (p.qty < 1e-9) { p.qty = 0; p.opened = null; }
+        p.cost *= 1 - part;
+        if (p.qty < 1e-9) { p.qty = 0; p.opened = null; p.cost = 0; }
       }
     }
     return out;
