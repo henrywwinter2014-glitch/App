@@ -87,6 +87,13 @@
       best: tr.length ? tr.reduce((a, x) => (x.pl > a.pl ? x : a)) : null,
       worst: tr.length ? tr.reduce((a, x) => (x.pl < a.pl ? x : a)) : null,
       avgHeld: tr.length ? tr.reduce((a, x) => a + x.held, 0) / tr.length : 0,
+      streaks: streaks(tr),
+      // Which market these numbers came out of. Results from the three are never pooled: a run on
+      // invented prices and a run on real ones are not comparable, and averaging them would
+      // produce a number that describes neither.
+      mode: s.mode || 'sim',
+      // Money paid in or taken out since the start, so a return can be stated net of it.
+      contributed: (s.tx || []).reduce((a, x) => a + (x.kind === 'DEPOSIT' || x.kind === 'WITHDRAW' ? x.amt : 0), 0),
       realised: pl,
       dividends: divs,
       fees: s.feesPaid || 0,
@@ -222,5 +229,78 @@
     return { abs: now - prev, pct: prev > 0 ? now / prev - 1 : 0 };
   }
 
-  window.Stats = { trades, summary, equity, byTicker, byMonth, concentration, positionSize, exposure, dayPL };
+  /*
+   * Winning and losing runs.
+   *
+   * Worth reporting because a run of losses is the thing that actually ends people: the account
+   * survives the arithmetic and the trader does not. Seeing that your worst run was six in a row,
+   * and that it happened, is more use than any average.
+   */
+  function streaks(tr) {
+    let win = 0, loss = 0, bestWin = 0, worstLoss = 0, cur = 0;
+    for (const x of tr) {
+      if (x.pl > 0) { win = win > 0 ? win + 1 : 1; loss = 0; if (win > bestWin) bestWin = win; cur = win; }
+      else if (x.pl < 0) { loss = loss > 0 ? loss + 1 : 1; win = 0; if (loss > worstLoss) worstLoss = loss; cur = -loss; }
+    }
+    return { longestWin: bestWin, longestLoss: worstLoss, current: cur };
+  }
+
+  /* ---------- export ----------
+   * Comma-separated, one row per thing, with the header naming every column. Values are quoted
+   * and internal quotes doubled, which is the whole of RFC 4180 that matters here; without it a
+   * company name with a comma in it silently shifts every later column by one.
+   */
+  function csvCell(v) {
+    if (v == null) return '';
+    const s0 = String(v);
+    return /[",\n]/.test(s0) ? '"' + s0.replace(/"/g, '""') + '"' : s0;
+  }
+  const csvRows = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
+  function csvTrades() {
+    const rows = [['ticker', 'opened', 'closed', 'days_held', 'quantity', 'exit_price', 'profit_usd', 'profit_pct', 'fees_usd', 'slippage_usd']];
+    for (const x of trades()) {
+      rows.push([x.t, x.opened, x.closed, x.held, round(x.qty, 6), round(x.px, 6), round(x.pl, 2), x.plPct == null ? '' : round(x.plPct * 100, 4), round(x.fee, 2), round(x.slip, 2)]);
+    }
+    return csvRows(rows);
+  }
+
+  function csvTransactions() {
+    const s0 = S();
+    const rows = [['date', 'kind', 'ticker', 'quantity', 'price', 'currency', 'amount_usd', 'fee_usd', 'slippage_usd', 'profit_usd', 'note']];
+    // The log is newest first; a file reads better oldest first.
+    for (const x of (s0.tx || []).slice().reverse()) {
+      rows.push([x.d, x.kind, x.t || '', round(x.qty, 6), round(x.px, 6), x.cur || 'USD', round(x.amt, 2), round(x.fee, 2), round(x.slip, 2), x.pl == null ? '' : round(x.pl, 2), x.note || '']);
+    }
+    return csvRows(rows);
+  }
+
+  function csvPortfolio() {
+    const E = window.Engine, s0 = S();
+    const rows = [['ticker', 'name', 'quantity', 'avg_cost_usd', 'price', 'currency', 'value_usd', 'unrealised_usd', 'unrealised_pct', 'weight_pct', 'priced']];
+    const nw = E.netWorth();
+    for (const t of Object.keys(s0.holdings || {})) {
+      const h = s0.holdings[t];
+      if (!h || !(h.qty > 0)) continue;
+      const m = E.BY[t] || {};
+      const px = E.price(t);
+      const val = E.holdingValue(t);
+      const known = isFinite(val);
+      rows.push([
+        t, m.n || '', round(h.qty, 6), h.qty > 0 ? round(h.cost / h.qty, 6) : '', isFinite(px) ? round(px, 6) : '',
+        m.cur || 'USD', known ? round(val, 2) : '', known ? round(val - h.cost, 2) : '',
+        known && h.cost > 0 ? round((val / h.cost - 1) * 100, 4) : '',
+        known && nw > 0 ? round((val / nw) * 100, 4) : '',
+        known ? 'yes' : 'no',
+      ]);
+    }
+    rows.push(['CASH', 'Uninvested cash', '', '', '', 'USD', round(s0.cash, 2), '', '', nw > 0 ? round((s0.cash / nw) * 100, 4) : '', 'yes']);
+    return csvRows(rows);
+  }
+
+  const round = (v, d) => (v == null || !isFinite(v) ? '' : +(+v).toFixed(d));
+
+  window.Stats = {
+    csvTrades, csvTransactions, csvPortfolio, streaks,
+    trades, summary, equity, byTicker, byMonth, concentration, positionSize, exposure, dayPL };
 })();

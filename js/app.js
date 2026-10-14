@@ -1224,9 +1224,9 @@
   }
 
   /* ---------- toasts ---------- */
-  function toast(text) {
+  function toast(text, kind) {
     const el = document.createElement('div');
-    el.className = 'toast';
+    el.className = 'toast' + (kind ? ' ' + kind : '');
     el.textContent = text;
     $('toasts').appendChild(el);
     while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
@@ -1861,6 +1861,16 @@
       }
       const cancel = e.target.closest('[data-cancel]');
       if (cancel) { E.cancelOrder(+cancel.dataset.cancel); save(); refresh(); toast('Order cancelled'); return; }
+      const exp = e.target.closest('[data-export]');
+      if (exp) {
+        e.stopPropagation();
+        const k = exp.dataset.export;
+        const St = window.Stats;
+        if (k === 'trades') exportCSV(exportName('trades'), St.csvTrades());
+        else if (k === 'tx') exportCSV(exportName('history'), St.csvTransactions());
+        else exportCSV(exportName('portfolio'), St.csvPortfolio());
+        return;
+      }
       const trade = e.target.closest('[data-trade]');
       if (trade) { const [t, side] = trade.dataset.trade.split(':'); openSheet(t, false, side); return; }
       const pick = e.target.closest('[data-pick]');
@@ -2194,6 +2204,44 @@
     </div>`;
   }
 
+  /*
+   * Exporting a CSV.
+   *
+   * A download is the obvious way to do this and it does not always work: inside a sandboxed
+   * frame -- which is where this app often runs -- a download link is inert and, worse, fails
+   * silently, so the user clicks and nothing happens and they have no idea why. So this tries the
+   * download, and whether or not it appears to work it also puts the text on the clipboard and
+   * says so. One of the two always gets the data out.
+   */
+  async function exportCSV(name, text) {
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch (e) { copied = false; }
+    let downloaded = false;
+    try {
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      downloaded = true;
+    } catch (e) { downloaded = false; }
+    const lines = text.trim().split('\n').length - 1;
+    if (copied && downloaded) toast(`${name}: ${lines} rows copied to the clipboard, and downloaded if your browser allows it.`);
+    else if (copied) toast(`${name}: ${lines} rows copied to the clipboard. Paste into a spreadsheet.`);
+    else if (downloaded) toast(`${name} downloaded (${lines} rows).`);
+    else toast('Could not export: this browser blocked both the download and the clipboard.', 'err');
+  }
+
+  function exportName(kind) {
+    const s = S();
+    return `bullpen-${kind}-${s.mode}-${(s.date || '').replace(/-/g, '')}.csv`;
+  }
+
   function renderPerformance() {
     const St = window.Stats;
     const s = S();
@@ -2245,6 +2293,10 @@
         ['Per trade', signedMoney(sum.expectancy), 'Average outcome'],
         ['Typical hold', Math.round(sum.avgHeld) + ' days', ''],
         ['Realised', signedMoney(sum.realised), 'Booked profit'],
+        ['Biggest win', sum.best ? signedMoney(sum.best.pl) : '—', sum.best ? `${sum.best.t} · ${shortD(sum.best.closed)}` : ''],
+        ['Biggest loss', sum.worst ? signedMoney(sum.worst.pl) : '—', sum.worst ? `${sum.worst.t} · ${shortD(sum.worst.closed)}` : ''],
+        ['Longest winning run', `${sum.streaks.longestWin} in a row`, ''],
+        ['Longest losing run', `${sum.streaks.longestLoss} in a row`, 'The run is what ends people'],
       ];
       html += `<div class="card"><div class="ac-row"><b>Every closed trade</b><span class="muted small">${sum.open} position${sum.open === 1 ? '' : 's'} still open</span></div>
         <div class="perf-tiles">${tiles.map(([k, v, sub]) => `<div><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`).join('')}</div></div>`;
@@ -2297,6 +2349,7 @@
       // the trades themselves
       const tr = St.trades().slice().reverse().slice(0, 25);
       html += `<div class="card"><div class="ac-row"><b>Closed trades</b><span class="muted small">most recent first</span></div>
+        <div class="export-row"><span class="muted small">Export</span><button class="btn btn-sm" type="button" data-export="trades">Closed trades</button><button class="btn btn-sm" type="button" data-export="tx">Full account history</button><button class="btn btn-sm" type="button" data-export="portfolio">Portfolio now</button></div>
         <div class="table-wrap"><table class="grid perf-tbl"><thead><tr><th>Closed</th><th>Product</th><th class="r">Qty</th><th class="r">Exit</th><th class="r">Held</th><th class="r">Result</th><th class="r">%</th></tr></thead><tbody>
         ${tr.map((x) => `<tr><td>${shortD(x.closed)}</td><td><b>${x.t}</b></td><td class="r">${qtyFmt(+x.qty.toFixed(4))}</td><td class="r">${money(x.px, (E.BY[x.t] || {}).cur)}</td><td class="r">${x.held}d</td><td class="r ${cls(x.pl)}">${signedMoney(x.pl)}</td><td class="r ${cls(x.pl)}">${x.plPct == null ? '—' : pct(x.plPct)}</td></tr>`).join('')}
         </tbody></table></div></div>`;

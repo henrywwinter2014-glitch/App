@@ -1034,6 +1034,10 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .data-empty { display: grid; gap: 8px; place-items: center; text-align: center; padding: 28px 16px; color: var(--muted); }
 .data-empty b { color: var(--fg); }
 
+.export-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.toast.err { border-color: var(--down); color: var(--down); }
+
 #setupEras[hidden] { display: none; }
 #setupDateWrap { display: none; }
 #setupDateWrap.on { display: grid; }
