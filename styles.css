@@ -1034,6 +1034,26 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .data-empty { display: grid; gap: 8px; place-items: center; text-align: center; padding: 28px 16px; color: var(--muted); }
 .data-empty b { color: var(--fg); }
 
+/*
+ * A canvas is sized in script from the width available at the moment it is drawn. If a vertical
+ * scrollbar appears afterwards the page gets narrower and the canvas does not, which leaves the
+ * page a few pixels wider than the screen and scrolling sideways. Capping it costs nothing and
+ * removes a whole class of that bug.
+ */
+canvas { max-width: 100%; }
+
+/*
+ * The page itself never scrolls sideways.
+ *
+ * Several bands (the top bar, the tape, the tab strip) deliberately bleed past the page gutter
+ * with a negative margin so their background reaches the edge of the screen, and a stray pixel or
+ * two from that, or from a canvas sized a moment before a scrollbar appeared, is enough to make
+ * the whole page shift under a thumb. `clip` rather than `hidden` because hidden would turn the
+ * root into a scroll container and break sticky positioning; clip just refuses the overflow.
+ * Inner scrollers -- the tape, wide tables, the chart -- are unaffected and still scroll.
+ */
+html, body { overflow-x: clip; }
+
 .ask-back { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(0,0,0,0.45); padding: max(16px, env(safe-area-inset-left, 0px)); }
 .ask-back[hidden] { display: none; }
 .ask { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; padding: 20px; width: min(420px, 100%); display: grid; gap: 12px; box-shadow: 0 18px 50px rgba(0,0,0,0.3); }
@@ -1058,8 +1078,16 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 #setupDateWrap.on { display: grid; }
 
 /* ---------- performance dashboard ---------- */
-.perf { display: grid; gap: 14px; }
-.perf .card { padding: 16px 18px; display: grid; gap: 12px; }
+/*
+ * A grid item is sized by its content unless you say otherwise, so a wide table inside a card
+ * pushes the card -- and the page -- wider than the screen, even though the table has its own
+ * scrolling wrapper. min-width: 0 is what lets the wrapper do its job instead.
+ */
+.perf { display: grid; gap: 14px; min-width: 0; }
+.perf > * { min-width: 0; }
+.perf .card { padding: 16px 18px; display: grid; gap: 12px; min-width: 0; }
+.perf .card > * { min-width: 0; }
+.perf .table-wrap { max-width: 100%; }
 .perf-hero { grid-template-columns: 1.4fr 1fr 1fr; align-items: start; gap: 24px; }
 .perf-hero > div { display: grid; gap: 2px; }
 .perf-big { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }

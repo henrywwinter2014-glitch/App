@@ -42,6 +42,15 @@
     saveTimer = setTimeout(saveNow, 400);
     if (window.Cloud) window.Cloud.markDirty();
   }
+  /*
+   * Saving is debounced so that a fast sequence of changes writes once rather than fifty times.
+   * The cost is a window of up to 400ms in which a change exists only in memory, and closing the
+   * tab inside it loses the change silently. So anything pending is flushed when the page goes
+   * away. `pagehide` and the hidden `visibilitychange` are the two that actually fire reliably on
+   * mobile, where a tab is often discarded rather than closed; `beforeunload` is there for
+   * desktop. Flushing when there is nothing pending costs nothing.
+   */
+  function flushSave() { if (saveTimer) saveNow(); }
   function loadSaved() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
@@ -1933,6 +1942,24 @@
       const b = e.target.closest('button[data-tab]');
       if (b) showTab(b.dataset.tab);
     });
+    /*
+     * Arrow keys across the tab bar. role="tab" is a promise that this works -- a screen reader
+     * tells the user to use the arrows -- and until now the markup made the promise and the code
+     * did not keep it. Home and End jump to the ends, and the move takes focus with it so the
+     * keyboard user ends up where a mouse user would.
+     */
+    document.querySelector('.tabs').addEventListener('keydown', (e) => {
+      if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+      const tabs = [...document.querySelectorAll('.tabs button[data-tab]')].filter((b) => b.offsetParent !== null);
+      const i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      e.preventDefault();
+      const next = e.key === 'Home' ? 0
+        : e.key === 'End' ? tabs.length - 1
+          : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[next].focus();
+      showTab(tabs[next].dataset.tab);
+    });
 
     // Any element with data-open opens the security sheet; stars and toggles take precedence.
     document.addEventListener('click', (e) => {
@@ -2061,6 +2088,9 @@
     bindBacktest();
     bindWatchlists();
     bindAsk();
+    window.addEventListener('pagehide', flushSave);
+    window.addEventListener('beforeunload', flushSave);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
     $('fcClose').addEventListener('click', closeFocus);
     $('fcPlay').addEventListener('click', () => setPlaying(!ui.playing));
     $('fcSell').addEventListener('click', () => showQuick('sell'));
