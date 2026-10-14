@@ -262,6 +262,8 @@
       holdings: {},
       orders: [],
       journal: {},          // trading journal, keyed by product and the day the position opened
+      lists: [],            // named watchlists; S.watch stays as the union of them all
+      alerts: [],           // simulated price and event alerts, checked on the simulation clock
       drawings: {},           // per ticker: chart drawings, points as { d: game day, p: price }
       pending: [],             // declared dividends awaiting payment
       tx: [],
@@ -403,6 +405,10 @@
   }
 
   function ensureAllSecStates() {
+    if (!S.journal) S.journal = {};
+    if (!S.alerts) S.alerts = [];
+    if (!S.lists || !S.lists.length) S.lists = [{ id: 'main', name: 'My watchlist', t: (S.watch || []).slice() }];
+    syncWatch();
     if (S.mode === 'real') {
       if (!(RD() && RD().ready)) return;              // data not loaded yet; caller retries
       for (const m of U) if (!S.sec[m.t]) {
@@ -683,6 +689,7 @@
     processDividends(events);
     processSplits(events);
     processOrders(events);
+    checkAlerts(events);
 
     S.nw.push({ d: S.date, v: netWorth(), b: price('SPY') });
     if (S.nw.length > 5000) S.nw.splice(0, S.nw.length - 5000);
@@ -715,6 +722,7 @@
     realSplits(events);
     realDividends(events);
     processOrders(events);
+    checkAlerts(events);
     S.nw.push({ d: S.date, v: netWorth(), b: price('SPY') });
     if (S.nw.length > 5000) S.nw.splice(0, S.nw.length - 5000);
     return events;
@@ -1188,6 +1196,94 @@
     return Math.round((parseISO(b) - parseISO(a)) / 86400000 * (TD / 365));
   }
 
+  /* ---------- watchlists ---------- */
+  // S.watch is kept as the union of every list, so anything that only asks "am I watching this?"
+  // carries on working while the lists themselves are named and separate.
+  function syncWatch() {
+    const seen = new Set();
+    for (const l of S.lists || []) for (const t of l.t) if (BY[t]) seen.add(t);
+    S.watch = [...seen];
+  }
+  const listById = (id) => (S.lists || []).find((l) => l.id === id) || (S.lists || [])[0];
+  function createList(name) {
+    const id = 'l' + S.nextId++;
+    S.lists.push({ id, name: String(name || '').trim().slice(0, 40) || 'New list', t: [] });
+    return id;
+  }
+  function renameList(id, name) { const l = listById(id); if (l) l.name = String(name || '').trim().slice(0, 40) || l.name; }
+  function deleteList(id) {
+    if (S.lists.length <= 1) return false;
+    S.lists = S.lists.filter((l) => l.id !== id);
+    syncWatch();
+    return true;
+  }
+  function toggleInList(id, t) {
+    const l = listById(id);
+    if (!l || !BY[t]) return false;
+    const i = l.t.indexOf(t);
+    if (i >= 0) l.t.splice(i, 1); else l.t.push(t);
+    syncWatch();
+    return i < 0;
+  }
+
+  /* ---------- alerts ---------- */
+  const ALERT_KINDS = {
+    above: 'Price rises to',
+    below: 'Price falls to',
+    pctUp: 'Rises in a day by (%)',
+    pctDown: 'Falls in a day by (%)',
+    exDiv: 'Goes ex-dividend',
+    earnings: 'Reports earnings',
+  };
+  function addAlert(t, kind, value, note) {
+    if (!BY[t] || !ALERT_KINDS[kind]) return { ok: false, msg: 'That alert does not make sense.' };
+    const needsValue = ['above', 'below', 'pctUp', 'pctDown'].includes(kind);
+    const v = +value;
+    if (needsValue && !(v > 0)) return { ok: false, msg: 'Enter a number above zero.' };
+    const a = { id: S.nextId++, t, kind, value: needsValue ? v : 0, note: String(note || '').slice(0, 120), set: S.date, firedOn: '' };
+    S.alerts.push(a);
+    return { ok: true, alert: a };
+  }
+  function removeAlert(id) { S.alerts = S.alerts.filter((a) => a.id !== id); }
+
+  /*
+   * Alerts run on the simulation clock, not the wall clock, and read the day's range rather than
+   * its close, so one triggers on a price the day actually touched.
+   */
+  function checkAlerts(events) {
+    for (const a of S.alerts || []) {
+      if (a.firedOn || !BY[a.t] || !S.sec[a.t]) continue;
+      const bar = lastBar(a.t);
+      if (!bar) continue;
+      let hit = false, at = bar.c;
+      if (a.kind === 'above') { hit = bar.h >= a.value; at = Math.max(a.value, bar.o); }
+      else if (a.kind === 'below') { hit = bar.l <= a.value; at = Math.min(a.value, bar.o); }
+      else if (a.kind === 'pctUp' || a.kind === 'pctDown') {
+        const pc = prevClose(a.t);
+        const ch = pc > 0 ? bar.c / pc - 1 : 0;
+        hit = a.kind === 'pctUp' ? ch * 100 >= a.value : -ch * 100 >= a.value;
+      } else if (a.kind === 'exDiv') {
+        hit = S.mode === 'real' ? !!((RD().actionOn(a.t, S.rIdx) || {}).div) : S.sec[a.t].lx === exKeyOn(BY[a.t], S.date);
+      } else if (a.kind === 'earnings') {
+        hit = BY[a.t].hasEarnings && S.mode !== 'real' && (S.day % 63) === BY[a.t].earnOff;
+      }
+      if (!hit) continue;
+      a.firedOn = S.date;
+      a.at = at;
+      events.push({ kind: 'alert', alert: a, t: a.t, at });
+      addNews('order', `Alert: ${BY[a.t].n} ${alertText(a)}.`, a.t);
+    }
+  }
+  function alertText(a) {
+    const cur = BY[a.t].cur === 'GBP' ? '£' : '$';
+    if (a.kind === 'above') return `rose to ${cur}${a.value}`;
+    if (a.kind === 'below') return `fell to ${cur}${a.value}`;
+    if (a.kind === 'pctUp') return `rose more than ${a.value}% in a day`;
+    if (a.kind === 'pctDown') return `fell more than ${a.value}% in a day`;
+    if (a.kind === 'exDiv') return 'went ex-dividend';
+    return 'reported earnings';
+  }
+
   function setDrip(t, on) { if (S.holdings[t]) S.holdings[t].drip = on; }
 
   function addCustom(input) {
@@ -1223,5 +1319,7 @@
     bars, barAt, lastBar, typicalVolume, impact,
     realOn, hasReal, listed, tradeable, realBounds, realStartIndex,
     availableCash, availableQty, reservedCash, reservedQty,
+    ALERT_KINDS, addAlert, removeAlert, alertText,
+    listById, createList, renameList, deleteList, toggleInList, syncWatch,
   };
 })();

@@ -943,6 +943,7 @@
         if (ev.res.ok) toast(`${o.kind === 'limit' ? 'Limit' : 'Stop'} order ${ev.partial ? 'partly filled' : 'filled'}: ${o.side === 'buy' ? 'bought' : 'sold'} ${qtyFmt(ev.qty ?? o.qty)} ${o.t} at ${money(ev.res.q.px, E.BY[o.t].cur)}.${ev.partial ? ` ${qtyFmt(o.qty - o.filled)} still working.` : ''}${plNote(ev.res.q)}`);
         else toast(`Order for ${o.t} cancelled: ${ev.res.msg}`);
       }
+      if (ev.kind === 'alert') toast(`${ev.t} ${E.alertText(ev.alert)}${ev.alert.note ? ` — ${ev.alert.note}` : ''}.`);
       if (ev.kind === 'expired') toast(`Your order to ${ev.order.side} ${qtyFmt(ev.order.qty - ev.order.filled)} ${ev.order.t} expired without filling.`);
       if (ev.kind === 'split' && S().holdings[ev.t]) toast(`${ev.t} split ${ev.r >= 1 ? ev.r + '-for-1' : '1-for-10'}. Your share count was adjusted.`);
       if (ev.kind === 'macro' && ui.playing && ui.speed <= 1) toast(ev.text);
@@ -968,7 +969,7 @@
     for (let i = 0; i < days; i++) all.push(...E.step());
     if (days > 1) {
       // Collapse a long skip into one summary instead of a toast per event.
-      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split' || e.kind === 'expired');
+      const fills = all.filter((e) => e.kind === 'fill' || e.kind === 'split' || e.kind === 'expired' || e.kind === 'alert');
       const divs = all.filter((e) => e.kind === 'div');
       reportEvents([...fills.slice(-3), ...divs]);
     } else {
@@ -1036,7 +1037,7 @@
       while (job.done < job.total && !job.stop && performance.now() - t0 < 40) {
         const ev = E.step();
         job.done++;
-        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div' || e.kind === 'expired') job.events.push(e);
+        for (const e of ev) if (e.kind === 'fill' || e.kind === 'split' || e.kind === 'div' || e.kind === 'expired' || e.kind === 'alert') job.events.push(e);
         if (opts.untilPay && ev.some((e) => e.kind === 'div')) { job.found = true; job.stop = true; }
       }
       if (showBar) {
@@ -1505,6 +1506,7 @@
     if (ui.tab === 'dividends') renderDividends();
     if (ui.tab === 'orders') renderOrders();
     if (ui.tab === 'performance') renderPerformance();
+    if (ui.tab === 'watchlists') renderWatchlists();
     if (ui.tab === 'calculator' && !$('riskCalc').hidden) renderRisk();
     if (ui.tab === 'calendar') { if (ui.calFollow) ui.calMonth = S().date.slice(0, 7); renderCalendar(); }
     if (ui.tab === 'activity') renderActivity();
@@ -1521,6 +1523,7 @@
     if (tab === 'settings') renderSettings();
     if (tab === 'calculator') renderCalc();
     if (tab === 'academy' && window.Academy) window.Academy.render();
+    if (tab === 'watchlists') renderWatchlists();
     if (tab === 'performance') { const v = ui.perfView || 'overview'; if (v === 'journal') renderJournal(); else if (v === 'backtest') renderBacktest(); else renderPerformance(); }
     if (tab === 'calculator' && !$('riskCalc').hidden) resetRisk();
     if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
@@ -1528,9 +1531,8 @@
   }
 
   function toggleWatch(t) {
-    const w = S().watch;
-    const i = w.indexOf(t);
-    if (i >= 0) w.splice(i, 1); else w.push(t);
+    // The star adds to whichever list you last looked at, so there is one obvious destination.
+    E.toggleInList(activeList().id, t);
     save();
     if (ui.tab === 'markets') renderChips();
     refresh();
@@ -1658,6 +1660,7 @@
     bindRisk();
     bindJournal();
     bindBacktest();
+    bindWatchlists();
     $('fcClose').addEventListener('click', closeFocus);
     $('fcPlay').addEventListener('click', () => setPlaying(!ui.playing));
     $('fcSell').addEventListener('click', () => showQuick('sell'));
@@ -2278,6 +2281,130 @@
         commission: +S().settings.commission || 0,
       });
       renderBacktest();
+    });
+  }
+
+  /* ---------- watchlists and alerts ---------- */
+  const wlUI = { list: null, addTo: null, alertFor: '', alertKind: 'above', alertVal: '', alertNote: '' };
+
+  function activeList() {
+    const s = S();
+    const l = E.listById(wlUI.list);
+    wlUI.list = l ? l.id : null;
+    return l;
+  }
+
+  function renderWatchlists() {
+    const s = S();
+    const cur = activeList();
+    if (!cur) { $('watchlists').innerHTML = ''; return; }
+
+    let html = `<div class="card wl-head">
+      <div class="wl-tabs" role="tablist" aria-label="Your watchlists">
+        ${s.lists.map((l) => `<button type="button" role="tab" class="wl-tab${l.id === cur.id ? ' on' : ''}" data-wl="${l.id}" aria-selected="${l.id === cur.id}">${esc(l.name)} <span class="muted">${l.t.length}</span></button>`).join('')}
+        <button type="button" class="wl-tab add" id="wlNew" title="New list">+ New list</button>
+      </div>
+      <div class="wl-bar">
+        <input id="wlAdd" list="calcList" placeholder="Add a product to ${esc(cur.name)} — type a ticker" aria-label="Add a product">
+        <button type="button" class="btn" id="wlRename">Rename</button>
+        <button type="button" class="btn btn-ghost" id="wlDelete"${s.lists.length <= 1 ? ' disabled title="You need at least one list"' : ''}>Delete list</button>
+      </div>
+    </div>`;
+
+    const rows = cur.t.filter((t) => E.BY[t] && E.listed(t));
+    if (!rows.length) {
+      html += `<div class="card perf-empty"><b>${esc(cur.name)} is empty</b><p class="muted">Type a ticker above to add it, or press the star on any product.</p></div>`;
+    } else {
+      html += `<div class="card"><div class="table-wrap"><table class="grid wl-tbl"><thead><tr><th>Product</th><th class="r">Price</th><th class="r">Today</th><th class="r">Yield</th><th>Alerts</th><th></th></tr></thead><tbody>
+        ${rows.map((t) => {
+          const m = E.BY[t], p = E.price(t), ch = p / E.prevClose(t) - 1, y = E.fwdYield(t);
+          const mine = (s.alerts || []).filter((a) => a.t === t && !a.firedOn);
+          return `<tr><td><b>${t}</b> <span class="muted">${esc(m.n)}</span></td>
+            <td class="r num">${money(p, m.cur)}</td>
+            <td class="r ${cls(ch)}">${pct(ch)}</td>
+            <td class="r">${y > 0 ? (y * 100).toFixed(2) + '%' : '—'}</td>
+            <td>${mine.length ? mine.map((a) => `<span class="wl-al">${esc(E.ALERT_KINDS[a.kind])}${a.value ? ' ' + a.value : ''}<button type="button" data-alrm="${a.id}" aria-label="Remove alert">&times;</button></span>`).join('') : '<span class="muted small">none</span>'}</td>
+            <td class="r"><button type="button" class="btn btn-ghost" data-alnew="${t}">Alert</button><button type="button" class="btn btn-ghost" data-wlrm="${t}" aria-label="Remove from list">&times;</button></td></tr>`;
+        }).join('')}
+      </tbody></table></div></div>`;
+    }
+
+    // the alert composer, opened from a row
+    if (wlUI.alertFor) {
+      const m = E.BY[wlUI.alertFor];
+      const needsVal = ['above', 'below', 'pctUp', 'pctDown'].includes(wlUI.alertKind);
+      html += `<form class="card wl-new" id="wlAlertForm">
+        <div class="ac-row"><b>Alert me about ${esc(m.n)}</b><button type="button" class="focus-x small" id="wlAlertClose" aria-label="Cancel">&times;</button></div>
+        <div class="bt-grid">
+          <label class="field"><span>When it</span><select id="wlKind">${Object.entries(E.ALERT_KINDS).map(([k, v]) => `<option value="${k}"${k === wlUI.alertKind ? ' selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+          ${needsVal ? `<label class="field"><span>${wlUI.alertKind === 'above' || wlUI.alertKind === 'below' ? `Price (now ${money(E.price(wlUI.alertFor), m.cur)})` : 'Percent'}</span><input id="wlVal" type="number" step="any" min="0" value="${esc(wlUI.alertVal)}"></label>` : ''}
+          <label class="field"><span>Note <small class="muted">optional</small></span><input id="wlNote" value="${esc(wlUI.alertNote)}" placeholder="Why does this matter?"></label>
+        </div>
+        <p class="note">Alerts follow the simulation clock, not real time, and trigger on a price the day actually reached. They are simulated, like everything else here.</p>
+        <button class="btn btn-primary" type="submit">Set the alert</button>
+        <p class="msg" id="wlMsg" role="status"></p>
+      </form>`;
+    }
+
+    const fired = (s.alerts || []).filter((a) => a.firedOn).sort((a, b) => (a.firedOn < b.firedOn ? 1 : -1));
+    const live = (s.alerts || []).filter((a) => !a.firedOn);
+    html += `<div class="card"><div class="ac-row"><b>Alerts</b><span class="muted small">${live.length} waiting · ${fired.length} triggered</span></div>
+      ${live.length || fired.length ? `<div class="wl-alerts">
+        ${live.map((a) => `<div class="wl-alert"><span><b>${a.t}</b> ${esc(E.ALERT_KINDS[a.kind]).toLowerCase()}${a.value ? ` ${a.value}` : ''}${a.note ? ` — ${esc(a.note)}` : ''}</span><button type="button" class="btn btn-ghost" data-alrm="${a.id}">Cancel</button></div>`).join('')}
+        ${fired.map((a) => `<div class="wl-alert done"><span><b>${a.t}</b> ${esc(E.alertText(a))} on ${C.shortDate(a.firedOn)}${a.note ? ` — ${esc(a.note)}` : ''}</span><button type="button" class="btn btn-ghost" data-alrm="${a.id}">Clear</button></div>`).join('')}
+      </div>` : '<p class="muted small">No alerts yet. Press Alert on any row above.</p>'}</div>`;
+
+    $('watchlists').innerHTML = html;
+  }
+
+  function bindWatchlists() {
+    $('watchlists').addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-wl]');
+      if (tab) { wlUI.list = tab.dataset.wl; wlUI.alertFor = ''; return renderWatchlists(); }
+      if (e.target.closest('#wlNew')) {
+        const name = prompt('Name for the new list');
+        if (name == null) return;
+        wlUI.list = E.createList(name); save(); return renderWatchlists();
+      }
+      if (e.target.closest('#wlRename')) {
+        const l = activeList();
+        const name = prompt('Rename this list', l.name);
+        if (name == null) return;
+        E.renameList(l.id, name); save(); return renderWatchlists();
+      }
+      if (e.target.closest('#wlDelete')) {
+        const l = activeList();
+        if (!confirm(`Delete "${l.name}"? The products stay in the market, only the list goes.`)) return;
+        E.deleteList(l.id); wlUI.list = null; save(); refresh(); return renderWatchlists();
+      }
+      const rm = e.target.closest('[data-wlrm]');
+      if (rm) { E.toggleInList(activeList().id, rm.dataset.wlrm); save(); refresh(); return renderWatchlists(); }
+      const an = e.target.closest('[data-alnew]');
+      if (an) { wlUI.alertFor = an.dataset.alnew; wlUI.alertVal = ''; wlUI.alertNote = ''; return renderWatchlists(); }
+      if (e.target.closest('#wlAlertClose')) { wlUI.alertFor = ''; return renderWatchlists(); }
+      const arm = e.target.closest('[data-alrm]');
+      if (arm) { E.removeAlert(+arm.dataset.alrm); save(); return renderWatchlists(); }
+    });
+    $('watchlists').addEventListener('change', (e) => {
+      if (e.target.id === 'wlAdd') {
+        const t = e.target.value.trim().toUpperCase();
+        if (!E.BY[t]) { toast(`No product called ${t}.`); e.target.value = ''; return; }
+        const l = activeList();
+        if (!l.t.includes(t)) E.toggleInList(l.id, t);
+        e.target.value = ''; save(); refresh(); renderWatchlists();
+      }
+      if (e.target.id === 'wlKind') { wlUI.alertKind = e.target.value; renderWatchlists(); }
+    });
+    $('watchlists').addEventListener('input', (e) => {
+      if (e.target.id === 'wlVal') wlUI.alertVal = e.target.value;
+      if (e.target.id === 'wlNote') wlUI.alertNote = e.target.value;
+    });
+    $('watchlists').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const r = E.addAlert(wlUI.alertFor, wlUI.alertKind, wlUI.alertVal, wlUI.alertNote);
+      if (!r.ok) { $('wlMsg').textContent = r.msg; return; }
+      wlUI.alertFor = ''; save(); renderWatchlists();
+      toast(`Alert set for ${r.alert.t}.`);
     });
   }
 
