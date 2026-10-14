@@ -1,0 +1,12 @@
+name = "bullpen-market-data"
+main = "market-data.js"
+compatibility_date = "2024-09-23"
+
+# No keys here. Set them as secrets so they are never in the repository:
+#
+#   wrangler secret put PROVIDER      # alphavantage | twelvedata
+#   wrangler secret put API_KEY
+#   wrangler secret put ALLOW_ORIGIN  # optional: the one origin allowed to call this
+#
+# `wrangler dev` runs it locally on http://127.0.0.1:8787, which is a convenient endpoint to
+# paste into Settings while you are trying it out.

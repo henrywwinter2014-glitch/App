@@ -1,0 +1,607 @@
+/*
+ * Real market data.
+ *
+ * This module is the only place in the app that talks to a market-data provider, and it is built
+ * around one rule that everything else here exists to protect:
+ *
+ *     If we do not know the price, we say so. We never make one up.
+ *
+ * Everywhere else in Bullpen Trader a missing price can be invented, because the simulated market
+ * is invented by design. Here it cannot. A fabricated real price is worse than no price at all: it
+ * teaches the wrong lesson, it corrupts the trade record, and the user has no way of telling it
+ * from the genuine article. So every failure path in this file ends in `null` plus a recorded
+ * reason, and `quote()` has no branch that returns a number it did not receive from the provider.
+ *
+ * The second rule is about the key. A free API key is still a credential, and a credential in a
+ * static page is a credential published to the world. So this module never holds one. It knows a
+ * single URL — a proxy the user runs themselves, which holds the key in an environment variable
+ * and injects it server-side. `server/` in this repo has that proxy, in about fifty lines, for
+ * Cloudflare Workers and for Vercel/Netlify. Without it, real-market mode simply reports that it
+ * is not configured.
+ *
+ * Providers differ in wire format but not in substance, so each one gets a small adapter that
+ * normalises its response into the shape the rest of the app reads. Alpha Vantage and Twelve Data
+ * are implemented; a third would be another twenty lines. The adapter is chosen from the config,
+ * or sniffed from the response shape when a proxy does not announce itself, which means a proxy
+ * someone already has lying around tends to work without being told anything.
+ */
+(function () {
+  'use strict';
+
+  /* ---------------------------------------------------------------------------
+   * Providers
+   *
+   * `delay` is what the free tier actually gives you, which is not always what the marketing page
+   * implies. `perMin` and `perDay` are the free-tier request limits we hold ourselves to; going
+   * over them does not get you more data, it gets you an error and, eventually, a blocked key.
+   * ------------------------------------------------------------------------- */
+  const PROVIDERS = {
+    alphavantage: {
+      id: 'alphavantage',
+      name: 'Alpha Vantage',
+      site: 'https://www.alphavantage.co/support/#api-key',
+      // The free tier serves end-of-day data for most symbols; real-time needs a paid plan.
+      kind: 'eod',
+      delayNote: 'End of day on the free plan. Real-time and 15-minute-delayed quotes need a paid plan.',
+      perMin: 5,
+      perDay: 25,
+      intraday: true,
+      intervals: ['1min', '5min', '15min', '30min', '60min'],
+      search: true,
+    },
+    twelvedata: {
+      id: 'twelvedata',
+      name: 'Twelve Data',
+      site: 'https://twelvedata.com/pricing',
+      kind: 'delayed',
+      delayNote: 'Delayed on the free plan, typically by about 15 minutes for US equities. Real-time needs a paid plan.',
+      perMin: 8,
+      perDay: 800,
+      intraday: true,
+      intervals: ['1min', '5min', '15min', '30min', '45min', '1h'],
+      search: true,
+    },
+    // Used by the test suite and by the demo endpoint. Never reports itself as real data.
+    mock: {
+      id: 'mock',
+      name: 'Mock provider (testing)',
+      site: '',
+      kind: 'eod',
+      delayNote: 'A stand-in used for testing. Not market data.',
+      perMin: 600,
+      perDay: 100000,
+      intraday: true,
+      intervals: ['1min', '5min', '15min', '30min', '60min'],
+      search: true,
+    },
+  };
+
+  const DEFAULTS = {
+    provider: '',          // '' means "work it out from what the proxy sends back"
+    endpoint: '',          // the user's own proxy; empty means real-market mode is unconfigured
+    quoteTtlOpen: 60000,   // don't re-ask for the same quote more than once a minute
+    quoteTtlClosed: 900000, // ...or more than once every fifteen minutes with the market shut
+    seriesTtl: 900000,
+    staleAfter: 3600000,   // an hour-old quote is labelled stale rather than shown as current
+    maxRetries: 2,
+    timeout: 12000,
+  };
+
+  let cfg = Object.assign({}, DEFAULTS);
+
+  /* ---------------------------------------------------------------------------
+   * Caches and bookkeeping
+   * ------------------------------------------------------------------------- */
+  const quoteCache = new Map();   // symbol -> normalised quote
+  const seriesCache = new Map();  // `${symbol}|${interval}` -> { at, series }
+  const searchCache = new Map();
+  const inflight = new Map();     // de-duplicates concurrent requests for the same thing
+  const listeners = [];
+
+  let lastOk = 0;                 // when we last heard anything true from the provider
+  let lastError = null;           // { at, message, kind }
+
+  /*
+   * Request budgets belong to the key, not to the session, so they are tracked per provider and
+   * survive a cache clear: letting a user wipe the counter by pressing "refresh" is how a free-tier
+   * key gets throttled and then blocked. Pointing at a different endpoint does start a fresh
+   * budget, because that is a different key.
+   */
+  const budgets = new Map();
+  const budget = () => {
+    const k = cfg.provider || 'unknown';
+    if (!budgets.has(k)) budgets.set(k, { min: [], day: [], total: 0, failed: 0 });
+    return budgets.get(k);
+  };
+
+  // A circuit breaker. After a run of failures we stop asking for a while: hammering a provider
+  // that is down or rate-limiting us makes both problems worse, and the retry guidance in the
+  // requirements is explicit that failed requests must not turn into a storm of calls.
+  const breaker = { fails: 0, openUntil: 0 };
+  const BREAK_AFTER = 3;
+  const BREAK_FOR = 60000;
+
+  const now = () => Date.now();
+  const emit = () => { for (const fn of listeners.slice()) { try { fn(); } catch (e) { /* a listener must not break a fetch */ } } };
+
+  function limits() {
+    const p = PROVIDERS[cfg.provider] || null;
+    const t = now();
+    const calls = budget();
+    calls.min = calls.min.filter((x) => t - x < 60000);
+    calls.day = calls.day.filter((x) => t - x < 86400000);
+    return {
+      perMin: p ? p.perMin : null,
+      perDay: p ? p.perDay : null,
+      usedMin: calls.min.length,
+      usedDay: calls.day.length,
+      // Unknown provider means unknown limits, so we don't claim to know how much room is left.
+      roomMin: p ? Math.max(0, p.perMin - calls.min.length) : null,
+      roomDay: p ? Math.max(0, p.perDay - calls.day.length) : null,
+    };
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Freshness
+   *
+   * The requirements are strict here, and rightly so: a price has to carry how old it is and where
+   * it came from, and an old price must never be presented as a current one. This turns a quote
+   * into one of five honest labels.
+   * ------------------------------------------------------------------------- */
+  const FRESHNESS = {
+    live: { level: 'live', label: 'Real-time', tone: 'ok' },
+    delayed: { level: 'delayed', label: 'Delayed', tone: 'ok' },
+    eod: { level: 'eod', label: 'End of day', tone: 'ok' },
+    stale: { level: 'stale', label: 'Stale', tone: 'warn' },
+    unavailable: { level: 'unavailable', label: 'Unavailable', tone: 'bad' },
+  };
+
+  function freshness(q) {
+    if (!q || !isFinite(q.price)) return Object.assign({}, FRESHNESS.unavailable, { age: null, note: 'No price has been received for this symbol.' });
+    const age = now() - (q.fetchedAt || 0);
+    if (age > cfg.staleAfter) {
+      return Object.assign({}, FRESHNESS.stale, {
+        age,
+        note: `Last updated ${agoText(age)}. The provider has not answered since, so this is the last price we were given, not the current one.`,
+      });
+    }
+    const base = FRESHNESS[q.kind] || FRESHNESS.delayed;
+    return Object.assign({}, base, { age, note: noteFor(q) });
+  }
+
+  function noteFor(q) {
+    const p = PROVIDERS[q.provider];
+    const src = p ? p.name : (q.provider || 'the data provider');
+    const when = q.asOfText || (q.asOf ? new Date(q.asOf).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'an unstated time');
+    if (q.kind === 'eod') return `End-of-day close for ${when}, from ${src}. Not an intraday price.`;
+    if (q.kind === 'delayed') return `Delayed quote from ${src}, as of ${when}.`;
+    return `Real-time quote from ${src}, as of ${when}.`;
+  }
+
+  function agoText(ms) {
+    const s = Math.round(ms / 1000);
+    if (s < 90) return `${s} seconds ago`;
+    const m = Math.round(s / 60);
+    if (m < 90) return `${m} minutes ago`;
+    const h = Math.round(m / 60);
+    if (h < 36) return `${h} hours ago`;
+    return `${Math.round(h / 24)} days ago`;
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Transport
+   *
+   * One function does every call, so the rate limit, the breaker, the timeout, the retry policy
+   * and the error bookkeeping are applied once and cannot be bypassed by a new call site.
+   * ------------------------------------------------------------------------- */
+  function fail(kind, message, extra) {
+    lastError = Object.assign({ at: now(), kind, message }, extra || {});
+    budget().failed++;
+    if (kind !== 'unconfigured' && kind !== 'ratelimit-local') {
+      breaker.fails++;
+      if (breaker.fails >= BREAK_AFTER) breaker.openUntil = now() + BREAK_FOR;
+    }
+    emit();
+    return null;
+  }
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function call(fn, params) {
+    if (!cfg.endpoint) {
+      return fail('unconfigured', 'No market-data endpoint is set. Real-market mode needs the address of your own data proxy — see Settings.');
+    }
+    if (now() < breaker.openUntil) {
+      const left = Math.ceil((breaker.openUntil - now()) / 1000);
+      return fail('paused', `Paused after ${breaker.fails} failed requests. Trying again in ${left} seconds.`);
+    }
+    const lim = limits();
+    if (lim.roomDay === 0) return fail('ratelimit-local', `The daily limit for ${PROVIDERS[cfg.provider].name} on the free plan (${lim.perDay} requests) has been used up. It resets tomorrow.`);
+    if (lim.roomMin === 0) return fail('ratelimit-local', `Holding off: ${PROVIDERS[cfg.provider].name} allows ${lim.perMin} requests a minute and that is used up. Try again shortly.`);
+
+    const url = buildUrl(fn, params);
+    let wait = 700;
+    for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
+      const b = budget();
+      b.min.push(now()); b.day.push(now()); b.total++;
+      let res, body;
+      try {
+        res = await withTimeout(fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' }), cfg.timeout);
+      } catch (e) {
+        // A network error, a CORS refusal or a timeout. All transient as far as we can tell.
+        if (attempt < cfg.maxRetries) { await sleep(jitter(wait)); wait *= 2; continue; }
+        return fail('network', `Could not reach the data endpoint (${String(e && e.message || e)}). Check the address in Settings and that your proxy is running.`);
+      }
+      if (res.status === 429 || res.status === 503) {
+        const ra = +res.headers.get('retry-after');
+        if (attempt < cfg.maxRetries) { await sleep(isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 20000) : jitter(wait)); wait *= 2; continue; }
+        return fail('ratelimit', 'The data provider is rate-limiting these requests. Wait a little and try again.');
+      }
+      if (res.status >= 500) {
+        if (attempt < cfg.maxRetries) { await sleep(jitter(wait)); wait *= 2; continue; }
+        return fail('server', `The data provider returned an error (HTTP ${res.status}).`);
+      }
+      if (!res.ok) {
+        // 4xx other than 429 will not fix itself by being asked again.
+        return fail('request', `The data endpoint refused the request (HTTP ${res.status}). ${res.status === 401 || res.status === 403 ? 'That usually means the API key on your proxy is missing or wrong.' : ''}`.trim());
+      }
+      try {
+        body = await res.json();
+      } catch (e) {
+        return fail('parse', 'The data endpoint did not return JSON. If you are pointing at a web page rather than an API, that would explain it.');
+      }
+
+      // Unwrap the envelope our own proxy uses, if that is what answered.
+      let provider = cfg.provider, data = body;
+      if (body && typeof body === 'object' && body.data && typeof body.provider === 'string') {
+        provider = PROVIDERS[body.provider] ? body.provider : provider;
+        data = body.data;
+      }
+      if (!provider) provider = sniff(data);
+      if (!provider) return fail('unknown-provider', 'The response did not look like Alpha Vantage or Twelve Data. Set the provider explicitly in Settings.');
+
+      // Providers signal trouble inside a 200 response, so this has to be checked after parsing.
+      const provErr = adapters[provider].error(data);
+      if (provErr) {
+        const rate = /limit|frequency|quota|too many/i.test(provErr);
+        if (rate && attempt < cfg.maxRetries) { await sleep(jitter(Math.max(wait, 3000))); wait *= 2; continue; }
+        return fail(rate ? 'ratelimit' : 'provider', provErr);
+      }
+
+      breaker.fails = 0;
+      lastOk = now();
+      lastError = null;
+      emit();
+      return { provider, data };
+    }
+    return fail('network', 'Gave up after several attempts.');
+  }
+
+  const jitter = (ms) => Math.round(ms * (0.75 + Math.random() * 0.5));
+
+  function withTimeout(p, ms) {
+    return new Promise((resolve, reject) => {
+      const id = setTimeout(() => reject(new Error(`timed out after ${Math.round(ms / 1000)}s`)), ms);
+      p.then((v) => { clearTimeout(id); resolve(v); }, (e) => { clearTimeout(id); reject(e); });
+    });
+  }
+
+  /*
+   * The request the client sends is deliberately generic — fn plus arguments — so that the proxy,
+   * not the browser, decides which provider path and which key to use.
+   */
+  function buildUrl(fn, params) {
+    const u = cfg.endpoint + (cfg.endpoint.indexOf('?') >= 0 ? '&' : '?') + 'fn=' + encodeURIComponent(fn);
+    const qs = Object.keys(params || {})
+      .filter((k) => params[k] != null && params[k] !== '')
+      .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k]))
+      .join('&');
+    return qs ? u + '&' + qs : u;
+  }
+
+  // Work out who answered from the shape of what came back.
+  function sniff(d) {
+    if (!d || typeof d !== 'object') return '';
+    if (d['Global Quote'] || d['Meta Data'] || d.bestMatches || d['Error Message'] || d.Note) return 'alphavantage';
+    if (d.values || d.percent_change != null || d.previous_close != null || (d.meta && d.meta.interval)) return 'twelvedata';
+    if (d.bullpenMock) return 'mock';
+    return '';
+  }
+
+  /* ---------------------------------------------------------------------------
+   * Adapters
+   *
+   * Each one turns a provider's own JSON into the single shape the app reads. They are pure
+   * functions of the response: no fetching, no caching, no fallbacks. A field the provider did not
+   * send comes out as null, never as a guess.
+   * ------------------------------------------------------------------------- */
+  const num = (v) => { const n = parseFloat(String(v == null ? '' : v).replace(/[%,\s]/g, '')); return isFinite(n) ? n : null; };
+
+  const adapters = {
+    alphavantage: {
+      error(d) {
+        if (d['Error Message']) return String(d['Error Message']);
+        // Alpha Vantage reports both rate limits and plan restrictions in these two fields.
+        if (d.Note) return String(d.Note);
+        if (d.Information) return String(d.Information);
+        return '';
+      },
+      quote(d, symbol) {
+        const g = d['Global Quote'] || d['Realtime Global Quote'];
+        if (!g || !Object.keys(g).length) return null;
+        const price = num(g['05. price']);
+        if (price == null) return null;
+        const day = g['07. latest trading day'] || '';
+        return {
+          symbol: g['01. symbol'] || symbol,
+          price,
+          open: num(g['02. open']),
+          high: num(g['03. high']),
+          low: num(g['04. low']),
+          volume: num(g['06. volume']),
+          prevClose: num(g['08. previous close']),
+          change: num(g['09. change']),
+          changePct: num(g['10. change percent']),
+          currency: null,                       // GLOBAL_QUOTE does not say
+          asOf: day ? Date.parse(day + 'T21:00:00Z') : null,
+          asOfText: day || '',
+          kind: 'eod',
+          marketStatus: 'unknown',
+        };
+      },
+      series(d, interval) {
+        const key = Object.keys(d).find((k) => /^Time Series|^Weekly|^Monthly/.test(k));
+        if (!key) return null;
+        const rows = d[key];
+        const out = [];
+        for (const t of Object.keys(rows).sort()) {
+          const r = rows[t];
+          const o = num(r['1. open']), h = num(r['2. high']), l = num(r['3. low']), c = num(r['4. close']);
+          if (o == null || h == null || l == null || c == null) continue;
+          out.push({ t, o, h, l, c, v: num(r['5. volume']) || 0 });
+        }
+        if (!out.length) return null;
+        const meta = d['Meta Data'] || {};
+        return { interval, tz: meta['6. Time Zone'] || meta['7. Time Zone'] || 'US/Eastern', bars: out };
+      },
+      search(d) {
+        const m = d.bestMatches || [];
+        return m.map((x) => ({
+          symbol: x['1. symbol'] || '', name: x['2. name'] || '', type: x['3. type'] || '',
+          region: x['4. region'] || '', currency: x['8. currency'] || '',
+        })).filter((x) => x.symbol);
+      },
+    },
+
+    twelvedata: {
+      error(d) {
+        if (d && d.status === 'error') return String(d.message || 'The data provider reported an error.');
+        if (d && d.code && d.code >= 400) return String(d.message || `The data provider returned code ${d.code}.`);
+        return '';
+      },
+      quote(d, symbol) {
+        const price = num(d.close) != null ? num(d.close) : num(d.price);
+        if (price == null) return null;
+        const ts = d.timestamp ? +d.timestamp * 1000 : (d.datetime ? Date.parse(String(d.datetime).replace(' ', 'T') + 'Z') : null);
+        return {
+          symbol: d.symbol || symbol,
+          price,
+          open: num(d.open),
+          high: num(d.high),
+          low: num(d.low),
+          volume: num(d.volume),
+          prevClose: num(d.previous_close),
+          change: num(d.change),
+          changePct: num(d.percent_change),
+          currency: d.currency || null,
+          asOf: isFinite(ts) ? ts : null,
+          asOfText: d.datetime ? String(d.datetime) : '',
+          // Twelve Data's free plan is delayed; a paid plan returns the same shape but current.
+          kind: 'delayed',
+          marketStatus: d.is_market_open === true ? 'open' : d.is_market_open === false ? 'closed' : 'unknown',
+          name: d.name || null,
+          exchange: d.exchange || null,
+        };
+      },
+      series(d, interval) {
+        const vals = d.values;
+        if (!Array.isArray(vals) || !vals.length) return null;
+        const out = [];
+        // Twelve Data sends newest first.
+        for (const r of vals.slice().reverse()) {
+          const o = num(r.open), h = num(r.high), l = num(r.low), c = num(r.close);
+          if (o == null || h == null || l == null || c == null) continue;
+          out.push({ t: String(r.datetime), o, h, l, c, v: num(r.volume) || 0 });
+        }
+        if (!out.length) return null;
+        return { interval: (d.meta && d.meta.interval) || interval, tz: (d.meta && d.meta.exchange_timezone) || 'UTC', bars: out };
+      },
+      search(d) {
+        return (d.data || []).map((x) => ({
+          symbol: x.symbol || '', name: x.instrument_name || '', type: x.instrument_type || '',
+          region: x.country || '', currency: x.currency || '',
+        })).filter((x) => x.symbol);
+      },
+    },
+
+    mock: {
+      error(d) { return d && d.error ? String(d.error) : ''; },
+      quote(d, symbol) {
+        if (d.price == null) return null;
+        return {
+          symbol: d.symbol || symbol, price: num(d.price), open: num(d.open), high: num(d.high),
+          low: num(d.low), volume: num(d.volume), prevClose: num(d.prevClose),
+          change: num(d.change), changePct: num(d.changePct), currency: d.currency || 'USD',
+          asOf: d.asOf || null, asOfText: d.asOfText || '', kind: d.kind || 'eod',
+          marketStatus: d.marketStatus || 'unknown', name: d.name || null,
+        };
+      },
+      series(d, interval) { return d.bars ? { interval, tz: d.tz || 'UTC', bars: d.bars } : null; },
+      search(d) { return d.results || []; },
+    },
+  };
+
+  /* ---------------------------------------------------------------------------
+   * Public calls
+   * ------------------------------------------------------------------------- */
+  function ttl() {
+    // With the market shut there is nothing new to learn, so we ask far less often.
+    const anyOpen = [...quoteCache.values()].some((q) => q.marketStatus === 'open');
+    return anyOpen ? cfg.quoteTtlOpen : cfg.quoteTtlClosed;
+  }
+
+  async function quote(symbol, opts) {
+    const sym = String(symbol || '').toUpperCase();
+    if (!sym) return null;
+    const force = !!(opts && opts.force);
+    const have = quoteCache.get(sym);
+    if (have && !force && now() - have.fetchedAt < ttl()) return have;
+    if (inflight.has('q:' + sym)) return inflight.get('q:' + sym);
+
+    const p = (async () => {
+      const r = await call('quote', { symbol: sym });
+      // Nothing came back. The previous quote, if any, stays in the cache so the UI can show it
+      // explicitly as stale; what we must not do is hand back a fresh-looking price.
+      if (!r) return null;
+      const q = adapters[r.provider].quote(r.data, sym);
+      if (!q) { fail('empty', `${PROVIDERS[r.provider].name} returned no price for ${sym}. The symbol may not be covered by your plan.`); return null; }
+      q.provider = r.provider;
+      q.fetchedAt = now();
+      // A provider's own freshness claim beats our assumption about its plan.
+      if (opts && opts.kind) q.kind = opts.kind;
+      if (q.change == null && q.prevClose != null) q.change = q.price - q.prevClose;
+      if (q.changePct == null && q.prevClose) q.changePct = (q.price / q.prevClose - 1) * 100;
+      quoteCache.set(sym, q);
+      emit();
+      return q;
+    })().finally(() => inflight.delete('q:' + sym));
+
+    inflight.set('q:' + sym, p);
+    return p;
+  }
+
+  /*
+   * Several symbols at once. Deliberately sequential with a small gap: a watchlist of twenty names
+   * fired off in parallel is exactly how a free-tier key gets throttled or banned. The callback
+   * fires per symbol so the UI can fill in as they land.
+   */
+  async function quotes(symbols, onEach) {
+    const out = {};
+    for (const s of symbols) {
+      const lim = limits();
+      if (lim.roomMin === 0 || lim.roomDay === 0) {
+        // Stop rather than queue up failures -- but say so, so the UI can show which symbols went
+        // unpriced instead of quietly leaving them blank.
+        fail('ratelimit-local', `Stopped after ${Object.keys(out).length} of ${symbols.length} symbols: the ${lim.roomDay === 0 ? 'daily' : 'per-minute'} request limit is used up. The rest are not priced yet.`);
+        break;
+      }
+      const q = await quote(s);
+      out[String(s).toUpperCase()] = q;
+      if (onEach) { try { onEach(String(s).toUpperCase(), q); } catch (e) { /* ignore */ } }
+      await sleep(120);
+    }
+    return out;
+  }
+
+  async function series(symbol, opts) {
+    const sym = String(symbol || '').toUpperCase();
+    const interval = (opts && opts.interval) || '1day';
+    const key = sym + '|' + interval;
+    const have = seriesCache.get(key);
+    if (have && now() - have.at < cfg.seriesTtl && !(opts && opts.force)) return have.series;
+    if (inflight.has('s:' + key)) return inflight.get('s:' + key);
+
+    const p = (async () => {
+      const r = await call('series', { symbol: sym, interval, outputsize: (opts && opts.outputsize) || 500 });
+      if (!r) return null;
+      const s = adapters[r.provider].series(r.data, interval);
+      if (!s) { fail('empty', `${PROVIDERS[r.provider].name} returned no history for ${sym} at ${interval}.`); return null; }
+      s.symbol = sym;
+      s.provider = r.provider;
+      s.fetchedAt = now();
+      seriesCache.set(key, { at: now(), series: s });
+      emit();
+      return s;
+    })().finally(() => inflight.delete('s:' + key));
+
+    inflight.set('s:' + key, p);
+    return p;
+  }
+
+  async function search(q) {
+    const term = String(q || '').trim();
+    if (term.length < 1) return [];
+    const k = term.toLowerCase();
+    if (searchCache.has(k)) return searchCache.get(k);
+    const r = await call('search', { q: term });
+    if (!r) return null;                       // null means "we could not ask", not "no matches"
+    const list = adapters[r.provider].search(r.data) || [];
+    searchCache.set(k, list);
+    return list;
+  }
+
+  /*
+   * Which intervals are actually available. The requirements are firm that intraday candles should
+   * appear only where the provider supports them, so this is the single source of that answer and
+   * the UI asks rather than assuming.
+   */
+  function intervals() {
+    const p = PROVIDERS[cfg.provider];
+    if (!p) return ['1day'];
+    return (p.intraday ? p.intervals : []).concat(['1day', '1week', '1month']);
+  }
+
+  function configure(next) {
+    const before = cfg.endpoint + '|' + cfg.provider;
+    cfg = Object.assign({}, cfg, next || {});
+    if (cfg.provider && !PROVIDERS[cfg.provider]) cfg.provider = '';
+    cfg.endpoint = String(cfg.endpoint || '').trim();
+    if (before !== cfg.endpoint + '|' + cfg.provider) {
+      // A different endpoint is a different world: nothing cached about the old one is valid, and
+      // a different key gets its own request budget.
+      clear();
+      budgets.clear();
+    }
+    emit();
+    return cfg;
+  }
+
+  function clear() {
+    quoteCache.clear(); seriesCache.clear(); searchCache.clear();
+    breaker.fails = 0; breaker.openUntil = 0;
+    lastError = null;
+  }
+
+  function state() {
+    const p = PROVIDERS[cfg.provider] || null;
+    return {
+      configured: !!cfg.endpoint,
+      endpoint: cfg.endpoint,
+      provider: cfg.provider,
+      providerName: p ? p.name : (cfg.provider || 'not identified yet'),
+      delayNote: p ? p.delayNote : '',
+      kind: p ? p.kind : 'unknown',
+      lastOk,
+      lastOkText: lastOk ? agoText(now() - lastOk) : '',
+      lastError,
+      paused: now() < breaker.openUntil,
+      pausedFor: Math.max(0, Math.ceil((breaker.openUntil - now()) / 1000)),
+      limits: limits(),
+      symbols: quoteCache.size,
+      // Shown verbatim in the UI's data-source notice.
+      attribution: p && p.id !== 'mock' ? `Market data by ${p.name}.` : '',
+    };
+  }
+
+  window.Quotes = {
+    PROVIDERS, FRESHNESS,
+    configure, config: () => Object.assign({}, cfg),
+    quote, quotes, series, search,
+    cached: (s) => quoteCache.get(String(s || '').toUpperCase()) || null,
+    cachedSeries: (s, i) => { const r = seriesCache.get(String(s || '').toUpperCase() + '|' + (i || '1day')); return r ? r.series : null; },
+    freshness, intervals, state, clear,
+    onUpdate: (fn) => { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
+    // exposed for the test suite
+    _adapters: adapters, _sniff: sniff, _resetLimits: () => budgets.clear(),
+  };
+})();
