@@ -19,7 +19,7 @@
 const http = require('http');
 
 const port = +process.argv[2] || 8788;
-const dialect = (process.argv[3] || 'mock').toLowerCase();   // mock | av | td
+const dialect = (process.argv[3] || 'mock').toLowerCase();   // mock | av | td | yh
 
 // Deterministic per symbol, so a test sees the same numbers every run.
 function seed(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
@@ -114,6 +114,37 @@ function body(fn, q) {
       };
     }
     return { provider: 'twelvedata', data: { data: Object.keys(NAMES).filter((k) => (k + NAMES[k]).toLowerCase().includes(String(q.q || '').toLowerCase())).map((k) => ({ symbol: k, instrument_name: NAMES[k], exchange: 'NASDAQ', currency: 'USD', instrument_type: 'Common Stock', country: 'United States' })) } };
+  }
+
+  if (dialect === 'yh') {
+    // Yahoo answers quote and series from the same chart endpoint.
+    const n2 = fn === 'quote' ? 2 : n;
+    const step = fn === 'quote' ? 1440 : stepMin;
+    const bb = bars(sym, n2, step);
+    const last = bb[bb.length - 1], prev = bb[bb.length - 2] || last;
+    const base = Date.UTC(2026, 9, 9, 20, 0, 0);
+    const result = {
+      meta: {
+        symbol: sym, currency: 'USD', shortName: NAMES[sym] || sym, fullExchangeName: 'NasdaqGS',
+        regularMarketPrice: last.c, chartPreviousClose: prev.c, regularMarketOpen: last.o,
+        regularMarketDayHigh: last.h, regularMarketDayLow: last.l, regularMarketVolume: last.v,
+        regularMarketTime: Math.floor(base / 1000), exchangeTimezoneName: 'America/New_York',
+        marketState: 'CLOSED',
+      },
+      timestamp: bb.map((_, i) => Math.floor((base - (bb.length - 1 - i) * step * 60000) / 1000)),
+      indicators: { quote: [{
+        open: bb.map((x) => x.o), high: bb.map((x) => x.h), low: bb.map((x) => x.l),
+        close: bb.map((x) => x.c), volume: bb.map((x) => x.v),
+      }] },
+    };
+    // A null in the middle, as Yahoo really does send for a halted period.
+    if (fn === 'series' && result.indicators.quote[0].close.length > 5) {
+      for (const k of ['open', 'high', 'low', 'close']) result.indicators.quote[0][k][3] = null;
+    }
+    if (fn === 'search') {
+      return { provider: 'yahoo', data: { quotes: Object.keys(NAMES).filter((k) => (k + NAMES[k]).toLowerCase().includes(String(q.q || '').toLowerCase())).map((k) => ({ symbol: k, shortname: NAMES[k], exchDisp: 'NASDAQ', typeDisp: 'Equity' })) } };
+    }
+    return { provider: 'yahoo', data: { chart: { result: [result], error: null } } };
   }
 
   // Native mock dialect.

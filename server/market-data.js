@@ -17,8 +17,8 @@
  *   1. npm install -g wrangler && wrangler login
  *   2. From this directory:  wrangler deploy
  *   3. Set the provider and the key as secrets, so they are never in the source:
- *        wrangler secret put PROVIDER          # alphavantage  or  twelvedata
- *        wrangler secret put API_KEY
+ *        wrangler secret put PROVIDER          # yahoo, alphavantage or twelvedata
+ *        wrangler secret put API_KEY           # not needed for yahoo
  *   4. Optional but worth doing — restrict who may call it:
  *        wrangler secret put ALLOW_ORIGIN      # e.g. https://yourname.github.io
  *   5. Paste the worker's URL into Bullpen Trader under Settings -> Real market data.
@@ -39,6 +39,52 @@
  */
 
 const PROVIDERS = {
+  /*
+   * Yahoo Finance. No key, so PROVIDER=yahoo needs no API_KEY secret at all.
+   *
+   * One endpoint serves both the quote and the history: /v8/finance/chart returns the latest
+   * price in `meta` and the bars in `indicators`, so a chart costs one request rather than two.
+   *
+   * These endpoints are not documented or supported by Yahoo. They change without notice and
+   * have at times required a session cookie and crumb. They also must be called from here rather
+   * than the browser -- Yahoo sends no CORS headers, so a page calling them directly is blocked.
+   * Yahoo's terms permit personal use and forbid redistribution.
+   */
+  yahoo: {
+    base: 'https://query1.finance.yahoo.com',
+    intraday: true,
+    intervals: ['1min', '5min', '15min', '30min', '60min'],
+    needsKey: false,
+    // Our interval names to Yahoo's, and how much history each can sensibly carry.
+    ivMap: { '1min': '1m', '5min': '5m', '15min': '15m', '30min': '30m', '45min': '30m', '60min': '60m', '1h': '60m', '1day': '1d', '1week': '1wk', '1month': '1mo' },
+    rangeFor(iv, n) {
+      // Yahoo caps intraday history: one-minute bars only go back about a week.
+      if (iv === '1m') return '5d';
+      if (iv === '5m' || iv === '15m') return '1mo';
+      if (iv === '30m' || iv === '60m') return '3mo';
+      if (iv === '1wk') return '5y';
+      if (iv === '1mo') return 'max';
+      return n > 400 ? '5y' : n > 200 ? '2y' : '1y';
+    },
+    build(fn, p) {
+      if (fn === 'search') {
+        const q = new URLSearchParams({ q: p.q, quotesCount: '10', newsCount: '0' });
+        return `${this.base}/v1/finance/search?${q}`;
+      }
+      // quote and series are the same call; the adapter reads whichever part it needs.
+      const iv = this.ivMap[p.interval] || '1d';
+      const q = new URLSearchParams({
+        interval: fn === 'quote' ? '1d' : iv,
+        range: fn === 'quote' ? '5d' : this.rangeFor(iv, Number(p.outputsize) || 500),
+      });
+      return `${this.base}/v8/finance/chart/${encodeURIComponent(p.symbol)}?${q}`;
+    },
+    headers: {
+      // Yahoo refuses a request with no user agent.
+      'user-agent': 'Mozilla/5.0 (compatible; BullpenTrader/1.0)',
+      accept: 'application/json',
+    },
+  },
   alphavantage: {
     base: 'https://www.alphavantage.co/query',
     intraday: true,
@@ -124,11 +170,12 @@ export async function handle(request, env) {
 
   if (fn === 'meta') {
     // Lets the app label the data correctly without being told the provider by hand.
-    return json({ provider: providerId, intraday: provider.intraday, intervals: provider.intervals }, 200, origin, 3600);
+    return json({ provider: providerId, intraday: provider.intraday, intervals: provider.intervals, needsKey: provider.needsKey !== false }, 200, origin, 3600);
   }
 
+  // Yahoo takes no key, so only ask for one where the provider actually needs it.
   const key = env.API_KEY;
-  if (!key) {
+  if (provider.needsKey !== false && !key) {
     return json({ error: 'This proxy has no API_KEY set, so it cannot fetch anything. Set it as a secret rather than editing it into the source.' }, 500, origin);
   }
 
@@ -150,7 +197,7 @@ export async function handle(request, env) {
 
   let upstream;
   try {
-    upstream = await fetch(provider.build(fn, p, key), { headers: { accept: 'application/json' } });
+    upstream = await fetch(provider.build(fn, p, key), { headers: provider.headers || { accept: 'application/json' } });
   } catch (e) {
     return json({ error: `Could not reach ${providerId}: ${e && e.message ? e.message : e}` }, 502, origin);
   }

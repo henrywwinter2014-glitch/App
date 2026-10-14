@@ -61,6 +61,31 @@
       intervals: ['1min', '5min', '15min', '30min', '45min', '1h'],
       search: true,
     },
+    /*
+     * Yahoo Finance. No account and no key: the endpoints behind finance.yahoo.com are open, and
+     * one of them returns the quote and the history together, which also halves the requests.
+     *
+     * The catch, and it is worth knowing before you rely on it: this is not a published API.
+     * Yahoo documents none of it and promises nothing. The shape can change, and it has;
+     * endpoints have started demanding a session cookie and a "crumb" before now. It must be
+     * called from the proxy rather than the browser, and Yahoo's terms allow personal use while
+     * forbidding redistribution. Treat it as convenient rather than dependable.
+     */
+    yahoo: {
+      id: 'yahoo',
+      name: 'Yahoo Finance',
+      site: 'https://uk.finance.yahoo.com/',
+      kind: 'delayed',
+      delayNote: 'No key needed. Delay varies by exchange and Yahoo does not state it — commonly real-time for US shares and about 15 minutes elsewhere. Undocumented endpoints that can change without notice.',
+      // No published rate limit. These are deliberately conservative: enough for a watchlist,
+      // modest enough not to get an IP blocked.
+      perMin: 60,
+      perDay: 20000,
+      intraday: true,
+      intervals: ['1min', '5min', '15min', '30min', '60min'],
+      search: true,
+      noKey: true,
+    },
     // Used by the test suite and by the demo endpoint. Never reports itself as real data.
     mock: {
       id: 'mock',
@@ -322,6 +347,7 @@
     if (!d || typeof d !== 'object') return '';
     if (d['Global Quote'] || d['Meta Data'] || d.bestMatches || d['Error Message'] || d.Note) return 'alphavantage';
     if (d.values || d.percent_change != null || d.previous_close != null || (d.meta && d.meta.interval)) return 'twelvedata';
+    if (d.chart || (d.quotes && Array.isArray(d.quotes))) return 'yahoo';
     if (d.bullpenMock) return 'mock';
     return '';
   }
@@ -439,6 +465,72 @@
           symbol: x.symbol || '', name: x.instrument_name || '', type: x.instrument_type || '',
           region: x.country || '', currency: x.currency || '',
         })).filter((x) => x.symbol);
+      },
+    },
+
+    yahoo: {
+      error(d) {
+        const e = d && d.chart && d.chart.error;
+        if (e) return String(e.description || e.code || 'Yahoo reported an error.');
+        if (d && d.finance && d.finance.error) return String(d.finance.error.description || d.finance.error.code);
+        // An unknown symbol comes back as a null result rather than an error.
+        if (d && d.chart && Array.isArray(d.chart.result) && !d.chart.result.length) return 'Yahoo has no data for that symbol.';
+        return '';
+      },
+      quote(d, symbol) {
+        const r = d && d.chart && d.chart.result && d.chart.result[0];
+        const m = r && r.meta;
+        if (!m) return null;
+        const price = num(m.regularMarketPrice);
+        if (price == null) return null;
+        // chartPreviousClose is the previous session's close; previousClose appears on some.
+        const prev = num(m.chartPreviousClose) != null ? num(m.chartPreviousClose) : num(m.previousClose);
+        const ts = m.regularMarketTime ? +m.regularMarketTime * 1000 : null;
+        return {
+          symbol: m.symbol || symbol,
+          price,
+          open: num(m.regularMarketOpen),
+          high: num(m.regularMarketDayHigh),
+          low: num(m.regularMarketDayLow),
+          volume: num(m.regularMarketVolume),
+          prevClose: prev,
+          change: prev != null ? price - prev : null,
+          changePct: prev ? (price / prev - 1) * 100 : null,
+          currency: m.currency || null,
+          asOf: isFinite(ts) ? ts : null,
+          asOfText: isFinite(ts) ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '',
+          kind: 'delayed',
+          marketStatus: m.marketState === 'REGULAR' ? 'open'
+            : m.marketState === 'PRE' ? 'pre'
+              : m.marketState === 'POST' ? 'post'
+                : m.marketState ? 'closed' : 'unknown',
+          name: m.shortName || m.longName || null,
+          exchange: m.fullExchangeName || m.exchangeName || null,
+        };
+      },
+      series(d, interval) {
+        const r = d && d.chart && d.chart.result && d.chart.result[0];
+        const q = r && r.indicators && r.indicators.quote && r.indicators.quote[0];
+        if (!r || !q || !Array.isArray(r.timestamp)) return null;
+        const out = [];
+        for (let i = 0; i < r.timestamp.length; i++) {
+          const o = num(q.open && q.open[i]), h = num(q.high && q.high[i]);
+          const l = num(q.low && q.low[i]), c = num(q.close && q.close[i]);
+          // Yahoo leaves nulls in these arrays for halted or untraded periods. Skip them rather
+          // than carrying the previous bar forward, which would invent a trade that never was.
+          if (o == null || h == null || l == null || c == null) continue;
+          const t = new Date(r.timestamp[i] * 1000);
+          const iso = t.toISOString();
+          out.push({ t: interval === '1day' || interval === '1week' || interval === '1month' ? iso.slice(0, 10) : iso.slice(0, 19).replace('T', ' '), o, h, l, c, v: num(q.volume && q.volume[i]) || 0 });
+        }
+        if (!out.length) return null;
+        return { interval, tz: (r.meta && r.meta.exchangeTimezoneName) || 'UTC', bars: out };
+      },
+      search(d) {
+        return ((d && d.quotes) || []).filter((x) => x.symbol).map((x) => ({
+          symbol: x.symbol, name: x.shortname || x.longname || '', type: x.typeDisp || x.quoteType || '',
+          region: x.exchDisp || '', currency: '',
+        }));
       },
     },
 

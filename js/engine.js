@@ -450,7 +450,7 @@
       const left = o.qty - o.filled;
       const cap = isFinite(l.volume) && l.volume > 0 ? l.volume * 0.25 : left;
       const canFill = Math.max(0, Math.min(left, cap));
-      const qty = S.settings.fractional ? canFill : Math.floor(canFill);
+      const qty = S.settings.fractional || o.side === 'sell' ? canFill : Math.floor(canFill);
       if (qty < 1e-9) { keep.push(o); continue; }
 
       const res = execute(o.t, o.side, qty, ORDER_SOURCE[o.kind] || 'Order', fillPx, true);
@@ -1288,6 +1288,34 @@
     const b = lastBar(t); return b ? b.v : 1e6;
   }
 
+  /*
+   * Quantities are shown to four decimal places, so anything asking to sell within half a unit of
+   * that last place is asking to sell the lot. Without this, a holding of 0.00009999 displays as
+   * "0.0001", the Sell all button offers 0.0001, and the engine refuses it with the message "you
+   * only own 0.0001" -- which is both maddening and, as far as the screen is concerned, untrue.
+   */
+  const QTY_EPS = 5e-5;
+  const round4 = (v) => Math.round(v * 1e4) / 1e4;
+  /*
+   * A share count for an error message. Rounds DOWN, and shows more places when four would round
+   * the holding up to the very number being refused.
+   */
+  function fmtQtyExact(v) {
+    if (!(v > 0)) return '0';
+    const d4 = Math.floor(v * 1e4) / 1e4;
+    if (d4 > 0) return String(+d4.toFixed(4));
+    // Smaller than the fourth decimal place. Truncate rather than round -- rounding here would
+    // print the very number we are refusing, which is how this whole bug read to the user.
+    const d8 = Math.floor(v * 1e8) / 1e8;
+    return d8 > 0 ? String(+d8.toFixed(8)) : 'less than 0.00000001';
+  }
+  // Asking to sell marginally more than you hold means "sell all of it".
+  function clampSell(t, side, qty) {
+    if (side !== 'sell') return qty;
+    const h = S.holdings[t];
+    return h && qty > h.qty && qty - h.qty < QTY_EPS ? h.qty : qty;
+  }
+
   // What a filled order is called in the activity log and on the chart.
   const ORDER_SOURCE = { market: 'Market order', limit: 'Limit order', stop: 'Stop order', stopLimit: 'Stop-limit order' };
 
@@ -1392,15 +1420,31 @@
     return `${t} had not listed yet on ${S.date}. It starts trading on ${RD().dateAt(s0.start)}.`;
   }
 
-  function validateQty(qty) {
+  /*
+   * The "fractional shares" setting is about what you may open, not about what you may close.
+   *
+   * You can end up holding a fraction whatever the setting says: a dividend reinvestment buys
+   * 0.37 of a share, and a 3-for-2 split turns 5 shares into 7.5. Refusing to sell those because
+   * the setting is off leaves the position stranded with no way out, which is the one thing a
+   * setting about order sizes should never do. So the whole-number rule applies to buys, and to
+   * sells only where the sale would itself make a fraction out of a whole holding.
+   */
+  function validateQty(qty, side, held) {
     if (!(qty > 0) || !isFinite(qty)) return 'Enter a quantity above zero.';
-    if (!S.settings.fractional && !Number.isInteger(qty)) return 'Fractional shares are off. Enter a whole number, or turn them on in Settings.';
-    return null;
+    if (S.settings.fractional || Number.isInteger(qty)) return null;
+    if (side === 'sell') {
+      const h = held == null ? 0 : held;
+      // Selling the lot, or trimming a holding that is already fractional, is always allowed.
+      if (Math.abs(qty - h) < QTY_EPS || !Number.isInteger(round4(h))) return null;
+      return 'Fractional shares are off, so you can sell a whole number or the whole holding. Turn them on in Settings to sell part of a share.';
+    }
+    return 'Fractional shares are off. Enter a whole number, or turn them on in Settings.';
   }
 
   function execute(t, side, qty, source, atPrice, ignoreReserved) {
     const m = BY[t];
-    const err = validateQty(qty);
+    qty = clampSell(t, side, qty);
+    const err = validateQty(qty, side, S.holdings[t] ? S.holdings[t].qty : null);
     if (err) return { ok: false, msg: err };
     if (!tradeable(t)) return { ok: false, msg: unlistedMsg(t) };
     const q = quote(t, side, qty, atPrice);
@@ -1419,9 +1463,9 @@
       h.costN = (h.costN ?? 0) + q.total / fxOf(m);
     } else {
       const h = S.holdings[t];
-      if (!h || h.qty < qty - 1e-9) return { ok: false, msg: `You only own ${h ? +h.qty.toFixed(4) : 0} shares of ${t}.` };
+      if (!h || h.qty < qty - 1e-9) return { ok: false, msg: `You only own ${h ? fmtQtyExact(h.qty) : 0} shares of ${t}.` };
       const freeQty = ignoreReserved ? h.qty : availableQty(t);
-      if (qty > freeQty + 1e-9) return { ok: false, msg: `Only ${+freeQty.toFixed(4)} of your ${+h.qty.toFixed(4)} ${t} shares are free to sell. The rest are committed to an open sell order, which you can cancel on the Orders tab.` };
+      if (qty > freeQty + 1e-9) return { ok: false, msg: `Only ${fmtQtyExact(freeQty)} of your ${fmtQtyExact(h.qty)} ${t} shares are free to sell. The rest are committed to an open sell order, which you can cancel on the Orders tab.` };
       const basis = h.cost * (qty / h.qty);
       S.cash += q.total;
       if (h.costN != null) h.costN -= h.costN * (qty / h.qty);
@@ -1464,7 +1508,8 @@
   const GTC_DAYS = 90;   // brokers expire a "good till cancelled" order after about 90 days
 
   function placeOrder(t, side, kind, qty, px, tif, limitPx) {
-    const err = validateQty(qty);
+    qty = clampSell(t, side, qty);
+    const err = validateQty(qty, side, S.holdings[t] ? S.holdings[t].qty : null);
     if (err) return { ok: false, msg: err };
     if (!BY[t]) return { ok: false, msg: 'Unknown product.' };
     if (!tradeable(t)) return { ok: false, msg: unlistedMsg(t) };
@@ -1495,9 +1540,9 @@
     }
     if (side === 'sell') {
       const h = S.holdings[t];
-      if (!h || h.qty < qty - 1e-9) return { ok: false, msg: `You only own ${h ? +h.qty.toFixed(4) : 0} shares of ${t}.` };
+      if (!h || h.qty < qty - 1e-9) return { ok: false, msg: `You only own ${fmtQtyExact(h ? h.qty : 0)} shares of ${t}.` };
       const free = availableQty(t);
-      if (qty > free + 1e-9) return { ok: false, msg: `Only ${+free.toFixed(4)} of your ${+h.qty.toFixed(4)} ${t} shares are free. The rest are already committed to an open sell order.` };
+      if (qty > free + 1e-9) return { ok: false, msg: `Only ${fmtQtyExact(free)} of your ${fmtQtyExact(h.qty)} ${t} shares are free. The rest are already committed to an open sell order.` };
     } else {
       const o = { t, qty, px };
       const need = orderCost(o), free = availableCash();
@@ -1596,7 +1641,9 @@
       // You cannot take more than a slice of a day's volume; the rest keeps working.
       const left = o.qty - o.filled;
       const canFill = Math.max(0, Math.min(left, bar.v * 0.25));
-      const qty = S.settings.fractional ? canFill : Math.floor(canFill);
+      // Only a buy is rounded down to whole shares. Flooring a sell would strand a fractional
+      // holding forever: 0.37 shares floors to 0, so the order never fills and never clears.
+      const qty = S.settings.fractional || o.side === 'sell' ? canFill : Math.floor(canFill);
       if (qty < 1e-9) { keep.push(o); continue; }
 
       const res = execute(o.t, o.side, qty, ORDER_SOURCE[o.kind] || 'Order', fillPx, true);
@@ -1758,7 +1805,7 @@
     liveOn, liveOf, livePx, liveSym, liveSupported, liveFresh, liveBars, syncLive, unpricedHoldings,
     deposit, withdraw, netContributions,
     ORDER_SOURCE,
-    availableCash, availableQty, reservedCash, reservedQty,
+    availableCash, availableQty, reservedCash, reservedQty, fmtQtyExact,
     ALERT_KINDS, addAlert, removeAlert, alertText,
     listById, createList, renameList, deleteList, toggleInList, syncWatch,
   };

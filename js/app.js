@@ -887,6 +887,7 @@
     $('setProvider').innerHTML = ['<option value="">Work it out from the proxy</option>']
       .concat(Object.values(Q.PROVIDERS).map((pv) => `<option value="${pv.id}"${pv.id === st.provider ? ' selected' : ''}>${esc(pv.name)}</option>`)).join('');
     $('setEndpoint').value = st.endpoint || '';
+    renderProviderNote();
     $('setMarket').value = ui.newMarket || 'sim';
     renderMarketNote();
     renderDataState();
@@ -899,6 +900,23 @@
    * report, that there is nothing to report -- rather than going quiet and leaving the last
    * number on screen looking authoritative.
    */
+  /*
+   * The key advice changes with the provider: Yahoo needs no key at all, the other two do. Saying
+   * "set your API key as a secret" to someone using Yahoo would send them looking for one that
+   * does not exist.
+   */
+  function renderProviderNote() {
+    const el = $('providerNote');
+    if (!el) return;
+    const id = $('setProvider') ? $('setProvider').value : '';
+    const p = window.Quotes.PROVIDERS[id];
+    if (!p) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = p.noKey
+      ? `<b>${esc(p.name)} needs no key.</b> Set <code>PROVIDER=yahoo</code> on your proxy and leave <code>API_KEY</code> unset. ${esc(p.delayNote)}`
+      : `<b>${esc(p.name)} needs a free API key</b>, which goes on your proxy as a secret and never into this page. ${esc(p.delayNote)} <a href="${esc(p.site)}" target="_blank" rel="noopener">Get one</a>.`;
+  }
+
   function renderDataState() {
     const el = $('dataState');
     if (!el) return;
@@ -1863,6 +1881,16 @@
 
   function hideQuick() { $('quickTicket').hidden = true; }
 
+  /*
+   * A quantity for a form field: enough places to be exact, with trailing zeros removed so the
+   * box reads "0.0001" rather than "0.00010000000000000001".
+   */
+  function trimQty(v) {
+    if (!(v > 0)) return '';
+    const n = +(+v).toFixed(8);
+    return String(n);
+  }
+
   function renderQuick() {
     const t = chartTicker(), m = E.BY[t], s = S(), side = ui.qside;
     const own = s.holdings[t];
@@ -1872,11 +1900,11 @@
     $('qtLabel').textContent = side === 'buy' ? `Shares to buy at ${money(q.px, m.cur)}` : `Shares to sell at ${money(q.px, m.cur)}`;
     const opts = side === 'buy' ? [1, 10, 100] : own ? [['Half', own.qty / 2], ['All', own.qty]] : [];
     $('qtQuick').innerHTML = opts.map((o) => Array.isArray(o)
-      ? `<button type="button" data-qq="${+o[1].toFixed(4)}">${o[0]}</button>`
+      ? `<button type="button" data-qq="${trimQty(o[1])}">${o[0]}</button>`
       : `<button type="button" data-qq="${o}">${o}</button>`).join('');
     $('qtEst').innerHTML = side === 'buy'
       ? `Cost <b>${qty ? money(q.total) : '-'}</b> · Cash ${money(s.cash)}`
-      : own ? `You get <b>${qty ? money(q.total) : '-'}</b> · You own ${qtyFmt(+own.qty.toFixed(4))}` : 'You do not own any of this yet.';
+      : own ? `You get <b>${qty ? money(q.total) : '-'}</b> · You own ${E.fmtQtyExact(own.qty)}` : 'You do not own any of this yet.';
     const go = $('qtGo');
     go.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} ${qty ? qtyFmt(qty) + ' ' : ''}${t}`;
     go.className = `btn btn-block ${side}`;
@@ -2150,7 +2178,11 @@
       const b = e.target.closest('button'); if (!b) return;
       ui.unit = b.dataset.u;
       const v = +b.dataset.q;
-      $('ordQty').value = ui.unit === 'shares' ? +v.toFixed(4) : v;
+      /*
+       * The exact figure, not a rounded one. Rounding "All" to four places on a holding of
+       * 0.00009999 asks to sell 0.0001 -- more than you have -- and the order is refused.
+       */
+      $('ordQty').value = ui.unit === 'shares' ? trimQty(v) : v;
       renderTradeForm();
     });
     $('ordKind').addEventListener('change', () => {
@@ -2209,7 +2241,7 @@
       S().settings.provider = e.target.value;
       applyQuoteConfig();
       save();
-      renderDataState(); renderMarketNote();
+      renderProviderNote(); renderDataState(); renderMarketNote();
     });
     $('dataTestBtn').addEventListener('click', testQuoteConnection);
     $('dataClearBtn').addEventListener('click', () => {

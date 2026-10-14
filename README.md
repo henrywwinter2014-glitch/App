@@ -46,6 +46,7 @@ Anything missing can be added under **Settings → List a new security**.
 - Your trades on the chart: a green B where you bought (at the price paid) and an orange S where you sold, labelled with the profit or loss in percent; hovering a marker shows the details. Sale confirmations (including filled limit and stop orders) say how much you made or lost, and the chart header shows how much you're up or down on shares you still hold.
 - Full-screen chart mode (button or double-click) with only Play/Pause, Sell and Buy, and a quick order box on the chart.
 - Market, limit, stop and stop-limit orders; buy by share count or dollar amount; optional fractional shares and commission. A stop-limit whose limit sits the wrong side of its stop is refused with an explanation rather than left to rest forever.
+- Fractional holdings can always be sold. The "fractional shares" setting governs what you may open, not what you may close — a dividend reinvestment or a 3-for-2 split can leave you holding 0.0001 of a share whatever the setting says, and Sell all sells exactly what you hold rather than a figure rounded to four decimal places. A stop-limit whose limit sits the wrong side of its stop is refused with an explanation rather than left to rest forever.
 - Dividends on real-style schedules (monthly, quarterly, semi-annual, annual) with ex-dates, pay dates, and the price drop on the ex-date.
 - Per-holding DRIP (dividend reinvestment), forward income, yield on cost and a monthly income chart.
 - Annual dividend raises and cuts, quarterly earnings surprises, stock splits and reverse splits, and macro news (rate decisions, oil shocks, crashes).
@@ -73,14 +74,29 @@ Bullpen can trade against real prices. The money stays virtual: nothing here pla
 
 **It needs a proxy, not a key.** This page is static, and a static page cannot keep a secret — an API key pasted into it is published to everyone who loads it, and free-tier keys get scraped and burned quickly. So Bullpen has no field for a key anywhere. You run a small proxy that holds the key and forwards the request; the code is in `server/`, about fifty lines, and the free tier of Cloudflare Workers is ample.
 
-1. Get a free key from [Alpha Vantage](https://www.alphavantage.co/support/#api-key) or [Twelve Data](https://twelvedata.com/pricing).
-2. `npm install -g wrangler && wrangler login`, then from `server/`: `wrangler deploy`.
-3. `wrangler secret put PROVIDER` (`alphavantage` or `twelvedata`), then `wrangler secret put API_KEY`. Optionally `wrangler secret put ALLOW_ORIGIN` to restrict who may call it.
-4. Paste the worker's URL into **Settings → Real market data** and press *Test the connection*.
+Three providers are supported. **Yahoo Finance needs no key at all** and is the quickest way to start:
+
+1. `npm install -g wrangler && wrangler login`, then from `server/`: `wrangler deploy`.
+2. `wrangler secret put PROVIDER` — enter `yahoo`. Nothing else to set.
+3. Paste the worker's URL into **Settings → Real market data** and press *Test the connection*.
+
+For Alpha Vantage or Twelve Data, get a free key from [Alpha Vantage](https://www.alphavantage.co/support/#api-key) or [Twelve Data](https://twelvedata.com/pricing), set `PROVIDER` to `alphavantage` or `twelvedata`, and add `wrangler secret put API_KEY`. Optionally `wrangler secret put ALLOW_ORIGIN` to restrict who may call the proxy.
+
+Yahoo still needs the proxy even though it needs no key: Yahoo sends no CORS headers, so a browser calling it directly is blocked.
 
 For Vercel or Netlify use `server/api/market-data.js` instead and set `PROVIDER` and `API_KEY` as environment variables. To try it offline without a key, run `node server/mock-server.js` and point Bullpen at `http://127.0.0.1:8788` — it serves the same contract with invented numbers and labels itself as test data everywhere, so its output can never pass for real prices.
 
-**What the free tiers actually give you.** Alpha Vantage serves end-of-day data on the free plan, at 5 requests a minute and 25 a day. Twelve Data serves delayed quotes, typically about 15 minutes behind for US equities, at 8 a minute. Real-time needs a paid plan on either. Bullpen holds itself to those limits, tells you how much of the budget is spent, and labels every price with which of the three it is. Intraday candles appear only where the provider supports them.
+**What each provider actually gives you.**
+
+| Provider | Key | Freshness | Limits |
+| --- | --- | --- | --- |
+| Yahoo Finance | none | Varies by exchange and is not stated — commonly real-time for US shares, around 15 minutes elsewhere | None published; Bullpen holds to 60/min |
+| Alpha Vantage | free key | End of day on the free plan | 5 a minute, 25 a day |
+| Twelve Data | free key | Delayed, about 15 minutes for US equities | 8 a minute |
+
+Real-time needs a paid plan on Alpha Vantage or Twelve Data. Bullpen holds itself to these limits, tells you how much of the budget is spent, and labels every price with which kind it is. Intraday candles appear only where the provider supports them.
+
+**A caveat about Yahoo.** Its endpoints are not a published API: Yahoo documents none of them and promises nothing. The shape can change without notice, and has; they have at times started requiring a session cookie and a crumb. Yahoo's terms permit personal use and forbid redistribution. It is convenient rather than dependable — if it stops working, switch the proxy's `PROVIDER` to one of the other two.
 
 **What this mode does not do.** It does not track dividends, splits or other corporate actions — neither free tier supplies a reliable feed, and guessing them would quietly falsify the account. Mutual funds and preferred lines are not covered, because their symbols differ between providers and pricing the wrong company is worse than a gap. There is no simulated clock: the market's clock is the real one, so Play and Skip do not apply. And a published copy of this app running inside a sandboxed frame cannot reach an external host at all, so real-market mode works on a copy you host yourself.
 
