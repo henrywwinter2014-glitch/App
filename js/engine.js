@@ -81,6 +81,19 @@
     const ex = HD() ? HD().EXCHANGES[region()] : null;
     const base = { market: ex ? ex.market : '', hours: ex ? ex.hours : '', tz: ex ? ex.tz : '' };
     if (S && S.mode === 'real') return Object.assign(base, { open: true, why: 'Recorded trading day', holiday: null });
+    /*
+     * Live mode is the only mode where the time of day matters. The others move a whole day at a
+     * time, so "is the market open" is a question about the date; here it is a question about this
+     * minute, and a quote fetched at 3am is last night's close however fresh the fetch was.
+     */
+    if (liveOn() && HD()) {
+      const o = HD().openNow(region());
+      return Object.assign(base, {
+        open: o.open, why: o.why, phase: o.phase, localTime: o.localTime,
+        holiday: o.phase === 'closed-day' && o.why !== 'Weekend' ? o.why : null,
+        national: nationalOn(d),
+      });
+    }
     const h = holidayOn(d);
     if (h) return Object.assign(base, { open: false, why: h, holiday: h });
     if (isWeekend(d)) return Object.assign(base, { open: false, why: 'Weekend', holiday: null });
@@ -257,13 +270,19 @@
    * May, so anything whose history starts after the current day is hidden until it arrives.
    */
   function listed(t) {
+    /*
+     * In live mode "listed" means "we have a price from the provider". Anything the provider does
+     * not cover -- mutual funds, preferred lines whose symbology differs, a delisted ticker --
+     * is hidden and untradeable rather than being shown at an invented price.
+     */
+    if (liveOn()) return liveSupported(t) && livePx(t) != null;
     if (!realOn()) return true;
     if (!hasReal(t)) return false;
     const s0 = RD().get(t);
     return !!s0 && s0.start <= S.rIdx;
   }
   // In a replay you can only trade what was listed and has real history.
-  const tradeable = (t) => !realOn() || listed(t);
+  const tradeable = (t) => (liveOn() || realOn()) ? listed(t) : true;
 
   // Clamp a requested replay start to a day with a full year of history behind it.
   function realStartIndex(dateStr) {
@@ -276,6 +295,197 @@
     if (!(RD() && RD().ready)) return null;
     const cal = RD().calendar;
     return { first: cal[HIST - 1], last: cal[cal.length - 1] };
+  }
+
+  /* ---------- real-market paper trading ----------
+   * The third market mode. Prices come from a data provider through js/quotes.js; the money,
+   * the orders and the portfolio are as virtual as they are everywhere else in this app.
+   *
+   * Three things make this mode different from the other two, and all three are honesty
+   * constraints rather than technical ones.
+   *
+   * There is no back history. In the simulated market the year before day one is invented, which
+   * is fine, because the whole market is invented. Here it would be a forgery: a chart labelled
+   * "real market data" must not contain a single bar that nobody traded. So a product has no
+   * chart at all until its history is fetched for it, and the fetch happens for the one product
+   * you are looking at rather than for all 761, which is also the only way to stay inside a free
+   * plan's request budget.
+   *
+   * There is no clock to drive. Simulated and replay modes step forward a day at a time on a
+   * clock the app owns. Here the clock is the real one. Play, pause and skip do not apply, and
+   * the engine refuses them rather than quietly doing nothing.
+   *
+   * A price we do not have is not a price. If the provider has not answered for a product, it is
+   * untradeable and its holding is excluded from net worth with a note saying so — rather than
+   * being valued at a stale number, or worse, an invented one.
+   *
+   * Dividends and splits are not modelled here. The free tiers of both supported providers do
+   * not supply a reliable corporate-actions feed, and guessing them would quietly falsify the
+   * account. The app says so in the mode's own banner instead of pretending.
+   */
+  const QT = () => window.Quotes;
+  const liveOn = () => !!(S && S.mode === 'live');
+  const liveOf = (t) => (S && S.sec[t] && S.sec[t].live) || null;
+
+  /*
+   * Our ticker is not always the provider's symbol. London lines are "AZN.L" here and at Alpha
+   * Vantage but "AZN:LON" at some others; preferred shares are "JPM-PC" here and "JPM-C" or
+   * "JPM.PRC" elsewhere. Rather than guess, the mapping is explicit where it is known, the
+   * ticker is used as-is otherwise, and anything the provider does not recognise simply comes
+   * back unpriced and is marked untradeable. A wrong guess that silently prices the wrong
+   * company would be far worse than a gap.
+   */
+  function liveSym(t) {
+    const m = BY[t];
+    if (!m) return t;
+    if (S.liveMap && S.liveMap[t]) return S.liveMap[t];
+    if (m.type === 'Mutual Fund') return '';          // not covered by either provider's equity feed
+    if (/-P[A-Z]$/.test(t)) return '';                // preferred lines: symbology differs per provider
+    return t;
+  }
+  const liveSupported = (t) => !!liveSym(t);
+
+  function livePx(t) { const l = liveOf(t); return l && isFinite(l.price) ? l.price : null; }
+
+  // The freshness label for one product, straight from the quote layer so there is one definition.
+  function liveFresh(t) {
+    const l = liveOf(t);
+    if (!QT()) return { level: 'unavailable', label: 'Unavailable', tone: 'bad', note: 'The market-data layer is not loaded.' };
+    return QT().freshness(l);
+  }
+
+  /*
+   * Fold a normalised quote into the product's state. The quote object is stored whole, so the
+   * UI can show its provider, its own timestamp and when we fetched it without re-deriving any
+   * of that. `h` is kept as a one-element array holding the live price, because that is what
+   * price() reads and it keeps every downstream calculation — valuation, fees, order sizing —
+   * working exactly as it does in the other two modes.
+   */
+  function applyLiveQuote(t, q) {
+    const st = S.sec[t];
+    if (!st) return false;
+    if (!q || !isFinite(q.price)) return false;
+    st.live = {
+      price: q.price, prevClose: isFinite(q.prevClose) ? q.prevClose : null,
+      open: isFinite(q.open) ? q.open : null, high: isFinite(q.high) ? q.high : null,
+      low: isFinite(q.low) ? q.low : null, volume: isFinite(q.volume) ? q.volume : null,
+      change: isFinite(q.change) ? q.change : null, changePct: isFinite(q.changePct) ? q.changePct : null,
+      asOf: q.asOf || null, asOfText: q.asOfText || '', fetchedAt: q.fetchedAt || Date.now(),
+      kind: q.kind || 'delayed', provider: q.provider || '', marketStatus: q.marketStatus || 'unknown',
+      currency: q.currency || null,
+    };
+    st.h = [q.price];
+    return true;
+  }
+
+  /*
+   * Refresh a set of products. Sequential and rate-limited inside the quote layer, so a watchlist
+   * of twenty names cannot turn into twenty simultaneous requests against a five-a-minute key.
+   * Resting orders are checked after each quote lands, and the events that produced are returned
+   * for the UI to show.
+   */
+  async function syncLive(tickers, onEach) {
+    if (!liveOn()) return { events: [], priced: 0, unpriced: [] };
+    const want = (tickers && tickers.length ? tickers : Object.keys(S.holdings)).filter(liveSupported);
+    const events = [], unpriced = [];
+    let priced = 0;
+    for (const t of want) {
+      const q = await QT().quote(liveSym(t));
+      if (q && applyLiveQuote(t, q)) {
+        priced++;
+        processOrdersLive(t, events);
+      } else {
+        unpriced.push(t);
+      }
+      if (onEach) { try { onEach(t, q); } catch (e) { /* a listener must not stop the sync */ } }
+    }
+    S.liveAt = Date.now();
+    S.date = HD() ? HD().dayISO(region()) : new Date().toISOString().slice(0, 10);
+    if (events.length) S.news = (S.news || []).concat(events).slice(-200);
+    return { events, priced, unpriced };
+  }
+
+  /*
+   * Resting orders in live mode.
+   *
+   * With only snapshots to go on we cannot claim to know the path the price took between two
+   * polls, so this does not pretend to. A trigger is tested against the day's range as the
+   * provider reports it, which is real information; the fill then happens at the price we can
+   * actually see, which is the latest quote. Where that is worse than the order's own price
+   * because the market moved through it between polls, the order records that it was filled on a
+   * gap between observations — the same honesty the replay engine applies to an overnight gap,
+   * for the same reason.
+   */
+  function processOrdersLive(t, events) {
+    const l = liveOf(t);
+    if (!l) return;
+    const px = l.price;
+    const hi = isFinite(l.high) ? Math.max(l.high, px) : px;
+    const lo = isFinite(l.low) ? Math.min(l.low, px) : px;
+    const keep = [];
+    for (const o of S.orders) {
+      if (o.t !== t) { keep.push(o); continue; }
+      const buy = o.side === 'buy';
+
+      let triggered = false;
+      if (o.kind === 'limit') triggered = buy ? lo <= o.px : hi >= o.px;
+      else if (o.kind === 'stop') triggered = buy ? hi >= o.px : lo <= o.px;
+      else if (o.kind === 'stopLimit') {
+        if (!o.armed && (buy ? hi >= o.px : lo <= o.px)) o.armed = true;
+        triggered = o.armed && (buy ? lo <= o.limitPx : hi >= o.limitPx);
+      }
+      if (!triggered) { if (expired(o, events)) continue; keep.push(o); continue; }
+
+      /*
+       * The fill price. We have snapshots, not a tape, so we cannot say what the price did
+       * between two polls and we do not try: the fill happens at the price we can actually see.
+       * When that is worse than the order asked for, the market moved through it while we were
+       * not looking, and the order says so rather than quietly reporting the nicer number.
+       */
+      const want = buy ? (o.kind === 'stopLimit' ? o.limitPx : o.px) : (o.kind === 'stopLimit' ? o.limitPx : o.px);
+      const fillPx = px;
+      const gapped = o.kind !== 'market' && (buy ? fillPx > want : fillPx < want);
+
+      // The same volume cap as everywhere else, from the day's volume so far where we have it.
+      const left = o.qty - o.filled;
+      const cap = isFinite(l.volume) && l.volume > 0 ? l.volume * 0.25 : left;
+      const canFill = Math.max(0, Math.min(left, cap));
+      const qty = S.settings.fractional ? canFill : Math.floor(canFill);
+      if (qty < 1e-9) { keep.push(o); continue; }
+
+      const res = execute(o.t, o.side, qty, ORDER_SOURCE[o.kind] || 'Order', fillPx, true);
+      if (!res.ok) {
+        o.status = 'cancelled';
+        events.push({ kind: 'fill', order: o, res });
+        addNews('order', `Order to ${o.side} ${+left.toFixed(4)} ${o.t} was cancelled: ${res.msg}`, o.t);
+        continue;
+      }
+      o.filled += qty;
+      const done = o.filled >= o.qty - 1e-9;
+      o.status = done ? 'filled' : 'partial';
+      events.push({ kind: 'fill', order: o, res, qty, partial: !done, gapped, liveFill: true });
+      if (gapped) addNews('order', `${o.t} had already moved past your ${o.kind === 'stopLimit' ? 'limit' : 'order'} price between quotes, so it filled at ${fillPx.toFixed(2)} instead. A resting order is not a promise about the price.`, o.t);
+      if (!done) { addNews('order', `Part of your order filled: ${+qty.toFixed(4)} of ${+o.qty.toFixed(4)} ${o.t}. The rest is still working.`, o.t); keep.push(o); }
+    }
+    S.orders = keep;
+  }
+
+  // Holdings we cannot currently price. Net worth leaves them out rather than guessing.
+  function unpricedHoldings() {
+    if (!liveOn()) return [];
+    return Object.keys(S.holdings).filter((t) => S.holdings[t] && S.holdings[t].qty > 0 && livePx(t) == null);
+  }
+
+  /*
+   * The chart in live mode, read straight out of the quote layer's own cache so that nothing
+   * fetched is ever written into the save file. That is on purpose: a persisted bar would come
+   * back after a reload with no way to tell how old it was, which is the one thing the
+   * requirements say must never happen to a real price.
+   */
+  function liveBars(t, interval) {
+    if (!QT()) return null;
+    const s0 = QT().cachedSeries(liveSym(t), interval || '1day');
+    return s0 && s0.bars && s0.bars.length ? s0 : null;
   }
 
   function freshState(startCash) {
@@ -467,6 +677,18 @@
       }
     }
     delete S._bfRets;
+    if (liveOn()) {
+      /*
+       * Live mode owns no history. Whatever the simulator built while initialising the product
+       * list is discarded here, because a chart in a mode labelled "real market data" must not
+       * contain one bar that nobody traded. Prices arrive only from the provider, and until they
+       * do a product simply has none.
+       */
+      for (const m of U) { const st = S.sec[m.t]; if (st && !st.live) st.h = []; }
+      if (!S.dates.length) S.dates = [S.date];
+      if (!S.nw.length) S.nw.push({ d: S.date, v: S.cash, b: null });
+      return;
+    }
     if (!S.dates.length) {
       const dates = [S.date];
       while (dates.length < HIST) dates.unshift(prevTradingDay(dates[0]));
@@ -478,17 +700,26 @@
   function newGame(startCash, opts) {
     S = freshState(startCash);
     const wantReal = opts && opts.mode === 'real' && RD() && RD().ready;
+    const wantLive = opts && opts.mode === 'live';
     if (wantReal) {
       S.mode = 'real';
       S.rIdx = realStartIndex(opts.startDate || RD().calendar[HIST - 1]);
       S.date = RD().dateAt(S.rIdx);
       S.realFrom = S.date;
+    } else if (wantLive) {
+      S.mode = 'live';
+      S.date = HD() ? HD().dayISO(region()) : new Date().toISOString().slice(0, 10);
+      S.liveFrom = S.date;
+      S.liveAt = 0;
+      S.liveMap = (opts && opts.liveMap) || {};
     }
     build(S.custom);
     ensureAllSecStates();
     addNews('macro', wantReal
       ? `Replay started on ${S.date} with ${fmtUSD(startCash)}. Prices, dividends and splits from here are the ones that really happened. Nothing after today is visible.`
-      : `Market open. You have ${fmtUSD(startCash)} to invest. Prices move once per simulated trading day.`);
+      : wantLive
+        ? `Real-market paper trading started with ${fmtUSD(startCash)} of virtual money. Prices come from your data provider and are labelled with how fresh they are. No real orders are placed, and dividends and splits are not tracked in this mode.`
+        : `Market open. You have ${fmtUSD(startCash)} to invest. Prices move once per simulated trading day.`);
     return S;
   }
 
@@ -526,14 +757,34 @@
   }
 
   /* ---------- queries ---------- */
-  const price = (t) => { const h = S.sec[t].h; return h[h.length - 1]; };
-  const prevClose = (t) => { const h = S.sec[t].h; return h[h.length - 2] ?? h[h.length - 1]; };
+  /*
+   * The current price. In live mode this is whatever the provider last told us and NaN if it has
+   * told us nothing -- deliberately not zero and not a stale guess, so that any arithmetic built
+   * on a price we do not have comes out visibly wrong rather than quietly wrong.
+   */
+  const price = (t) => {
+    if (liveOn()) { const l = liveOf(t); return l && isFinite(l.price) ? l.price : NaN; }
+    const h = S.sec[t].h; return h[h.length - 1];
+  };
+  const prevClose = (t) => {
+    if (liveOn()) { const l = liveOf(t); return l && isFinite(l.prevClose) ? l.prevClose : price(t); }
+    const h = S.sec[t].h; return h[h.length - 2] ?? h[h.length - 1];
+  };
   const fxOf = (m) => (m.cur === 'GBP' ? S.fx : 1);
   const priceUSD = (t) => price(t) * fxOf(BY[t]);
   function fmtUSD(v) { return '$' + Math.round(v).toLocaleString('en-US'); }
 
   function holdingValue(t) { const h = S.holdings[t]; return h ? h.qty * priceUSD(t) : 0; }
-  function marketValue() { let v = 0; for (const t in S.holdings) v += holdingValue(t); return v; }
+  /*
+   * A holding we cannot price is left out of the total rather than valued at a guess or at a
+   * stale number. net worth would otherwise read as authoritative while quietly containing a
+   * figure nobody stands behind; unpricedHoldings() tells the UI what was excluded so it can say.
+   */
+  function marketValue() {
+    let v = 0;
+    for (const t in S.holdings) { const hv = holdingValue(t); if (isFinite(hv)) v += hv; }
+    return v;
+  }
   function netWorth() { return S.cash + marketValue(); }
   // st.dps is the per-payment amount on the security's real schedule (m.q payments a year).
   function annualDps(t) { const m = BY[t]; return S.sec[t].dps * m.q; }
@@ -669,6 +920,8 @@
     split: 'Company announcement (simulated)',
     order: 'Your account',
     econ: 'Economic calendar (simulated)',
+    cash: 'Your account',
+    data: 'Market data',
   };
   // A plausible publication time of day, stable for a given headline.
   function newsTime(id, kind) {
@@ -717,6 +970,11 @@
 
   /* ---------- one simulated trading day ---------- */
   function step() {
+    /*
+     * There is no clock to advance in live mode: the market's clock is the real one. Refusing is
+     * better than returning an empty result, which would let a caller believe a day had passed.
+     */
+    if (liveOn()) return { ok: false, live: true, msg: 'Real-market mode follows the real clock, so there is no day to step forward. Refresh the prices instead.' };
     if (S.mode === 'real') return stepReal();
     const events = [];
     S.date = nextTradingDay(S.date);
@@ -976,6 +1234,8 @@
   }
   function barAt(t, i) {
     const m = BY[t], h = S.sec[t].h;
+    // Live mode never synthesises a bar. Its chart comes from fetched history via bars() below.
+    if (liveOn()) return null;
     if (i < 1 || i >= h.length) return null;
     if (S.mode === 'real' && hasReal(t)) {
       // The recorded bar for that calendar day.
@@ -999,7 +1259,21 @@
     };
   }
   const lastBar = (t) => barAt(t, S.sec[t].h.length - 1);
-  function bars(t, n) {
+  function bars(t, n, interval) {
+    /*
+     * In live mode the only bars that exist are the ones the provider sent. If none have been
+     * fetched for this product yet, the answer is an empty series and the chart says so --
+     * rather than a plausible-looking curve that nobody traded.
+     */
+    if (liveOn()) {
+      const s0 = liveBars(t, interval);
+      const out = { o: [], h: [], l: [], c: [], v: [], labels: [], live: true, interval: s0 ? s0.interval : (interval || '1day'), provider: s0 ? s0.provider : '', fetchedAt: s0 ? s0.fetchedAt : 0 };
+      if (!s0) return out;
+      for (const b of s0.bars.slice(-n)) {
+        out.o.push(b.o); out.h.push(b.h); out.l.push(b.l); out.c.push(b.c); out.v.push(b.v); out.labels.push(b.t);
+      }
+      return out;
+    }
     const h = S.sec[t].h, len = h.length, start = Math.max(1, len - n);
     const out = { o: [], h: [], l: [], c: [], v: [], labels: [] };
     for (let i = start; i < len; i++) {
@@ -1009,7 +1283,13 @@
     return out;
   }
   // A typical day's volume, used to size market impact and the most you can fill in one day.
-  function typicalVolume(t) { const b = lastBar(t); return b ? b.v : 1e6; }
+  function typicalVolume(t) {
+    if (liveOn()) { const l = liveOf(t); return l && isFinite(l.volume) && l.volume > 0 ? l.volume : 1e6; }
+    const b = lastBar(t); return b ? b.v : 1e6;
+  }
+
+  // What a filled order is called in the activity log and on the chart.
+  const ORDER_SOURCE = { market: 'Market order', limit: 'Limit order', stop: 'Stop order', stopLimit: 'Stop-limit order' };
 
   /* ---------- trading ---------- */
   /* ---------- real-world frictions ---------- */
@@ -1101,6 +1381,12 @@
   }
 
   function unlistedMsg(t) {
+    if (liveOn()) {
+      if (!liveSupported(t)) return `${t} is not covered by the market-data provider, so it has no real price and cannot be traded in real-market mode.`;
+      const st = QT() ? QT().state() : null;
+      if (st && !st.configured) return `Real-market mode has no data endpoint set, so there is no price for ${t}. Set one in Settings.`;
+      return `No current price has been received for ${t}, so it cannot be traded. ${st && st.lastError ? st.lastError.message : 'Try refreshing.'}`;
+    }
     if (!hasReal(t)) return `There is no recorded history for ${t}, so it cannot be traded in a replay.`;
     const s0 = RD().get(t);
     return `${t} had not listed yet on ${S.date}. It starts trading on ${RD().dateAt(s0.start)}.`;
@@ -1157,7 +1443,9 @@
   function orderCost(o) {
     const m = BY[o.t];
     if (!m) return 0;
-    const gross = o.qty * o.px * fxOf(m);
+    // Reserve against the highest price the order could pay: for a stop-limit that is the limit.
+    const worst = o.kind === 'stopLimit' && o.limitPx > 0 ? Math.max(o.px, o.limitPx) : o.px;
+    const gross = o.qty * worst * fxOf(m);
     return gross + fees(m, 'buy', gross).total;
   }
   function reservedCash() {
@@ -1175,18 +1463,36 @@
 
   const GTC_DAYS = 90;   // brokers expire a "good till cancelled" order after about 90 days
 
-  function placeOrder(t, side, kind, qty, px, tif) {
+  function placeOrder(t, side, kind, qty, px, tif, limitPx) {
     const err = validateQty(qty);
     if (err) return { ok: false, msg: err };
     if (!BY[t]) return { ok: false, msg: 'Unknown product.' };
     if (!tradeable(t)) return { ok: false, msg: unlistedMsg(t) };
     if (!(px > 0)) return { ok: false, msg: 'Enter a trigger price above zero.' };
     const p = price(t);
+    if (!isFinite(p)) return { ok: false, msg: unlistedMsg(t) };
     // A limit or stop on the wrong side of the market would fill instantly; that is a market order.
     if (kind === 'limit' && side === 'buy' && px > p * 1.5) return { ok: false, msg: `That limit is far above the ${t} price of ${fmtMoney(p)}. A buy limit sits below the price and waits for a dip.` };
     if (kind === 'limit' && side === 'sell' && px < p * 0.5) return { ok: false, msg: `That limit is far below the ${t} price of ${fmtMoney(p)}. A sell limit sits above the price and waits for a rise.` };
     if (kind === 'stop' && side === 'sell' && px > p) return { ok: false, msg: `A stop loss protects you on the way down, so it sits below the ${t} price of ${fmtMoney(p)}.` };
     if (kind === 'stop' && side === 'buy' && px < p) return { ok: false, msg: `A buy stop sits above the ${t} price of ${fmtMoney(p)}.` };
+    /*
+     * A stop-limit carries two prices: the stop that wakes it and the limit it will not trade
+     * past. Getting them the wrong way round is the classic mistake -- a sell stop-limit whose
+     * limit sits above its stop can never fill, because by the time the stop triggers the price
+     * is already below the limit -- so it is refused with an explanation rather than accepted
+     * and left to rest forever.
+     */
+    if (kind === 'stopLimit') {
+      if (!(limitPx > 0)) return { ok: false, msg: 'A stop-limit order needs a limit price as well as a stop price.' };
+      if (side === 'sell') {
+        if (px > p) return { ok: false, msg: `A sell stop-limit protects you on the way down, so its stop sits below the ${t} price of ${fmtMoney(p)}.` };
+        if (limitPx > px) return { ok: false, msg: `Your limit of ${fmtMoney(limitPx)} is above your stop of ${fmtMoney(px)}, so this order could never fill: once the stop triggers, the price is already below the limit. Put the limit at or below the stop.` };
+      } else {
+        if (px < p) return { ok: false, msg: `A buy stop-limit waits for a breakout, so its stop sits above the ${t} price of ${fmtMoney(p)}.` };
+        if (limitPx < px) return { ok: false, msg: `Your limit of ${fmtMoney(limitPx)} is below your stop of ${fmtMoney(px)}, so this order could never fill. Put the limit at or above the stop.` };
+      }
+    }
     if (side === 'sell') {
       const h = S.holdings[t];
       if (!h || h.qty < qty - 1e-9) return { ok: false, msg: `You only own ${h ? +h.qty.toFixed(4) : 0} shares of ${t}.` };
@@ -1198,11 +1504,50 @@
       if (need > free + 1e-9) return { ok: false, msg: `This order could cost ${fmtMoney(need)} and only ${fmtMoney(free)} of your ${fmtMoney(S.cash)} is uncommitted. Cancel an open buy order or reduce the size.` };
     }
     const o = { id: S.nextId++, t, side, kind, qty, px, placed: S.date, tif: tif === 'day' ? 'day' : 'gtc', filled: 0, status: 'open' };
+    if (kind === 'stopLimit') { o.limitPx = limitPx; o.armed = false; }
     S.orders.push(o);
     return { ok: true, order: o };
   }
 
   function cancelOrder(id) { S.orders = S.orders.filter((o) => o.id !== id); }
+
+  /*
+   * Paying virtual money in and out.
+   *
+   * Recorded as transactions rather than quietly adjusting the balance, because every performance
+   * figure in the app is rebuilt from the transaction log and an untracked cash injection would
+   * silently flatter the return: £10,000 added to a £10,000 account looks like a 100% gain to
+   * anything that only watches net worth. stats.js subtracts these from the return for exactly
+   * that reason.
+   */
+  function deposit(amount, note) {
+    const amt = +amount;
+    if (!(amt > 0) || !isFinite(amt)) return { ok: false, msg: 'Enter an amount above zero.' };
+    S.cash += amt;
+    S.tx.unshift({ id: S.nextId++, d: S.date, kind: 'DEPOSIT', t: '', qty: 0, px: 0, cur: 'USD', amt, fee: 0, note: note || null });
+    addNews('cash', `Paid in ${fmtMoney(amt)} of virtual money.${note ? ` (${note})` : ''}`);
+    return { ok: true, cash: S.cash };
+  }
+  function withdraw(amount, note) {
+    const amt = +amount;
+    if (!(amt > 0) || !isFinite(amt)) return { ok: false, msg: 'Enter an amount above zero.' };
+    const free = availableCash();
+    if (amt > free + 1e-9) {
+      return { ok: false, msg: free < S.cash - 1e-9
+        ? `Only ${fmtMoney(free)} is free to take out: the rest of your ${fmtMoney(S.cash)} is committed to open buy orders.`
+        : `You have ${fmtMoney(S.cash)} in cash, so you cannot take out ${fmtMoney(amt)}.` };
+    }
+    S.cash -= amt;
+    S.tx.unshift({ id: S.nextId++, d: S.date, kind: 'WITHDRAW', t: '', qty: 0, px: 0, cur: 'USD', amt: -amt, fee: 0, note: note || null });
+    addNews('cash', `Took out ${fmtMoney(amt)} of virtual money.${note ? ` (${note})` : ''}`);
+    return { ok: true, cash: S.cash };
+  }
+  // What has been paid in beyond the starting balance, less what has been taken out.
+  function netContributions() {
+    let v = 0;
+    for (const x of S.tx || []) { if (x.kind === 'DEPOSIT' || x.kind === 'WITHDRAW') v += x.amt; }
+    return v;
+  }
 
   /*
    * Work the open orders against the day's range.
@@ -1220,9 +1565,22 @@
       if (!bar) { keep.push(o); continue; }
 
       const buy = o.side === 'buy';
-      const triggered = o.kind === 'limit'
-        ? (buy ? bar.l <= o.px : bar.h >= o.px)
-        : (buy ? bar.h >= o.px : bar.l <= o.px);
+      /*
+       * A stop-limit is two orders in sequence: the stop arms it, and from then on it is an
+       * ordinary limit. Arming and filling can happen on the same day, but not in a known order
+       * -- we have one bar, not the path through it -- so an order armed today fills today only
+       * if the limit was inside the day's range, and otherwise rests armed for tomorrow. That is
+       * the honest reading of a daily bar, and it is also the one that cannot flatter the fill.
+       */
+      let triggered;
+      if (o.kind === 'stopLimit') {
+        if (!o.armed && (buy ? bar.h >= o.px : bar.l <= o.px)) o.armed = true;
+        triggered = o.armed && (buy ? bar.l <= o.limitPx : bar.h >= o.limitPx);
+      } else {
+        triggered = o.kind === 'limit'
+          ? (buy ? bar.l <= o.px : bar.h >= o.px)
+          : (buy ? bar.h >= o.px : bar.l <= o.px);
+      }
 
       if (!triggered) {
         if (expired(o, events)) continue;
@@ -1230,21 +1588,22 @@
       }
 
       // Price the fill from the day's open, capped by what the order asked for.
+      const want = o.kind === 'stopLimit' ? o.limitPx : o.px;
       const fillPx = buy
-        ? (o.kind === 'limit' ? Math.min(o.px, bar.o) : Math.max(o.px, bar.o))
-        : (o.kind === 'limit' ? Math.max(o.px, bar.o) : Math.min(o.px, bar.o));
+        ? (o.kind === 'stop' ? Math.max(want, bar.o) : Math.min(want, bar.o))
+        : (o.kind === 'stop' ? Math.min(want, bar.o) : Math.max(want, bar.o));
 
       // You cannot take more than a slice of a day's volume; the rest keeps working.
-      const want = o.qty - o.filled;
-      const canFill = Math.max(0, Math.min(want, bar.v * 0.25));
+      const left = o.qty - o.filled;
+      const canFill = Math.max(0, Math.min(left, bar.v * 0.25));
       const qty = S.settings.fractional ? canFill : Math.floor(canFill);
       if (qty < 1e-9) { keep.push(o); continue; }
 
-      const res = execute(o.t, o.side, qty, o.kind === 'limit' ? 'Limit order' : 'Stop order', fillPx, true);
+      const res = execute(o.t, o.side, qty, ORDER_SOURCE[o.kind] || 'Order', fillPx, true);
       if (!res.ok) {
         o.status = 'cancelled';
         events.push({ kind: 'fill', order: o, res });
-        addNews('order', `Order to ${o.side} ${+(o.qty - o.filled).toFixed(4)} ${o.t} was cancelled: ${res.msg}`, o.t);
+        addNews('order', `Order to ${o.side} ${+left.toFixed(4)} ${o.t} was cancelled: ${res.msg}`, o.t);
         continue;
       }
       o.filled += qty;
@@ -1396,6 +1755,9 @@
     holidays, holidayOn, nationalOn, isTradingDay, marketStatus, econEvents, region,
     bars, barAt, lastBar, typicalVolume, impact,
     realOn, hasReal, listed, tradeable, realBounds, realStartIndex,
+    liveOn, liveOf, livePx, liveSym, liveSupported, liveFresh, liveBars, syncLive, unpricedHoldings,
+    deposit, withdraw, netContributions,
+    ORDER_SOURCE,
     availableCash, availableQty, reservedCash, reservedQty,
     ALERT_KINDS, addAlert, removeAlert, alertText,
     listById, createList, renameList, deleteList, toggleInList, syncWatch,

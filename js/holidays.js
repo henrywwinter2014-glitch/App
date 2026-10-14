@@ -233,5 +233,58 @@
     } catch (e) { return null; }
   }
 
-  window.Holidays = { EXCHANGES, detect, exchange, national, exchangeTime, easter, nth, last };
+  /*
+   * Is the exchange open at this moment?
+   *
+   * Simulated and replay modes only ever need to know whether a *day* traded, because they move a
+   * whole day at a time. Real-market paper trading needs the time of day as well: a price fetched
+   * at 03:00 is last night's close, and calling that "live" would be a lie. So this works in the
+   * exchange's own timezone, which is also the only way to get it right across a daylight-saving
+   * change without a table of dates.
+   *
+   * Returns { open, phase, localTime, opensAt, closesAt }. `phase` is one of 'open', 'pre',
+   * 'post', 'closed-day' or 'closed-time'. Pre- and post-market windows are the conventional US
+   * ones and are reported only so the app can label a price, never so it can invent one: whether
+   * any extended-hours data actually exists is the provider's business, not ours.
+   */
+  function dayISO(code) {
+    const ex = EXCHANGES[code] || EXCHANGES.us;
+    try {
+      const p = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: ex.tz }).format(new Date());
+      return p.replace(/\//g, '-');
+    } catch (e) { return new Date().toISOString().slice(0, 10); }
+  }
+  function minutesNow(code) {
+    const ex = EXCHANGES[code] || EXCHANGES.us;
+    try {
+      const s = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: ex.tz }).format(new Date());
+      const [h, m] = s.split(':').map(Number);
+      return h * 60 + m;
+    } catch (e) { return -1; }
+  }
+  const PRE = { us: 4 * 60, ca: 7 * 60 };          // when pre-market trading conventionally starts
+  const POST = { us: 20 * 60, ca: 17 * 60 };       // ...and when after-hours trading ends
+  function openNow(code) {
+    const ex = EXCHANGES[code] || EXCHANGES.us;
+    const c = EXCHANGES[code] ? code : 'us';
+    const d = dayISO(c);
+    const [oh, om] = ex.hours.split(' to ')[0].split(':').map(Number);
+    const [ch, cm] = ex.hours.split(' to ')[1].split(':').map(Number);
+    const openAt = oh * 60 + om, closeAt = ch * 60 + cm;
+    const mins = minutesNow(c);
+    const local = exchangeTime(c);
+    const out = { open: false, phase: 'closed-time', localTime: local, opensAt: ex.hours.split(' to ')[0], closesAt: ex.hours.split(' to ')[1], day: d };
+    const wd = new Date(d + 'T12:00:00Z').getUTCDay();
+    const hol = exchange(c, +d.slice(0, 4))[d];
+    if (wd === 0 || wd === 6) { out.phase = 'closed-day'; out.why = 'Weekend'; return out; }
+    if (hol) { out.phase = 'closed-day'; out.why = hol; return out; }
+    if (mins < 0) { out.phase = 'unknown'; out.why = 'The time of day could not be read'; return out; }
+    if (mins >= openAt && mins < closeAt) { out.open = true; out.phase = 'open'; out.why = 'Open'; return out; }
+    if (PRE[c] != null && mins >= PRE[c] && mins < openAt) { out.phase = 'pre'; out.why = 'Pre-market'; return out; }
+    if (POST[c] != null && mins >= closeAt && mins < POST[c]) { out.phase = 'post'; out.why = 'After hours'; return out; }
+    out.why = mins < openAt ? 'Before the open' : 'After the close';
+    return out;
+  }
+
+  window.Holidays = { EXCHANGES, detect, exchange, national, exchangeTime, openNow, dayISO, easter, nth, last };
 })();
