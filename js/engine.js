@@ -456,7 +456,7 @@
 
   function load(saved) {
     S = saved;
-    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us' }, S.settings);
+    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3 }, S.settings);
     build(S.custom);
     ensureAllSecStates();
     if (!S.drawings) S.drawings = {};
@@ -1061,7 +1061,7 @@
       q.plPct = basis > 0 ? q.pl / basis : null;
     }
     S.feesPaid += q.fee.total;
-    S.tx.unshift({ id: S.nextId++, d: S.date, kind: side === 'buy' ? 'BUY' : 'SELL', t, qty, px: q.px, cur: m.cur, amt: side === 'buy' ? -q.total : q.total, fee: q.fee.total, pl: q.pl ?? null, plPct: q.plPct ?? null, note: source || null });
+    S.tx.unshift({ id: S.nextId++, d: S.date, kind: side === 'buy' ? 'BUY' : 'SELL', t, qty, px: q.px, cur: m.cur, amt: side === 'buy' ? -q.total : q.total, fee: q.fee.total, slip: (q.spreadCost || 0) + (q.slip || 0), pl: q.pl ?? null, plPct: q.plPct ?? null, note: source || null });
     return { ok: true, q };
   }
 

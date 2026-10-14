@@ -87,6 +87,7 @@
     <button role="tab" type="button" data-tab="calculator">Calculator</button>
     <button role="tab" type="button" data-tab="academy">Learn</button>
     <button role="tab" type="button" data-tab="orders">Orders <span class="count" id="orderCount" hidden></span></button>
+    <button role="tab" type="button" data-tab="performance">Performance</button>
     <button role="tab" type="button" data-tab="activity">Activity</button>
     <button role="tab" type="button" data-tab="settings">Settings</button>
   </nav>
@@ -262,7 +263,25 @@
 
     <!-- Dividend calculator -->
     <section class="panel" id="tab-calculator" hidden>
-      <div class="calc">
+      <div class="calc-tabs seg" role="group" aria-label="Which calculator">
+        <button type="button" data-calc="dividend" class="on">Dividend income</button><button type="button" data-calc="risk">Position size and risk</button>
+      </div>
+
+      <div class="risk-calc" id="riskCalc" hidden>
+        <form class="card calc-form" id="riskForm" autocomplete="off">
+          <h2>Position size and risk</h2>
+          <p class="note">Work out how many shares to buy from the loss you are willing to take, rather than from how much cash you happen to have.</p>
+          <label class="field"><span>Your account is worth</span><input id="rkEquity" type="number" min="0" step="any" inputmode="decimal"></label>
+          <label class="field"><span>Risk per trade <small class="muted">% of the account you accept losing if you are wrong</small></span><input id="rkRisk" type="number" min="0.1" max="100" step="0.1" inputmode="decimal"></label>
+          <label class="field"><span>Buy at</span><input id="rkEntry" type="number" min="0" step="any" inputmode="decimal" placeholder="Entry price"></label>
+          <label class="field"><span>Sell if it falls to <small class="muted">your stop</small></span><input id="rkStop" type="number" min="0" step="any" inputmode="decimal" placeholder="Stop price"></label>
+          <label class="field"><span>Take profit at <small class="muted">optional</small></span><input id="rkTarget" type="number" min="0" step="any" inputmode="decimal" placeholder="Target price"></label>
+          <label class="field"><span>Copy prices from <small class="muted">optional</small></span><input id="rkTicker" list="calcList" placeholder="Ticker, e.g. AAPL"></label>
+        </form>
+        <div class="card calc-out" id="riskOut"></div>
+      </div>
+
+      <div class="calc" id="divCalc">
         <form class="card calc-form" id="calcForm" autocomplete="off">
           <h2>Dividend calculator</h2>
           <p class="note">Project income and total return from a dividend investment, month by month, with dividend raises, reinvestment, tax, fund fees and inflation.</p>
@@ -346,6 +365,11 @@
       </div>
     </section>
 
+    <!-- Performance -->
+    <section class="panel" id="tab-performance" hidden>
+      <div class="perf" id="perf"></div>
+    </section>
+
     <!-- Orders -->
     <section class="panel" id="tab-orders" hidden>
       <div class="card">
@@ -381,6 +405,11 @@
           <h2>Trading rules</h2>
           <div class="form">
             <label class="field"><span>Commission per trade (USD)</span><input id="setCommission" type="number" min="0" step="0.5" inputmode="decimal"></label>
+            <hr class="set-rule">
+            <p class="note"><b>Your risk limits.</b> Bullpen warns you when a trade or a day goes past these. They are yours to set and nothing stops you ignoring them — but the warnings show up on the Performance tab.</p>
+            <label class="field"><span>Risk per trade (% of account)</span><input id="setRiskPct" type="number" min="0.1" max="100" step="0.1" inputmode="decimal"></label>
+            <label class="field"><span>Most in any one position (% of account)</span><input id="setMaxPos" type="number" min="1" max="100" step="1" inputmode="decimal"></label>
+            <label class="field"><span>Stop for the day after losing (% of account)</span><input id="setDayLoss" type="number" min="0.5" max="100" step="0.5" inputmode="decimal"></label>
             <label class="check"><input id="setFractional" type="checkbox"> Allow fractional shares</label>
             <label class="check"><input id="setDrip" type="checkbox"> Reinvest dividends automatically (DRIP) for new holdings</label>
             <label class="check"><input id="setStamp" type="checkbox"> Charge 0.5% UK stamp duty on London share purchases</label>
@@ -645,6 +674,7 @@
 <script src="js/realdata.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/charts.js"></script>
+<script src="js/stats.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/firebase-config.js"></script>
 <script src="js/cloud.js"></script>

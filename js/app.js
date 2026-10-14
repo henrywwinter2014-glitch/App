@@ -731,6 +731,9 @@
     $('setDrip').checked = st.drip;
     $('setStamp').checked = st.stamp;
     $('setAccount').innerHTML = Object.entries(E.ACCOUNTS).map(([k, v]) => `<option value="${k}"${k === st.account ? ' selected' : ''}>${esc(v)}</option>`).join('');
+    $('setRiskPct').value = st.riskPct;
+    $('setMaxPos').value = st.maxPosPct;
+    $('setDayLoss').value = st.dayLossPct;
   }
 
   /* ---------- security sheet ---------- */
@@ -1501,6 +1504,8 @@
     if (ui.tab === 'portfolio') renderPortfolio();
     if (ui.tab === 'dividends') renderDividends();
     if (ui.tab === 'orders') renderOrders();
+    if (ui.tab === 'performance') renderPerformance();
+    if (ui.tab === 'calculator' && !$('riskCalc').hidden) renderRisk();
     if (ui.tab === 'calendar') { if (ui.calFollow) ui.calMonth = S().date.slice(0, 7); renderCalendar(); }
     if (ui.tab === 'activity') renderActivity();
     if (ui.sheet) renderSheet(false);
@@ -1516,6 +1521,8 @@
     if (tab === 'settings') renderSettings();
     if (tab === 'calculator') renderCalc();
     if (tab === 'academy' && window.Academy) window.Academy.render();
+    if (tab === 'performance') renderPerformance();
+    if (tab === 'calculator' && !$('riskCalc').hidden) resetRisk();
     if (tab === 'dividends' || tab === 'calendar' || tab === 'settings') renderDivSpeed();
     refresh();
   }
@@ -1648,6 +1655,7 @@
     $('chFull').addEventListener('click', openFocus);
     $('mainChart').addEventListener('dblclick', () => { if (!draw.tool) openFocus(); });
     bindDrawing();
+    bindRisk();
     $('fcClose').addEventListener('click', closeFocus);
     $('fcPlay').addEventListener('click', () => setPlaying(!ui.playing));
     $('fcSell').addEventListener('click', () => showQuick('sell'));
@@ -1725,6 +1733,16 @@
 
     // settings
     $('setCommission').addEventListener('change', (e) => { S().settings.commission = Math.max(0, +e.target.value || 0); save(); });
+    const limit = (id, key, lo, hi, dflt) => $(id).addEventListener('change', (e) => {
+      const v = +e.target.value;
+      S().settings[key] = isFinite(v) && v > 0 ? Math.min(hi, Math.max(lo, v)) : dflt;
+      e.target.value = S().settings[key];
+      save();
+      if (ui.tab === 'performance') renderPerformance();
+    });
+    limit('setRiskPct', 'riskPct', 0.1, 100, 1);
+    limit('setMaxPos', 'maxPosPct', 1, 100, 20);
+    limit('setDayLoss', 'dayLossPct', 0.5, 100, 3);
     $('setFractional').addEventListener('change', (e) => { S().settings.fractional = e.target.checked; save(); });
     $('setDrip').addEventListener('change', (e) => { S().settings.drip = e.target.checked; save(); });
     $('setStamp').addEventListener('change', (e) => { S().settings.stamp = e.target.checked; save(); });
@@ -1795,6 +1813,210 @@
     saveNow();   // a new game is a big change: write it straight away
     renderSelects();
     showTab('markets');
+  }
+
+  // An unsigned percentage, for shares and rates rather than changes.
+  const pctAbs = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
+
+  /* ---------- performance dashboard ---------- */
+  // A row in a diverging bar chart: the zero line carries the sign, the label repeats it, so the
+  // red/green is never the only thing telling you whether a number is a profit.
+  function divergeRow(label, sub, value, max) {
+    const w = max > 0 ? Math.min(50, (Math.abs(value) / max) * 50) : 0;
+    const up = value >= 0;
+    return `<div class="dv-row">
+      <span class="dv-lbl">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span>
+      <span class="dv-track"><i class="dv-bar ${up ? 'up' : 'dn'}" style="${up ? 'left:50%' : `right:50%`};width:${w}%"></i></span>
+      <b class="dv-val ${cls(value)}">${signedMoney(value)}</b>
+    </div>`;
+  }
+
+  function renderPerformance() {
+    const St = window.Stats;
+    const s = S();
+    const sum = St.summary();
+    const eq = St.equity();
+    const ex = St.exposure();
+    const conc = St.concentration();
+    const nf = (v, d = 2) => (v == null ? '—' : v.toFixed(d));
+
+    // headline
+    const totalRet = eq ? eq.ret : 0;
+    const vsBench = eq ? eq.ret - eq.benchRet : 0;
+    let html = `<div class="card perf-hero">
+      <div>
+        <span class="ac-eyebrow">Total return${E.realOn() ? ' · replay' : ''}</span>
+        <div class="perf-big ${cls(totalRet)}">${pct(totalRet)}</div>
+        <p class="muted small">${money(E.netWorth())} from ${money(s.startCash)} over ${s.day + 1} trading day${s.day ? 's' : ''}</p>
+      </div>
+      <div class="perf-vs">
+        <span class="ac-eyebrow">Against the S&amp;P 500</span>
+        <div class="perf-mid ${cls(vsBench)}">${pct(vsBench)}</div>
+        <p class="muted small">You ${pct(totalRet)} · index ${eq ? pct(eq.benchRet) : '—'}</p>
+      </div>
+      <div class="perf-vs">
+        <span class="ac-eyebrow">Worst fall from a peak</span>
+        <div class="perf-mid loss">${eq ? pct(eq.maxDD) : '—'}</div>
+        <p class="muted small">${eq && eq.ddAt ? `peak ${shortD(eq.peakAt)} to ${shortD(eq.ddAt)}` : 'No drawdown yet'}</p>
+      </div>
+    </div>`;
+
+    // equity curve, both lines indexed to zero so one axis is honest
+    html += `<div class="card">
+      <div class="ac-row"><b>Your account against the market</b>
+        <span class="chart-key"><span class="key you">You</span><span class="key bench">S&amp;P 500</span></span></div>
+      <canvas id="perfEquity" class="chart" height="240"></canvas>
+      <p class="muted small">Both lines start at 0% on your first day, so they share one scale. The index line is buying and holding SPY over the same period.</p>
+    </div>`;
+
+    // trade statistics
+    if (!sum.n) {
+      html += `<div class="card perf-empty"><b>No closed trades yet</b><p class="muted">Buy something and sell it, and every number on this page fills in from what you actually did. Nothing here is an example.</p></div>`;
+    } else {
+      const tiles = [
+        ['Closed trades', sum.n, `${sum.wins} won · ${sum.losses} lost`],
+        ['Win rate', pctAbs(sum.winRate), `${sum.wins} of ${sum.n}`],
+        ['Average win', signedMoney(sum.avgWin), sum.avgWinPct ? pctAbs(sum.avgWinPct) : ''],
+        ['Average loss', signedMoney(-sum.avgLoss), sum.avgLossPct ? pctAbs(sum.avgLossPct) : ''],
+        ['Profit factor', sum.profitFactor === Infinity ? '∞' : nf(sum.profitFactor), 'Won per £1 lost'],
+        ['Per trade', signedMoney(sum.expectancy), 'Average outcome'],
+        ['Typical hold', Math.round(sum.avgHeld) + ' days', ''],
+        ['Realised', signedMoney(sum.realised), 'Booked profit'],
+      ];
+      html += `<div class="card"><div class="ac-row"><b>Every closed trade</b><span class="muted small">${sum.open} position${sum.open === 1 ? '' : 's'} still open</span></div>
+        <div class="perf-tiles">${tiles.map(([k, v, sub]) => `<div><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`).join('')}</div></div>`;
+
+      // is this skill or one lucky trade?
+      if (conc) {
+        const heavy = conc.top1 > 0.5;
+        html += `<div class="card perf-note ${heavy ? 'warn' : ''}">
+          <b>${heavy ? 'Your result leans on one trade' : 'Your profit is spread across trades'}</b>
+          <p class="muted">Your single best trade is ${pctAbs(conc.top1)} of everything you made, and your best three are ${pctAbs(conc.top3)} of it, across ${conc.n} winning trade${conc.n === 1 ? '' : 's'}.
+          ${heavy ? 'A record resting on one trade tells you much less than it looks like it does — it may not repeat.' : 'Results spread over many trades are more likely to reflect how you decide rather than luck.'}</p>
+        </div>`;
+      }
+    }
+
+    // what it cost to trade
+    html += `<div class="card"><div class="ac-row"><b>What trading cost you</b></div>
+      <div class="perf-tiles small">
+        <div><span>Spread and impact</span><b class="loss">${money(sum.slippage)}</b><small>Paid on every fill</small></div>
+        <div><span>Commission and stamp duty</span><b class="loss">${money(sum.fees)}</b></div>
+        <div><span>Dividend tax</span><b class="loss">${money(sum.tax)}</b></div>
+        <div><span>Dividends received</span><b class="gain">${money(sum.dividends)}</b><small>Not counted in trade profit</small></div>
+      </div></div>`;
+
+    // risk right now
+    const warn = [];
+    for (const r of ex.over) warn.push(`${r.t} is ${pctAbs(r.pct)} of your account, over your ${pctAbs(ex.maxPos)} limit for one position.`);
+    if (ex.topSector && ex.topSector.pct > 0.4) warn.push(`${pctAbs(ex.topSector.pct)} of your account is in ${ex.topSector.sector}. One piece of bad news could move all of it at once.`);
+    if (ex.dayPL.pct < -ex.dayLimit) warn.push(`You are down ${pctAbs(Math.abs(ex.dayPL.pct))} today, past the ${pctAbs(ex.dayLimit)} daily limit you set. This is the point to stop for the day.`);
+    html += `<div class="card"><div class="ac-row"><b>Risk right now</b><span class="muted small">limits in Settings</span></div>
+      <div class="perf-tiles small">
+        <div><span>Invested</span><b>${pctAbs(ex.investedPct)}</b><small>${money(ex.invested)}</small></div>
+        <div><span>Cash</span><b>${pctAbs(ex.cashPct)}</b><small>${money(s.cash)}</small></div>
+        <div><span>Biggest position</span><b class="${ex.rows[0] && ex.rows[0].pct > ex.maxPos ? 'loss' : ''}">${ex.rows[0] ? pctAbs(ex.rows[0].pct) : '—'}</b><small>${ex.rows[0] ? ex.rows[0].t : 'Nothing held'}</small></div>
+        <div><span>Today</span><b class="${cls(ex.dayPL.abs)}">${pct(ex.dayPL.pct)}</b><small>${signedMoney(ex.dayPL.abs)}</small></div>
+      </div>
+      ${warn.length ? `<ul class="perf-warn">${warn.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : `<p class="muted small">Nothing is over the limits you set.</p>`}
+    </div>`;
+
+    // breakdowns
+    if (sum.n) {
+      const byT = St.byTicker(), byM = St.byMonth();
+      const maxT = Math.max(...byT.map((r) => Math.abs(r.pl)), 1);
+      const maxM = Math.max(...byM.map((r) => Math.abs(r.pl)), 1);
+      html += `<div class="perf-two">
+        <div class="card"><div class="ac-row"><b>Profit by product</b></div><div class="dv">${byT.slice(0, 12).map((r) => divergeRow(r.k, `${r.n} trade${r.n === 1 ? '' : 's'} · ${pctAbs(r.wins / r.n)} won`, r.pl, maxT)).join('')}</div></div>
+        <div class="card"><div class="ac-row"><b>Profit by month</b></div><div class="dv">${byM.map((r) => divergeRow(monthName(r.k), `${r.n} trade${r.n === 1 ? '' : 's'}`, r.pl, maxM)).join('')}</div></div>
+      </div>`;
+
+      // the trades themselves
+      const tr = St.trades().slice().reverse().slice(0, 25);
+      html += `<div class="card"><div class="ac-row"><b>Closed trades</b><span class="muted small">most recent first</span></div>
+        <div class="table-wrap"><table class="grid perf-tbl"><thead><tr><th>Closed</th><th>Product</th><th class="r">Qty</th><th class="r">Exit</th><th class="r">Held</th><th class="r">Result</th><th class="r">%</th></tr></thead><tbody>
+        ${tr.map((x) => `<tr><td>${shortD(x.closed)}</td><td><b>${x.t}</b></td><td class="r">${qtyFmt(+x.qty.toFixed(4))}</td><td class="r">${money(x.px, (E.BY[x.t] || {}).cur)}</td><td class="r">${x.held}d</td><td class="r ${cls(x.pl)}">${signedMoney(x.pl)}</td><td class="r ${cls(x.pl)}">${x.plPct == null ? '—' : pct(x.plPct)}</td></tr>`).join('')}
+        </tbody></table></div></div>`;
+    }
+
+    $('perf').innerHTML = html;
+
+    if (eq) {
+      C.line($('perfEquity'), {
+        labels: eq.dates,
+        series: [
+          { values: eq.bench, color: getComputedStyle(document.documentElement).getPropertyValue('--chart-b').trim() || '#9aa3ad' },
+          { values: eq.you, color: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), fill: true },
+        ],
+        fmt: (v) => (v * 100).toFixed(0) + '%',
+        hover: true,
+      });
+    }
+  }
+  const shortD = (d) => (d ? C.shortDate(d) : '—');
+  function monthName(k) {
+    const [y, m] = k.split('-');
+    return ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m - 1] + ' ' + y;
+  }
+
+  /* ---------- position size and risk calculator ---------- */
+  function renderRisk() {
+    const s = S();
+    const r = window.Stats.positionSize({
+      equity: +$('rkEquity').value,
+      riskPct: +$('rkRisk').value,
+      entry: +$('rkEntry').value,
+      stop: +$('rkStop').value,
+      target: +$('rkTarget').value,
+    });
+    if (r.error) {
+      $('riskOut').innerHTML = `<div class="calc-empty"><b>Fill in a price and a stop</b><p class="muted">${esc(r.error)}</p>
+        <p class="muted small">The idea: decide what losing looks like before you buy. If you will sell at a 10% fall and you accept losing 1% of your account, you can buy ten times more than that 1% — the stop, not your cash, sets the size.</p></div>`;
+      return;
+    }
+    const whole = Math.floor(r.shares);
+    $('riskOut').innerHTML = `
+      <span class="ac-eyebrow">Buy about</span>
+      <div class="risk-big">${qtyFmt(+r.shares.toFixed(4))} <small>shares</small></div>
+      <p class="muted">${whole !== 0 ? `${whole} whole share${whole === 1 ? '' : 's'} · ` : ''}costing ${money(r.cost)}, which is ${pctAbs(r.posPct)} of your account</p>
+      <div class="perf-tiles small">
+        <div><span>You risk</span><b class="loss">${money(r.risk)}</b><small>${nf2(r.risk / r.equity * 100)}% of ${money(r.equity)}</small></div>
+        <div><span>Per share</span><b>${money(r.perShare)}</b><small>${pctAbs(r.stopLossPct)} below entry</small></div>
+        ${r.rr != null ? `<div><span>Reward to risk</span><b class="${r.rr >= 2 ? 'gain' : r.rr < 1 ? 'loss' : ''}">${nf2(r.rr)} : 1</b><small>${r.rr >= 2 ? 'Two or more is a good shape' : r.rr >= 1 ? 'Modest' : 'Risking more than you gain'}</small></div>` : ''}
+        ${r.reward != null ? `<div><span>If it works</span><b class="gain">${signedMoney(r.reward)}</b><small>at ${money(r.target)}</small></div>` : ''}
+      </div>
+      ${r.warnings.length ? `<ul class="perf-warn">${r.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+      <p class="note">A stop is an instruction, not a promise. If the price gaps straight past it overnight you are filled at whatever opens, which can be well below ${money(r.stop)} — Bullpen fills stops that way on purpose, so you can see it happen.</p>`;
+  }
+  const nf2 = (v) => (v == null || !isFinite(v) ? '—' : v.toFixed(2));
+
+  function bindRisk() {
+    const sync = () => { renderRisk(); };
+    ['rkEquity', 'rkRisk', 'rkEntry', 'rkStop', 'rkTarget'].forEach((id) => $(id).addEventListener('input', sync));
+    $('rkTicker').addEventListener('input', () => {
+      const t = $('rkTicker').value.trim().toUpperCase();
+      if (!E.BY[t] || !E.listed(t)) return;
+      const p = E.price(t);
+      $('rkEntry').value = +p.toFixed(2);
+      if (!+$('rkStop').value) $('rkStop').value = +(p * 0.92).toFixed(2);
+      sync();
+    });
+    document.querySelector('.calc-tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-calc]');
+      if (!b) return;
+      const risk = b.dataset.calc === 'risk';
+      document.querySelectorAll('.calc-tabs [data-calc]').forEach((x) => x.classList.toggle('on', x === b));
+      $('riskCalc').hidden = !risk;
+      $('divCalc').hidden = risk;
+      if (risk) resetRisk();
+    });
+  }
+  // Seed from the live account so the numbers mean something straight away.
+  function resetRisk() {
+    const s = S();
+    if (!$('rkEquity').value) $('rkEquity').value = Math.round(E.netWorth());
+    if (!$('rkRisk').value) $('rkRisk').value = s.settings.riskPct || 1;
+    renderRisk();
   }
 
   function boot() {

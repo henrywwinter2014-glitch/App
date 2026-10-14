@@ -997,3 +997,58 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 #setupEras[hidden] { display: none; }
 #setupDateWrap { display: none; }
 #setupDateWrap.on { display: grid; }
+
+/* ---------- performance dashboard ---------- */
+.perf { display: grid; gap: 14px; }
+.perf .card { padding: 16px 18px; display: grid; gap: 12px; }
+.perf-hero { grid-template-columns: 1.4fr 1fr 1fr; align-items: start; gap: 24px; }
+.perf-hero > div { display: grid; gap: 2px; }
+.perf-big { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
+.perf-mid { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; }
+.perf-hero p { margin: 4px 0 0; }
+.chart-key { display: inline-flex; gap: 14px; font-size: 12px; color: var(--muted); white-space: nowrap; flex: none; }
+.chart-key .key { display: inline-flex; align-items: center; gap: 6px; }
+.chart-key .key::before { content: ""; width: 14px; height: 3px; border-radius: 2px; background: currentColor; }
+.chart-key .key.you::before { background: var(--accent); }
+.chart-key .key.bench::before { background: var(--chart-b); }
+.perf-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; }
+.perf-tiles > div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 1px; align-content: start; }
+.perf-tiles span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+.perf-tiles b { font-size: 21px; font-weight: 800; }
+.perf-tiles.small b { font-size: 18px; }
+.perf-tiles small { font-size: 11px; color: var(--muted); }
+.perf-empty { text-align: center; padding: 28px 18px; }
+.perf-empty p { margin: 6px auto 0; max-width: 48ch; }
+.perf-note { border-left: 3px solid var(--gain); }
+.perf-note.warn { border-left-color: var(--warn); }
+.perf-note p { margin: 2px 0 0; max-width: 72ch; }
+.perf-warn { margin: 0; padding-left: 18px; display: grid; gap: 5px; font-size: 13px; color: var(--warn); }
+.perf-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.dv { display: grid; gap: 7px; }
+.dv-row { display: grid; grid-template-columns: minmax(96px, 1.1fr) 2fr minmax(76px, auto); gap: 10px; align-items: center; font-size: 13px; }
+.dv-lbl { display: grid; font-weight: 600; min-width: 0; }
+.dv-lbl small { font-weight: 400; font-size: 11px; color: var(--muted); }
+.dv-track { position: relative; height: 16px; background: var(--surface-2); border-radius: 4px; }
+/* the zero line, so the sign is readable without relying on the colour */
+.dv-track::before { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line-strong); }
+.dv-bar { position: absolute; top: 3px; height: 10px; border-radius: 3px; }
+.dv-bar.up { background: var(--gain); border-radius: 0 3px 3px 0; }
+.dv-bar.dn { background: var(--loss); border-radius: 3px 0 0 3px; }
+.dv-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.perf-tbl td, .perf-tbl th { white-space: nowrap; }
+@media (max-width: 900px) {
+  .perf-hero { grid-template-columns: 1fr; gap: 14px; }
+  .perf-big { font-size: 34px; }
+  .perf-two { grid-template-columns: 1fr; }
+  .dv-row { grid-template-columns: minmax(80px, 1fr) 1.4fr minmax(68px, auto); font-size: 12px; }
+}
+.calc-tabs { margin-bottom: 12px; }
+.calc-tabs button.on { background: var(--fg); color: var(--surface); }
+.risk-calc { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.risk-calc[hidden] { display: none; }
+.risk-big { font-size: 38px; font-weight: 800; letter-spacing: -0.02em; }
+.risk-big small { font-size: 16px; font-weight: 600; color: var(--muted); }
+.risk-calc .calc-out { display: grid; gap: 10px; align-content: start; padding: 16px 18px; }
+.risk-calc .field small { font-weight: 400; }
+@media (max-width: 860px) { .risk-calc { grid-template-columns: 1fr; } }
+.set-rule { border: 0; border-top: 1px solid var(--line); margin: 6px 0 2px; }
