@@ -1337,10 +1337,32 @@
     $('trigField').hidden = kind === 'market';
     $('trigLabel').textContent = `${kind === 'limit' ? 'Limit' : 'Stop'} price (${m.cur})`;
 
+    /*
+     * The shortcut buttons follow the unit you picked instead of carrying one of their own.
+     *
+     * They used to each declare a unit, so choosing USD and then pressing Max threw you back to
+     * Shares, and choosing Shares and pressing $100 threw you the other way. The toggle never
+     * stuck once you touched a shortcut, which made it look as though pressing USD did nothing.
+     */
+    const usd = ui.unit === 'usd';
+    const shareInUsd = E.price(t) * E.fxOf(m);        // what one share costs in dollars
     const quick = ui.side === 'buy'
-      ? [['$100', 'usd', 100], ['$1,000', 'usd', 1000], ['$10,000', 'usd', 10000], ['Max', 'shares', maxBuyShares()]]
-      : pos ? [['25%', 'shares', pos.qty * 0.25], ['50%', 'shares', pos.qty * 0.5], ['All', 'shares', pos.qty]] : [];
-    $('quickAmt').innerHTML = quick.filter((x) => x[2] > 0).map(([l, u, v]) => `<button type="button" data-q="${v}" data-u="${u}">${l}</button>`).join('');
+      ? (usd
+        ? [['$100', 100], ['$1,000', 1000], ['$10,000', 10000], ['Max', E.availableCash()]]
+        : [['1', 1], ['10', 10], ['100', 100], ['Max', maxBuyShares()]])
+      : pos
+        ? ['25%', '50%', 'All'].map((label, i) => {
+          const f = [0.25, 0.5, 1][i];
+          // Selling the lot in dollars: round up by a penny so converting back to shares cannot
+          // land a hair short and strand dust. The engine trims anything over the holding.
+          const v = usd
+            ? (f === 1 ? Math.ceil(pos.qty * shareInUsd * 100 + 1) / 100 : pos.qty * f * shareInUsd)
+            : pos.qty * f;
+          return [label, v];
+        })
+        : [];
+    $('quickAmt').innerHTML = quick.filter((x) => x[1] > 0)
+      .map(([l, v]) => `<button type="button" data-q="${v}">${l}</button>`).join('');
 
     const qty = sharesFromInput();
     const trig = parseFloat($('ordPx').value);
@@ -2279,13 +2301,14 @@
     });
     $('quickAmt').addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
-      ui.unit = b.dataset.u;
       const v = +b.dataset.q;
       /*
-       * The exact figure, not a rounded one. Rounding "All" to four places on a holding of
-       * 0.00009999 asks to sell 0.0001 -- more than you have -- and the order is refused.
+       * The shortcut fills the box in whichever unit is selected; it no longer changes the unit
+       * under you. The exact figure, not a rounded one -- rounding "All" to four places on a
+       * holding of 0.00009999 asks to sell more than you have, and the order is refused.
+       * A cash amount only ever needs its two decimal places.
        */
-      $('ordQty').value = ui.unit === 'shares' ? trimQty(v) : v;
+      $('ordQty').value = ui.unit === 'shares' ? trimQty(v) : +v.toFixed(2);
       renderTradeForm();
     });
     $('ordKind').addEventListener('change', () => {
@@ -3261,7 +3284,9 @@
   // Small surface for the guided tour.
   window.App = {
     showTab,
-    openSheet: (t, quiet) => openSheet(t, quiet),
+    // Pass the side through: the wrapper used to drop it silently, so App.openSheet(t, true,
+    // 'sell') opened the buy form.
+    openSheet: (t, quiet, side) => openSheet(t, quiet, side),
     closeSheet,
     sheetOpen: () => !!ui.sheet,
     sheetTicker: () => ui.sheet,
