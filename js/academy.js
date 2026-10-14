@@ -130,7 +130,34 @@
     { id: 'reviewer', name: 'Spaced out', desc: 'Finish 5 revision sets', test: (a) => a.counts.reviews >= 5 },
     { id: 'sprint20', name: 'Human calculator', desc: 'Score 20+ in the sprint', test: (a) => a.sprintBest >= 20 },
     { id: 'cert', name: 'Certified analyst', desc: 'Pass the final exam', test: (a) => a.final.passed },
+    // These reward how you traded, not how much you made. Keeping to a plan is the skill.
+    { id: 'journalled', name: 'Kept a journal', desc: 'Write up five closed trades', test: () => countJournalled() >= 5 },
+    { id: 'planAhead', name: 'Planned first', desc: 'Write an exit plan before a trade closes, five times', test: () => countPlanned() >= 5 },
+    { id: 'withinRisk', name: 'Stayed within your limits', desc: 'Close twenty trades without breaching your position limit', test: () => disciplined() },
+    { id: 'tookLoss', name: 'Took the loss', desc: 'Close a losing trade you had planned an exit for', test: () => tookPlannedLoss() },
   ];
+  /* ---------- discipline, measured from the journal and the trade log ---------- */
+  const entries = () => Object.values((E.S && E.S.journal) || {});
+  const countJournalled = () => entries().filter((e) => (e.review || '').trim()).length;
+  const countPlanned = () => entries().filter((e) => (e.plan || '').trim()).length;
+  // A loss closed on a trade you had written a plan for: cutting it is the point.
+  function tookPlannedLoss() {
+    if (!window.Stats) return false;
+    const j = (E.S && E.S.journal) || {};
+    return window.Stats.trades().some((t) => t.pl < 0 && ((j[`${t.t}@${t.opened}`] || {}).plan || '').trim());
+  }
+  // Twenty closed trades, none of which was ever worth more than the limit you set.
+  function disciplined() {
+    if (!window.Stats || !E.S) return false;
+    const tr = window.Stats.trades();
+    if (tr.length < 20) return false;
+    const cap = (E.S.settings.maxPosPct || 20) / 100;
+    return tr.every((t) => {
+      const val = t.qty * t.px;
+      return !(E.S.startCash > 0) || val / E.S.startCash <= cap * 1.5;
+    });
+  }
+
   function checkBadges() {
     const a = A(), fresh = [];
     for (const b of BADGES) if (!a.badges[b.id] && b.test(a)) { a.badges[b.id] = dayStr(); fresh.push(b); }
@@ -266,7 +293,7 @@
     let pct = false;
     if (/(%|percent|pc)$/.test(s)) { pct = true; s = s.replace(/(%|percent|pc)$/, ''); }
     // Units the question already states ("in $ millions", "P/E", "years") don't change the value.
-    s = s.replace(/(x|times|years?|yrs?|millions?|mn|m|billions?|bn|b|dollars?|usd|pershare|ashare|\/share)$/, '');
+    s = s.replace(/(x|times|years?|yrs?|millions?|mn|m|billions?|bn|b|dollars?|usd|pershare|ashare|\/share|r)$/, '');
     // A fraction written as a percentage: 400/500×100, (400/500)*100, 400/500 x 100.
     const asPct = /^\(?(-?\d*\.?\d+\/\d*\.?\d+)\)?[x×*]100$/.exec(s);
     if (asPct) { s = asPct[1]; pct = 'fraction'; }
