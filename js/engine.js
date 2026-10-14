@@ -57,46 +57,19 @@
   function parseISO(s) { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
   function iso(d) { return d.toISOString().slice(0, 10); }
   /* ---------- the trading calendar ---------- */
-  // US exchange holidays. Dates are computed rather than listed, so any year works.
-  const nthWd = (y, m, wd, n) => { const d = new Date(Date.UTC(y, m, 1)); d.setUTCDate(1 + ((wd - d.getUTCDay() + 7) % 7) + (n - 1) * 7); return d; };
-  const lastWd = (y, m, wd) => { const d = new Date(Date.UTC(y, m + 1, 0)); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() - wd + 7) % 7)); return d; };
-  function easter(y) {
-    const a = y % 19, b = Math.floor(y / 100), c = y % 100;
-    const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
-    const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
-    const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
-    const mo = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
-    return new Date(Date.UTC(y, mo - 1, day));
+  /*
+   * Which exchange's holidays close the market. This follows where you are only because that is
+   * usually the market you trade: the closure itself belongs to the exchange, not to you.
+   */
+  const HD = () => window.Holidays;
+  function region() {
+    const r = S && S.settings && S.settings.region;
+    return r && HD() && HD().EXCHANGES[r] ? r : 'us';
   }
-  // A holiday falling at a weekend is observed on the nearest weekday, as the exchanges do.
-  function observed(d) {
-    const x = new Date(d);
-    if (x.getUTCDay() === 6) x.setUTCDate(x.getUTCDate() - 1);
-    if (x.getUTCDay() === 0) x.setUTCDate(x.getUTCDate() + 1);
-    return x;
-  }
-  const holidayCache = {};
-  function holidays(y) {
-    if (holidayCache[y]) return holidayCache[y];
-    const gf = easter(y); gf.setUTCDate(gf.getUTCDate() - 2);
-    const list = [
-      [observed(new Date(Date.UTC(y, 0, 1))), 'New Year\u2019s Day'],
-      [nthWd(y, 0, 1, 3), 'Martin Luther King Jr. Day'],
-      [nthWd(y, 1, 1, 3), 'Presidents\u2019 Day'],
-      [gf, 'Good Friday'],
-      [lastWd(y, 4, 1), 'Memorial Day'],
-      [observed(new Date(Date.UTC(y, 5, 19))), 'Juneteenth'],
-      [observed(new Date(Date.UTC(y, 6, 4))), 'Independence Day'],
-      [nthWd(y, 8, 1, 1), 'Labor Day'],
-      [nthWd(y, 10, 4, 4), 'Thanksgiving'],
-      [observed(new Date(Date.UTC(y, 11, 25))), 'Christmas Day'],
-    ];
-    const out = {};
-    for (const [d, name] of list) out[iso(d)] = name;
-    holidayCache[y] = out;
-    return out;
-  }
+  const holidays = (y) => (HD() ? HD().exchange(region(), y) : {});
   const holidayOn = (ds) => holidays(+ds.slice(0, 4))[ds] || null;
+  // A day off where you live that the market pays no attention to.
+  const nationalOn = (ds) => (HD() ? HD().national(region(), +ds.slice(0, 4))[ds] || null : null);
   const isWeekend = (ds) => { const w = parseISO(ds).getUTCDay(); return w === 0 || w === 6; };
   // In a replay the recorded calendar already knows which days traded.
   function isTradingDay(ds) {
@@ -105,10 +78,13 @@
   }
   function marketStatus(ds) {
     const d = ds || (S ? S.date : '');
-    if (S && S.mode === 'real') return { open: true, why: 'Recorded trading day', holiday: null };
-    if (holidayOn(d)) return { open: false, why: holidayOn(d), holiday: holidayOn(d) };
-    if (isWeekend(d)) return { open: false, why: 'Weekend', holiday: null };
-    return { open: true, why: 'Trading day', holiday: null };
+    const ex = HD() ? HD().EXCHANGES[region()] : null;
+    const base = { market: ex ? ex.market : '', hours: ex ? ex.hours : '', tz: ex ? ex.tz : '' };
+    if (S && S.mode === 'real') return Object.assign(base, { open: true, why: 'Recorded trading day', holiday: null });
+    const h = holidayOn(d);
+    if (h) return Object.assign(base, { open: false, why: h, holiday: h });
+    if (isWeekend(d)) return Object.assign(base, { open: false, why: 'Weekend', holiday: null });
+    return Object.assign(base, { open: true, why: 'Trading day', holiday: null, national: nationalOn(d) });
   }
 
   function nextTradingDay(s) {
@@ -327,7 +303,7 @@
       nw: [],                  // net worth history {d, v, b}
       watch: ['AAPL', 'KO', 'O', 'SCHD', 'VOO', 'JEPI'],
       custom: [],
-      settings: { commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us' },
+      settings: (() => { const d = window.Holidays ? window.Holidays.detect() : null; return { commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3, region: d ? d.code : 'us', regionHow: d ? d.how : '' }; })(),
       nextId: 1,
       realized: 0,
       feesPaid: 0,
@@ -519,6 +495,7 @@
   function load(saved) {
     S = saved;
     S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3 }, S.settings);
+    if (!S.settings.region) { const d = HD() ? HD().detect() : null; S.settings.region = d ? d.code : 'us'; S.settings.regionHow = d ? d.how : ''; }
     build(S.custom);
     ensureAllSecStates();
     if (!S.drawings) S.drawings = {};
@@ -597,6 +574,9 @@
    */
   function econEvents(fromISO, toISO) {
     const out = [];
+    if (!HD()) return out;
+    const nthWd = HD().nth;
+    const observed = (d) => { const x = new Date(d); if (x.getUTCDay() === 6) x.setUTCDate(x.getUTCDate() - 1); if (x.getUTCDay() === 0) x.setUTCDate(x.getUTCDate() + 1); return x; };
     const y0 = +fromISO.slice(0, 4), y1 = +toISO.slice(0, 4);
     for (let y = y0; y <= y1; y++) {
       for (let m = 0; m < 12; m++) {
@@ -611,6 +591,8 @@
       }
       const hs = holidays(y);
       for (const d in hs) if (d >= fromISO && d <= toISO) out.push({ d, kind: 'holiday', name: hs[d], note: 'Market closed' });
+      const nat = HD().national(region(), y);
+      for (const d in nat) if (d >= fromISO && d <= toISO && !hs[d]) out.push({ d, kind: 'national', name: nat[d], note: 'A holiday where you are, but the market is open' });
     }
     return out.sort((a, b) => (a.d < b.d ? -1 : 1));
   }
@@ -1411,7 +1393,7 @@
     addTradingDays, nextTradingDay, parseISO, addNews,
     perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,
     halfSpread, dividendTax, taxRateEstimate, isOrdinaryIncome, ACCOUNTS,
-    holidays, holidayOn, isTradingDay, marketStatus, econEvents,
+    holidays, holidayOn, nationalOn, isTradingDay, marketStatus, econEvents, region,
     bars, barAt, lastBar, typicalVolume, impact,
     realOn, hasReal, listed, tradeable, realBounds, realStartIndex,
     availableCash, availableQty, reservedCash, reservedQty,

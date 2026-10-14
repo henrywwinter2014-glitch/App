@@ -108,10 +108,12 @@
     if (mk) {
       mk.hidden = false;
       mk.className = 'mkt-status ' + (ms.open ? 'open' : 'shut');
-      mk.textContent = ms.open ? 'Market open' : `Closed · ${ms.why}`;
+      const now = window.Holidays.exchangeTime(E.region());
+      mk.textContent = ms.open ? `${ms.market.split(' and ')[0].split(',')[0]} open` : `Closed · ${ms.why}`;
       mk.title = ms.open
-        ? 'US exchanges, 9:30 to 16:00 New York time. Bullpen moves one whole trading day at a time.'
+        ? `${ms.market}, ${ms.hours} local time${now ? ` (it is ${now} there now)` : ''}. Bullpen moves one whole trading day at a time.${ms.national ? ` Today is ${ms.national} where you are, but the market trades as usual.` : ''}`
         : `No trading on this day: ${ms.why}.`;
+      if (ms.open && ms.national) { mk.classList.add('note-day'); mk.textContent += ' · ' + ms.national; }
     }
     const badge = $('modeBadge');
     if (badge) {
@@ -741,6 +743,10 @@
     $('setDrip').checked = st.drip;
     $('setStamp').checked = st.stamp;
     $('setAccount').innerHTML = Object.entries(E.ACCOUNTS).map(([k, v]) => `<option value="${k}"${k === st.account ? ' selected' : ''}>${esc(v)}</option>`).join('');
+    const H = window.Holidays;
+    $('setRegion').innerHTML = Object.entries(H.EXCHANGES).map(([k, v]) => `<option value="${k}"${k === E.region() ? ' selected' : ''}>${esc(v.name)} — ${esc(v.market)}</option>`).join('');
+    const ex = H.EXCHANGES[E.region()];
+    $('regionNote').innerHTML = `The market follows <b>${esc(ex.market)}</b>: ${esc(ex.hours)}, ${esc(ex.tz.replace('_', ' '))}. ${st.regionHow ? `Picked from ${esc(st.regionHow)}, and nothing was sent anywhere.` : ''} A holiday where you live does not close an exchange abroad, so your own days off are marked on the calendar separately.`;
     $('setRiskPct').value = st.riskPct;
     $('setMaxPos').value = st.maxPosPct;
     $('setDayLoss').value = st.dayLossPct;
@@ -1342,7 +1348,7 @@
       const list = byDay[ds] || [];
       const cash = list.filter((e) => e.kind === 'pay' || e.kind === 'paid').reduce((a, e) => a + e.amt, 0);
       const cls2 = ['cal-cell', wd > 4 ? 'wk' : '', ds === s.date ? 'today' : '', ds < s.date ? 'past' : '', ds === ui.calSel ? 'sel' : ''].filter(Boolean).join(' ');
-      const shown = list.slice(0, 3).map((e) => `<span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${e.t ? `${esc(e.t)}${e.kind === 'ex' ? ' ex' : e.kind === 'earn' ? ' earns' : ''}` : esc(e.kind === 'holiday' ? 'Closed' : e.name)}</span>`).join('');
+      const shown = list.slice(0, 3).map((e) => `<span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${e.t ? `${esc(e.t)}${e.kind === 'ex' ? ' ex' : e.kind === 'earn' ? ' earns' : ''}` : esc(e.kind === 'holiday' ? 'Closed' : e.kind === 'national' ? e.name : e.name)}</span>`).join('');
       const dots = [...new Set(list.map((e) => e.kind))].map((k) => `<i class="ev-dot ev-${k}"></i>`).join('');
       html += `<button type="button" class="${cls2}" data-day="${ds}" aria-label="${longDate(ds)}${list.length ? `, ${list.length} events` : ''}">
         <span class="cal-num">${dnum}${ds === s.date ? '<em>today</em>' : ''}</span>
@@ -1367,11 +1373,12 @@
       case 'ex': return e.past ? `Went ex-dividend: ${per}` : `Ex-dividend day: ${per}. You must own the shares <b>before</b> this day.`;
       case 'earn': return `Quarterly earnings. ${m && m.vol > 0.45 ? 'Expect a big move either way.' : 'The price can jump either way.'}`;
       case 'econ': return `${esc(e.note)}. Figures like this move the whole market, not one company.`;
-      case 'holiday': return 'US exchanges are shut. No prices move and nothing trades.';
+      case 'holiday': return `${E.marketStatus().market || 'The exchange'} is shut. No prices move and nothing trades.`;
+      case 'national': return `${esc(e.note)}. You may be off work, but the exchange trades as usual.`;
     }
     return '';
   }
-  const EV_LABEL = { paid: 'Paid', pay: 'Payday', ex: 'Ex-dividend', earn: 'Earnings', econ: 'Economy', holiday: 'Closed' };
+  const EV_LABEL = { paid: 'Paid', pay: 'Payday', ex: 'Ex-dividend', earn: 'Earnings', econ: 'Economy', holiday: 'Closed', national: 'Your holiday' };
 
   function renderCalDay(list) {
     const s = S();
@@ -1757,6 +1764,14 @@
       e.target.value = S().settings[key];
       save();
       if (ui.tab === 'performance') renderPerformance();
+    });
+    $('setRegion').addEventListener('change', (e) => {
+      S().settings.region = e.target.value;
+      S().settings.regionHow = 'your choice';
+      save();
+      renderSettings();
+      refresh();
+      toast(`Holidays now follow ${window.Holidays.EXCHANGES[e.target.value].market}.`);
     });
     limit('setRiskPct', 'riskPct', 0.1, 100, 1);
     limit('setMaxPos', 'maxPosPct', 1, 100, 20);

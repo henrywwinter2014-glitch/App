@@ -255,6 +255,7 @@
           <span><i class="ev-dot ev-earn"></i>Earnings</span>
           <span><i class="ev-dot ev-econ"></i>Economy</span>
           <span><i class="ev-dot ev-holiday"></i>Market closed</span>
+          <span><i class="ev-dot ev-national"></i>Your holiday (market open)</span>
           <label class="check"><input type="checkbox" id="calWatch"> Include watchlist</label>
         </div>
         <div class="cal-grid" id="calGrid"></div>
@@ -420,6 +421,9 @@
           <h2>Trading rules</h2>
           <div class="form">
             <label class="field"><span>Commission per trade (USD)</span><input id="setCommission" type="number" min="0" step="0.5" inputmode="decimal"></label>
+            <hr class="set-rule">
+            <label class="field"><span>Where are you? <small class="muted">sets which holidays close the market</small></span><select id="setRegion"></select></label>
+            <p class="note" id="regionNote"></p>
             <hr class="set-rule">
             <p class="note"><b>Your risk limits.</b> Bullpen warns you when a trade or a day goes past these. They are yours to set and nothing stops you ignoring them — but the warnings show up on the Performance tab.</p>
             <label class="field"><span>Risk per trade (% of account)</span><input id="setRiskPct" type="number" min="0.1" max="100" step="0.1" inputmode="decimal"></label>
@@ -687,6 +691,7 @@
 <script src="data/real-2.js"></script>
 <script src="data/real-3.js"></script>
 <script src="js/realdata.js"></script>
+<script src="js/holidays.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/stats.js"></script>

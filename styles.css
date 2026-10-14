@@ -1123,3 +1123,6 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .ev.ev-holiday { background: var(--surface-2); color: var(--muted); }
 .ev-dot.ev-econ { background: var(--accent); }
 .ev-dot.ev-holiday { background: var(--line-strong); }
+.mkt-status.note-day { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.ev.ev-national { background: rgba(255, 150, 0, 0.14); color: var(--warn); }
+.ev-dot.ev-national { background: var(--warn); }

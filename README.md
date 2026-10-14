@@ -49,6 +49,7 @@ Anything missing can be added under **Settings → List a new security**.
 - Portfolio net worth chart against an S&P 500 benchmark, allocation by type and sector.
 - Play at ½× to 100× speed (trading days per second), skip ahead 1 day, 1 week, 1 month, 3 months or 1 year, skip any number of days/weeks/months/years, jump to a date, or skip straight to your next dividend payout.
 - Dividend speed: keep real schedules, or pay every dividend monthly or weekly (same yearly amount, more often).
+- Your part of the world: the app works out your region from your device's time zone and language -- nothing is transmitted and no location permission is asked for -- and uses the right exchange calendar. Six are built in (NYSE/Nasdaq, London, Toronto, Sydney, Xetra and Euronext Paris), each with its own holidays, trading hours and timezone, including the substitution rules that differ between them: a US holiday falling at a weekend moves to the nearest weekday, a UK one moves forward and skips days already taken, so Christmas on a Saturday gives Monday the 27th and pushes Boxing Day to Tuesday the 28th. The market status badge names the exchange and shows its local time. Holidays where you live that the exchange ignores (Columbus Day, German Unity Day, Truth and Reconciliation Day) appear in the Calendar as your own day off with a note that the market is open anyway. Change the exchange any time under Settings.
 - Calendar of ex-dividend days, paydays, dividends received and earnings for your holdings (and watchlist), with one-click "skip to this day".
 - Dividend calculator: projects yearly income, final value and annualised return (after tax and fees) from a ticker, your portfolio, or your own numbers, with dividend growth, DRIP, account-specific tax, fund fees and inflation.
 - Real-world costs: bid/ask spreads by liquidity (no spread on mutual funds), commission, UK stamp duty, and dividend tax by account type (US taxable 15%/24%, IRA, UK ISA with 15% US withholding, UK general account with the £500 allowance).
@@ -91,6 +92,12 @@ Saves are compressed and stored in a few chunks, with a small summary document w
 - `js/data.js`: the security list
 - `js/engine.js`: the market simulation (prices, dividends, splits, orders)
 - `js/charts.js`: canvas charts
+- `js/holidays.js`: exchange and national holiday calendars, and region detection
+- `js/realdata.js`, `data/real-*.js`: recorded price history for replay mode (see `data/README.md`)
+- `js/indicators.js`: moving averages, RSI and MACD, shared by the charts and the backtester
+- `js/stats.js`: trading statistics rebuilt from your own recorded trades
+- `js/journal.js`: the trading journal
+- `js/backtest.js`: the strategy backtester
 - `js/calc.js`: dividend calculator projection
 - `js/cloud.js`, `js/firebase-config.js`: sign-in and cloud saves
 - `js/app.js`: the user interface
