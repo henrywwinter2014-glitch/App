@@ -1056,6 +1056,29 @@
     document.body.style.overflow = '';
   }
 
+  /*
+   * The statistics panel in live mode. Only what the provider actually sent, plus what the app
+   * itself knows. Anything it would take a year of closes to work out is simply absent, which is
+   * more useful than a confident-looking figure derived from a single price.
+   */
+  function liveStats(t, l, m, dash) {
+    const Q = window.Quotes, st = Q.state();
+    const f = E.liveFresh(t);
+    const fetched = l && l.fetchedAt ? new Date(l.fetchedAt).toLocaleTimeString() : null;
+    return [
+      ['Previous close', l && isFinite(l.prevClose) ? money(l.prevClose, m.cur) : dash],
+      ['Day range', l && isFinite(l.low) && isFinite(l.high) ? `${money(l.low, m.cur)} – ${money(l.high, m.cur)}` : dash],
+      ['Open', l && isFinite(l.open) ? money(l.open, m.cur) : dash],
+      ['Volume', l && isFinite(l.volume) ? Math.round(l.volume).toLocaleString('en-US') : dash],
+      ['Data', `${esc(f.label)}${st.providerName ? ` · ${esc(st.providerName)}` : ''}`],
+      ['Price is for', l && l.asOfText ? esc(l.asOfText) : dash],
+      ['Fetched at', fetched ? esc(fetched) : dash],
+      ['Exchange', m.exch],
+      ['Type', m.cat || m.type],
+      ['Dividends', 'Not tracked in this mode'],
+    ];
+  }
+
   function realizedVol(h) {
     const n = Math.min(h.length - 1, 63);
     if (n < 5) return 0;
@@ -1071,9 +1094,22 @@
     const s = S();
     const m = E.BY[t];
     const st = s.sec[t];
+    /*
+     * In live mode `h` holds the one live price and nothing else, so everything derived from a
+     * year of closes -- the 52-week range, the one-year return, realised volatility -- has no
+     * answer here. `live` below switches those to the quote's own figures where it has them and
+     * to an em dash where it does not, rather than computing a number from a single data point
+     * and presenting it as a range.
+     */
+    const live = E.liveOn();
     const h = st.h;
-    const p = h[h.length - 1];
-    const chg = p / h[h.length - 2] - 1;
+    const l0 = live ? E.liveOf(t) : null;
+    const p = live ? E.price(t) : h[h.length - 1];
+    const pc = live ? (l0 && isFinite(l0.prevClose) ? l0.prevClose : NaN) : h[h.length - 2];
+    const chg = live
+      ? (l0 && l0.changePct != null ? l0.changePct / 100 : (isFinite(pc) && pc > 0 ? p / pc - 1 : NaN))
+      : p / h[h.length - 2] - 1;
+    const dash = '<span class="muted">—</span>';
 
     if (full) {
       $('shTicker').textContent = t;
@@ -1083,9 +1119,11 @@
       document.querySelectorAll('#shRange button').forEach((b) => b.classList.toggle('on', +b.dataset.r === ui.range));
     }
     $('shWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
-    $('shPrice').textContent = money(p, m.cur);
-    const usdNote = m.cur === 'GBP' ? ` <span class="muted small">≈ ${money(p * s.fx)}</span>` : '';
-    $('shChg').innerHTML = `<span class="${cls(chg)}">${signedMoney(p - h[h.length - 2], m.cur)} (${pct(chg)})</span> <span class="muted small">today</span>${usdNote}`;
+    $('shPrice').innerHTML = isFinite(p) ? money(p, m.cur) + (live ? ' ' + freshChip(t) : '') : dash + (live ? ' ' + freshChip(t) : '');
+    const usdNote = m.cur === 'GBP' && isFinite(p) ? ` <span class="muted small">≈ ${money(p * s.fx)}</span>` : '';
+    $('shChg').innerHTML = isFinite(chg) && isFinite(pc)
+      ? `<span class="${cls(chg)}">${signedMoney(p - pc, m.cur)} (${pct(chg)})</span> <span class="muted small">${live && l0 && l0.kind === 'eod' ? 'on the day' : 'today'}</span>${usdNote}${live && l0 && l0.asOfText ? ` <span class="muted small">as of ${esc(l0.asOfText)}</span>` : ''}`
+      : live ? `<span class="muted small">${esc(E.liveFresh(t).note)}</span>` : dash;
 
     const range = Math.min(ui.range, h.length);
     const vals = h.slice(-range);
@@ -1093,10 +1131,10 @@
     const up = vals[vals.length - 1] >= vals[0];
     C.candles($('shChart'), Object.assign(ohlcFor(t, range), { type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
 
-    const lo = Math.min(...h), hi = Math.max(...h);
-    const ann = E.annualDps(t);
-    const ex = E.nextExDate(t);
-    const stats = [
+    const lo = h.length > 1 ? Math.min(...h) : null, hi = h.length > 1 ? Math.max(...h) : null;
+    const ann = live ? 0 : E.annualDps(t);
+    const ex = live ? null : E.nextExDate(t);
+    const stats = live ? liveStats(t, l0, m, dash) : [
       ['Previous close', money(h[h.length - 2], m.cur)],
       ['52-week range', `${money(lo, m.cur)} – ${money(hi, m.cur)}`],
       ['1-year return', `<span class="${cls(p / h[0] - 1)}">${pct(p / h[0] - 1)}</span>`],
@@ -1126,7 +1164,7 @@
           <div><dt>Market value</dt><dd>${money(value)}</dd></div>
           <div><dt>Average cost</dt><dd>${money(avgCostNative(t), m.cur)}</dd></div>
           <div><dt>Total return</dt><dd class="${cls(ret)}">${signedMoney(ret)} (${pct(pos.cost ? value / pos.cost - 1 : 0)})</dd></div>
-          <div><dt>Today</dt><dd class="${cls(chg)}">${signedMoney(pos.qty * (p - h[h.length - 2]) * fx)}</dd></div>
+          <div><dt>Today</dt><dd class="${cls(chg)}">${isFinite(chg) && isFinite(pc) ? signedMoney(pos.qty * (p - pc) * fx) : dash}</dd></div>
           <div><dt>Income / year</dt><dd>${ann ? money(pos.qty * ann * fx) : '-'}</dd></div>
           ${pend ? `<div><dt>Dividend on the way</dt><dd class="up">${money(pend)}</dd></div>` : ''}
           <div><dt>Held since</dt><dd>${C.shortDate(pos.opened)}</dd></div>
@@ -1224,6 +1262,54 @@
   }
 
   /* ---------- toasts ---------- */
+  /* ---------- asking the user something ----------
+   * Replaces window.confirm and window.prompt, which are inert in a sandboxed frame: confirm
+   * returns false and prompt returns null, at once and without a word. Anything built on them
+   * there is not degraded, it is simply dead. Returns a promise: a string for a prompt, true or
+   * false for a confirm, null if cancelled.
+   */
+  let askResolve = null;
+  function ask(opts) {
+    const back = $('askBack');
+    $('askTitle').textContent = opts.title || '';
+    $('askBody').textContent = opts.body || '';
+    $('askBody').hidden = !opts.body;
+    const wantField = opts.field === true || typeof opts.value === 'string';
+    $('askFieldWrap').hidden = !wantField;
+    if (wantField) {
+      $('askLabel').textContent = opts.label || 'Name';
+      $('askField').value = opts.value || '';
+      $('askField').placeholder = opts.placeholder || '';
+    }
+    const yes = $('askYes');
+    yes.textContent = opts.yes || 'OK';
+    yes.className = 'btn ' + (opts.danger ? 'btn-danger-solid' : 'btn-primary');
+    $('askNo').textContent = opts.no || 'Cancel';
+    back.hidden = false;
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => (wantField ? $('askField') : yes).focus(), 20);
+    return new Promise((res) => { askResolve = res; });
+  }
+  function closeAsk(value) {
+    $('askBack').hidden = true;
+    document.body.style.overflow = '';
+    const r = askResolve;
+    askResolve = null;
+    if (r) r(value);
+  }
+  function bindAsk() {
+    $('askYes').addEventListener('click', () => {
+      const wantField = !$('askFieldWrap').hidden;
+      closeAsk(wantField ? $('askField').value.trim() : true);
+    });
+    $('askNo').addEventListener('click', () => closeAsk(null));
+    $('askBack').addEventListener('click', (e) => { if (e.target === $('askBack')) closeAsk(null); });
+    $('askField').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('askYes').click(); } });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !$('askBack').hidden) { e.preventDefault(); closeAsk(null); }
+    });
+  }
+
   function toast(text, kind) {
     const el = document.createElement('div');
     el.className = 'toast' + (kind ? ' ' + kind : '');
@@ -1974,6 +2060,7 @@
     bindJournal();
     bindBacktest();
     bindWatchlists();
+    bindAsk();
     $('fcClose').addEventListener('click', closeFocus);
     $('fcPlay').addEventListener('click', () => setPlaying(!ui.playing));
     $('fcSell').addEventListener('click', () => showQuick('sell'));
@@ -2592,7 +2679,18 @@
       const top = e.target.closest('[data-jr]');
       if (top) { jrUI.open = jrUI.open === top.dataset.jr ? null : top.dataset.jr; renderJournal(); return; }
       const del = e.target.closest('[data-jrdel]');
-      if (del) { window.Journal.remove(del.dataset.jrdel); save(); renderJournal(); toast('Journal entry deleted.'); return; }
+      if (del) {
+        const k = del.dataset.jrdel;
+        ask({
+          title: 'Delete this journal entry?',
+          body: 'Everything you wrote about this trade goes with it, and it cannot be undone. The trade itself stays in your history.',
+          yes: 'Delete entry', danger: true,
+        }).then((go) => {
+          if (!go) return;
+          window.Journal.remove(k); save(); renderJournal(); toast('Journal entry deleted.');
+        });
+        return;
+      }
       const clear = e.target.closest('[data-jrimg="clear"]');
       if (clear && jrUI.open) { window.Journal.set(jrUI.open, { img: '' }); save(); renderJournal(); }
     });
@@ -2851,20 +2949,32 @@
       const tab = e.target.closest('[data-wl]');
       if (tab) { wlUI.list = tab.dataset.wl; wlUI.alertFor = ''; return renderWatchlists(); }
       if (e.target.closest('#wlNew')) {
-        const name = prompt('Name for the new list');
-        if (name == null) return;
-        wlUI.list = E.createList(name); save(); return renderWatchlists();
+        ask({ title: 'New watchlist', label: 'Name', field: true, placeholder: 'e.g. Dividend ideas', yes: 'Create' }).then((name) => {
+          if (!name) return;
+          wlUI.list = E.createList(name);
+          save(); refresh(); renderWatchlists();
+        });
+        return;
       }
       if (e.target.closest('#wlRename')) {
         const l = activeList();
-        const name = prompt('Rename this list', l.name);
-        if (name == null) return;
-        E.renameList(l.id, name); save(); return renderWatchlists();
+        ask({ title: 'Rename list', label: 'Name', value: l.name, yes: 'Rename' }).then((name) => {
+          if (!name) return;
+          E.renameList(l.id, name); save(); renderWatchlists();
+        });
+        return;
       }
       if (e.target.closest('#wlDelete')) {
         const l = activeList();
-        if (!confirm(`Delete "${l.name}"? The products stay in the market, only the list goes.`)) return;
-        E.deleteList(l.id); wlUI.list = null; save(); refresh(); return renderWatchlists();
+        ask({
+          title: `Delete "${l.name}"?`,
+          body: 'The products stay in the market and anything you hold is untouched. Only the list goes, and that cannot be undone.',
+          yes: 'Delete list', danger: true,
+        }).then((go) => {
+          if (!go) return;
+          E.deleteList(l.id); wlUI.list = null; save(); refresh(); renderWatchlists();
+        });
+        return;
       }
       const rm = e.target.closest('[data-wlrm]');
       if (rm) { E.toggleInList(activeList().id, rm.dataset.wlrm); save(); refresh(); return renderWatchlists(); }

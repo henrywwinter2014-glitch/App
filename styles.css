@@ -1034,6 +1034,15 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .data-empty { display: grid; gap: 8px; place-items: center; text-align: center; padding: 28px 16px; color: var(--muted); }
 .data-empty b { color: var(--fg); }
 
+.ask-back { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(0,0,0,0.45); padding: max(16px, env(safe-area-inset-left, 0px)); }
+.ask-back[hidden] { display: none; }
+.ask { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; padding: 20px; width: min(420px, 100%); display: grid; gap: 12px; box-shadow: 0 18px 50px rgba(0,0,0,0.3); }
+.ask h2 { margin: 0; font-size: 17px; }
+.ask .note { margin: 0; }
+.ask-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.ask-actions .btn { min-width: 92px; }
+.btn-danger-solid { background: var(--down); border-color: var(--down); color: #fff; }
+
 .cool-off { border-left: 4px solid #e6b422; }
 .cool-off p { margin: 6px 0 0; }
 .plan-note { border-left: 3px solid var(--line-strong); padding-left: 10px; }
