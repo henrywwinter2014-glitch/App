@@ -437,6 +437,7 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-r
 .opts { display: grid; gap: 8px; }
 .opts-3 { grid-template-columns: repeat(3, 1fr); }
 .opts-2 { grid-template-columns: repeat(2, 1fr); }
+.opts-3 { grid-template-columns: repeat(3, 1fr); }
 .opts-cash { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
 .opt {
   border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r); padding: 12px 14px;
@@ -459,7 +460,7 @@ code { font-size: 12px; background: var(--surface-2); padding: 1px 4px; border-r
   .setup { padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
   .setup-card { gap: 18px; }
   .setup-card h1 { font-size: 21px; }
-  .opts-2 { grid-template-columns: 1fr; }
+  .opts-2, .opts-3 { grid-template-columns: 1fr; }
   .opts-cash { grid-template-columns: 1fr 1fr; }
 }
 
@@ -994,6 +995,45 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .mode-badge.replay { color: #8a5a00; border-color: #e6b422; background: rgba(230, 180, 34, 0.16); }
 :root[data-theme="dark"] .mode-badge.replay { color: #e6b422; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .mode-badge.replay { color: #e6b422; } }
+/*
+ * The live-market badge and its freshness chips.
+ *
+ * These carry the one distinction the app must never blur -- real price or invented one -- so they
+ * never rely on colour alone to make it. The badge spells out which market you are in, and every
+ * chip has a word in it as well as a hue, for the same reason the profit bars elsewhere carry a
+ * sign: a colourblind user has to be able to read this, and so does anyone looking at a screenshot.
+ */
+.mode-badge.live { color: #0a6b4f; border-color: #0a6b4f; background: rgba(10, 107, 79, 0.14); }
+:root[data-theme="dark"] .mode-badge.live { color: #4fd19e; border-color: #2f8f6b; background: rgba(79, 209, 158, 0.14); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .mode-badge.live { color: #4fd19e; border-color: #2f8f6b; background: rgba(79, 209, 158, 0.14); } }
+
+.live-at { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; cursor: help; }
+.live-at.ok { color: var(--up); border-color: var(--up); }
+.live-at.warn { color: #8a5a00; border-color: #e6b422; background: rgba(230, 180, 34, 0.14); }
+:root[data-theme="dark"] .live-at.warn { color: #e6b422; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .live-at.warn { color: #e6b422; } }
+.live-at.bad { color: var(--down); border-color: var(--down); }
+.live-at.busy { color: var(--muted); }
+
+.fresh-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); cursor: help; }
+.fresh-chip.live, .fresh-chip.delayed, .fresh-chip.eod { border-color: var(--line-strong); background: var(--surface-2); }
+.fresh-chip.stale { color: #8a5a00; border-color: #e6b422; background: rgba(230, 180, 34, 0.16); }
+:root[data-theme="dark"] .fresh-chip.stale { color: #e6b422; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .fresh-chip.stale { color: #e6b422; } }
+.fresh-chip.unavailable { color: var(--down); border-color: var(--down); background: rgba(190, 40, 30, 0.1); }
+
+/* The data-connection readout in Settings. */
+.data-state { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.data-state dl.kv { display: grid; gap: 4px; margin: 0; }
+.data-state dl.kv > div { display: grid; grid-template-columns: minmax(8rem, 10rem) 1fr; gap: 10px; font-size: 12.5px; align-items: baseline; }
+.data-state dl.kv > div > span { color: var(--muted); }
+.data-state dl.kv > div.bad > b { color: var(--down); }
+.data-state.off { opacity: 0.85; }
+.src-note { margin-top: 8px; font-style: italic; }
+.warn-note { border-left: 3px solid #e6b422; padding-left: 10px; background: rgba(230, 180, 34, 0.08); }
+.data-empty { display: grid; gap: 8px; place-items: center; text-align: center; padding: 28px 16px; color: var(--muted); }
+.data-empty b { color: var(--fg); }
+
 #setupEras[hidden] { display: none; }
 #setupDateWrap { display: none; }
 #setupDateWrap.on { display: grid; }

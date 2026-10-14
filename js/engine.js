@@ -513,7 +513,7 @@
       nw: [],                  // net worth history {d, v, b}
       watch: ['AAPL', 'KO', 'O', 'SCHD', 'VOO', 'JEPI'],
       custom: [],
-      settings: (() => { const d = window.Holidays ? window.Holidays.detect() : null; return { commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3, region: d ? d.code : 'us', regionHow: d ? d.how : '' }; })(),
+      settings: (() => { const d = window.Holidays ? window.Holidays.detect() : null; return { commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3, provider: '', endpoint: '', region: d ? d.code : 'us', regionHow: d ? d.how : '' }; })(),
       nextId: 1,
       realized: 0,
       feesPaid: 0,
@@ -725,7 +725,7 @@
 
   function load(saved) {
     S = saved;
-    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3 }, S.settings);
+    S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3, provider: '', endpoint: '' }, S.settings);
     if (!S.settings.region) { const d = HD() ? HD().detect() : null; S.settings.region = d ? d.code : 'us'; S.settings.regionHow = d ? d.how : ''; }
     build(S.custom);
     ensureAllSecStates();

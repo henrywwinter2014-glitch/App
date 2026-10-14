@@ -41,7 +41,7 @@
     $('setupMarketWrap').hidden = !R;
     if (R) {
       const real = choice.market === 'real';
-      document.querySelectorAll('[data-setup-market]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.setupMarket === 'real') === real)));
+      document.querySelectorAll('[data-setup-market]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.setupMarket === choice.market)));
       $('setupDateWrap').classList.toggle('on', real);
       $('setupEras').hidden = !real;
       const d = $('setupDate');
@@ -49,9 +49,14 @@
       if (!choice.date) choice.date = ERAS[0][0];
       d.value = choice.date;
       $('setupEras').innerHTML = real ? ERAS.map(([dt, t, sub]) => `<button type="button" class="opt" data-setup-era="${dt}" aria-pressed="${choice.date === dt}"><b>${t}</b><span>${sub}</span></button>`).join('') : '';
+      const Q = window.Quotes;
       $('setupMarketNote').textContent = real
         ? `Recorded history runs from ${R.first} to ${R.last}. 602 of the 761 products have real data; the rest are hidden while you replay.`
-        : '';
+        : choice.market === 'live'
+          ? (Q && Q.state().configured
+            ? `Connected to ${Q.state().providerName}. The money stays virtual: nothing here places a real order.`
+            : 'This needs a data endpoint, which is not set up yet. You can still start — the market will simply have no prices until you set one under Settings → Real market data.')
+          : '';
     }
     $('setupGo').textContent = choice.tour ? 'Start and show me around' : 'Start';
   }
@@ -79,7 +84,11 @@
       if (!(custom >= 100 && custom <= 1e9)) { $('setupNote').textContent = 'Enter an amount between $100 and $1,000,000,000.'; $('setupCustom').focus(); return; }
       choice.cash = custom;
     }
-    if (!choice.keep) window.App.newGame(choice.cash, choice.market === 'real' ? { mode: 'real', startDate: choice.date } : null);
+    if (!choice.keep) {
+      const opts = choice.market === 'real' ? { mode: 'real', startDate: choice.date }
+        : choice.market === 'live' ? { mode: 'live' } : null;
+      window.App.newGame(choice.cash, opts);
+    }
     try {
       localStorage.setItem(DONE_KEY, '1');
       if (!choice.tour) localStorage.setItem('bullpen-tour-done', '1');

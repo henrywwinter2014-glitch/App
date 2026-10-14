@@ -271,6 +271,24 @@
       breaker.fails = 0;
       lastOk = now();
       lastError = null;
+      /*
+       * "Work it out from the proxy" should only have to work it out once. Remembering the answer
+       * is also what lets the UI name the provider, state its delay and show the right request
+       * budget -- all of which read cfg.provider rather than re-sniffing.
+       */
+      if (!cfg.provider && PROVIDERS[provider]) {
+        // Carry the calls already made across to the newly identified provider's budget, or the
+        // first few requests of a session would not be counted against the key that served them.
+        const prior = budgets.get('unknown');
+        cfg.provider = provider;
+        if (prior) {
+          const b2 = budget();
+          b2.min = prior.min.concat(b2.min);
+          b2.day = prior.day.concat(b2.day);
+          b2.total += prior.total; b2.failed += prior.failed;
+          budgets.delete('unknown');
+        }
+      }
       emit();
       return { provider, data };
     }

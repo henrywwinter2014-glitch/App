@@ -65,6 +65,7 @@
     playing: false, timer: null, speed: 1, skip: null,
     chartT: null, chartRange: 126, chartType: 'candles', lastPx: null, chartMA: false,
     calMonth: null, calSel: null, calFollow: true, calWatch: false,
+    newMarket: 'sim', liveBusy: false, liveInterval: '1day',
   };
 
   const S = () => E.S;
@@ -102,7 +103,8 @@
     const s = S();
     $('simDate').textContent = longDate(s.date);
     const ds = E.divSpeed();
-    $('simDay').textContent = `Day ${s.day + 1}${ds !== 'normal' ? ` · dividends ${ds}` : ''}`;
+    // There is no day counter in live mode: the clock is the real one and no day has "passed".
+    $('simDay').textContent = E.liveOn() ? '' : `Day ${s.day + 1}${ds !== 'normal' ? ` · dividends ${ds}` : ''}`;
     const ms = E.marketStatus();
     const mk = $('mktStatus');
     if (mk) {
@@ -117,14 +119,35 @@
     }
     const badge = $('modeBadge');
     if (badge) {
-      const real = E.realOn();
+      const real = E.realOn(), live = E.liveOn();
       badge.hidden = false;
-      badge.className = 'mode-badge ' + (real ? 'replay' : 'sim');
-      badge.textContent = real ? 'REPLAY · real history' : 'SIMULATED';
-      badge.title = real
-        ? `Replaying recorded history from ${s.realFrom || s.date}. These are the prices, dividends and splits that really happened. Not live data, and nothing after ${longDate(s.date)} is visible.`
-        : 'An invented market. These prices are not real and never were.';
+      badge.className = 'mode-badge ' + (live ? 'live' : real ? 'replay' : 'sim');
+      /*
+       * The badge is the one thing on screen that must never be ambiguous. Whatever else is
+       * confusing about a chart, the user has to be able to tell at a glance whether they are
+       * looking at a real price or an invented one.
+       */
+      if (live) {
+        const st = window.Quotes.state();
+        const mock = st.provider === 'mock';
+        badge.textContent = mock ? 'TEST DATA · not real' : 'REAL MARKET · paper trading';
+        badge.title = mock
+          ? 'This is connected to the mock provider, which makes its numbers up. It is for testing only and these are not market prices.'
+          : `Real prices from ${st.providerName}${st.delayNote ? ` — ${st.delayNote}` : ''}. The money is virtual: nothing here places an order with a broker, and these are not actual exchange executions.`;
+      } else {
+        badge.className = 'mode-badge ' + (real ? 'replay' : 'sim');
+        badge.textContent = real ? 'REPLAY · real history' : 'SIMULATED';
+        badge.title = real
+          ? `Replaying recorded history from ${s.realFrom || s.date}. These are the prices, dividends and splits that really happened. Not live data, and nothing after ${longDate(s.date)} is visible.`
+          : 'An invented market. These prices are not real and never were.';
+      }
     }
+    // The time machine belongs to the two modes that own a clock. Live mode follows the real one.
+    const live = E.liveOn();
+    if ($('liveControls')) $('liveControls').hidden = !live;
+    if ($('simControls')) $('simControls').hidden = live;
+    if ($('skipControls')) $('skipControls').hidden = live;
+    if (live) renderLiveAt();
     const nw = E.netWorth();
     $('hdrWorth').textContent = money(nw);
     const prev = s.nw.length > 1 ? s.nw[s.nw.length - 2].v : s.startCash;
@@ -183,6 +206,19 @@
       if (ui.exch && m.exch !== ui.exch) continue;
       if (q && !(m.t.toLowerCase().startsWith(q) || m.n.toLowerCase().includes(q) || m.type.toLowerCase().includes(q) || (m.cat || '').toLowerCase().includes(q))) continue;
       if (!fn(m)) continue;
+      if (E.liveOn()) {
+        const l = E.liveOf(m.t);
+        const p0 = l ? l.price : NaN;
+        rows.push({
+          m, p: p0,
+          chg: l && l.changePct != null ? l.changePct / 100 : (l && isFinite(l.prevClose) && l.prevClose > 0 ? p0 / l.prevClose - 1 : null),
+          y1: null,                       // no year behind us in this mode, so nothing to compare to
+          yld: null,                      // dividends are not tracked here, so a yield would be invented
+          sent: null,                     // nor is there a simulated client book to report
+          exact: q && m.t.toLowerCase() === q,
+        });
+        continue;
+      }
       const h = S().sec[m.t].h;
       const p = h[h.length - 1];
       rows.push({ m, p, chg: p / h[h.length - 2] - 1, y1: p / h[0] - 1, yld: E.fwdYield(m.t), sent: sentiment(m.t), exact: q && m.t.toLowerCase() === q });
@@ -209,9 +245,19 @@
   }
 
   // The engine owns the bars, so the candles drawn here are the ones orders trade against.
-  function ohlcFor(t, n) { return E.bars(t, n); }
+  function ohlcFor(t, n) { return E.bars(t, n, E.liveOn() ? ui.liveInterval : undefined); }
 
+  /*
+   * The day's range. In live mode this is whatever the quote itself reported, which may be
+   * nothing: a provider that sends only a price has not told us the range, and the chart's last
+   * fetched bar is a different thing on a different day. Returning nulls lets the tile print a
+   * dash instead of a number that is not the answer to the question being asked.
+   */
   function dayRange(t) {
+    if (E.liveOn()) {
+      const l = E.liveOf(t);
+      return { lo: l && isFinite(l.low) ? l.low : null, hi: l && isFinite(l.high) ? l.high : null };
+    }
     const d = ohlcFor(t, 1);
     return { lo: d.l[0], hi: d.h[0] };
   }
@@ -475,6 +521,41 @@
     });
   }
 
+  /*
+   * The chip that goes next to a real price. It says in a word how old the price is and spells the
+   * detail out in its tooltip. Outside live mode there is nothing to label: a simulated price is
+   * neither fresh nor stale, it is invented, and the mode badge already says so.
+   */
+  function freshChip(t) {
+    if (!E.liveOn()) return '';
+    const f = E.liveFresh(t);
+    const mock = (window.Quotes.cached(E.liveSym(t)) || {}).provider === 'mock';
+    const label = mock && f.level !== 'unavailable' ? 'Test data' : f.label;
+    return `<span class="fresh-chip ${f.level}" title="${esc(f.note)}">${esc(label)}</span>`;
+  }
+
+  // The empty state for a live chart whose history has not been fetched yet.
+  function liveChartEmpty(t) {
+    const st = window.Quotes.state();
+    if (!st.configured) {
+      return `<div class="data-empty"><b>No data endpoint</b><p class="note">Real-market mode needs the address of your own data proxy. Set one under Settings &rarr; Real market data.</p></div>`;
+    }
+    if (!E.liveSupported(t)) {
+      return `<div class="data-empty"><b>${esc(t)} is not covered</b><p class="note">${esc(E.BY[t] ? E.BY[t].n : t)} has no symbol at ${esc(st.providerName)} that we can be sure of, so it has no real price. It is hidden rather than guessed at.</p></div>`;
+    }
+    return `<div class="data-empty"><b>No history fetched yet</b><p class="note">Nothing is drawn here until ${esc(st.providerName)} sends the bars, because a chart in this mode must not contain a price nobody traded.</p><button class="btn btn-primary" id="loadHistBtn" type="button">Load ${esc(t)} history</button></div>`;
+  }
+
+  async function loadLiveHistory(t) {
+    const btn = $('loadHistBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
+    const s0 = await window.Quotes.series(E.liveSym(t), { interval: ui.liveInterval, outputsize: 500 });
+    const st = window.Quotes.state();
+    if (!s0) toast(st.lastError ? st.lastError.message : 'No history came back.', 'err');
+    renderDataState();
+    refresh();
+  }
+
   function renderMainChart() {
     const t = chartTicker();
     const m = E.BY[t];
@@ -483,6 +564,45 @@
     const q = E.quote(t, 'buy', 1);
     $('chT').textContent = t;
     $('chName').textContent = `${m.n} · ${m.cat || m.type} · ${m.exch}`;
+    /*
+     * Live mode gets its own path because almost everything below assumes a price and a year of
+     * bars, and in this mode either may legitimately not exist. Showing the reason is the feature;
+     * falling back to something that looks like data would be the bug.
+     */
+    if (E.liveOn()) {
+      const d0 = ohlcFor(t, ui.chartRange);
+      const havePx = isFinite(p);
+      const l = E.liveOf(t);
+      $('chSell').innerHTML = havePx ? `<span>SELL</span>${priceHTML(q.bid, m.cur)}${ARROW_DN}` : '<span>SELL</span><b class="muted">—</b>';
+      $('chBuy').innerHTML = havePx ? `<span>BUY</span>${priceHTML(q.ask, m.cur)}${ARROW_UP}` : '<span>BUY</span><b class="muted">—</b>';
+      const bits = [freshChip(t)];
+      if (havePx && l) {
+        const dayChg = l.changePct != null ? l.changePct / 100 : (isFinite(chg) ? chg : null);
+        if (dayChg != null) bits.push(`<span class="${cls(dayChg)}">${pct(dayChg)} ${l.kind === 'eod' ? 'on the day' : 'today'}</span>`);
+        if (l.asOfText) bits.push(`<span class="muted">as of ${esc(l.asOfText)}</span>`);
+        if (s.holdings[t]) bits.push(`You own ${qtyFmt(+s.holdings[t].qty.toFixed(4))}`);
+      } else {
+        bits.push('<span class="muted">no current price</span>');
+      }
+      $('chStats').innerHTML = bits.join(' · ');
+      $('chWatch').textContent = s.watch.includes(t) ? '★ Watching' : '☆ Watch';
+      $('chDraw').innerHTML = '&#x270E; Draw';
+      const host = $('mainChart');
+      const wrap = host.parentElement;
+      let empty = wrap.querySelector('.data-empty');
+      if (empty) empty.remove();
+      if (!d0.c.length) {
+        host.hidden = true;
+        wrap.insertAdjacentHTML('beforeend', liveChartEmpty(t));
+        const lb = $('loadHistBtn');
+        if (lb) lb.addEventListener('click', () => loadLiveHistory(t));
+      } else {
+        host.hidden = false;
+        C.candles(host, Object.assign(d0, { timeAxis: false, type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+      }
+      if ($('chTrend')) $('chTrend').hidden = true;
+      return;
+    }
     $('chSell').innerHTML = `<span>SELL</span>${priceHTML(q.bid, m.cur)}${ARROW_DN}`;
     $('chBuy').innerHTML = `<span>BUY</span>${priceHTML(q.ask, m.cur)}${ARROW_UP}`;
     const y = E.fwdYield(t);
@@ -503,7 +623,7 @@
 
   // 20- and 50-day simple moving averages for the last n days, computed on the full history.
   function maOverlays(t, n) {
-    if (!ui.chartMA || !window.Learn) return [];
+    if (!ui.chartMA || !window.Learn || E.liveOn()) return [];
     const h = S().sec[t].h;
     const out = [];
     for (const [len, color] of [[20, 'buy'], [50, 'sell']]) {
@@ -522,21 +642,24 @@
     for (const r of shown) {
       const m = r.m;
       const h = s.sec[m.t].h;
-      const spark = C.sparkSVG(h.slice(-30), h[h.length - 1] >= h[h.length - 30]);
+      const spark = h.length > 2 ? C.sparkSVG(h.slice(-30), h[h.length - 1] >= h[h.length - 30]) : '';
       const w = s.watch.includes(m.t);
       const q = E.quote(m.t, 'buy', 1);
       const { lo, hi } = dayRange(m.t);
       const sent = r.sent;
-      const sentTxt = sent >= 50 ? `${sent}% Bought` : `${100 - sent}% Sold`;
-      const abs = r.p - h[h.length - 2];
+      const sentTxt = sent == null ? '' : sent >= 50 ? `${sent}% Bought` : `${100 - sent}% Sold`;
+      const abs = E.liveOn() ? (E.liveOf(m.t) || {}).change : r.p - h[h.length - 2];
+      // A dash, not a zero: in live mode several of these columns have no answer rather than an
+      // answer of nothing, and printing 0.00% would be a statement we cannot make.
+      const dash = '<span class="muted">—</span>';
       html += `<tr data-pick="${m.t}"${m.t === cur ? ' class="sel"' : ''}>
         <td class="star-col"><button type="button" class="star${w ? ' on' : ''}" data-watch="${m.t}" aria-label="${w ? 'Remove from' : 'Add to'} watchlist">${w ? '★' : '☆'}</button></td>
         <td><div class="sec-cell"><b>${esc(m.t)}${s.holdings[m.t] ? '<span class="held-dot" title="You own this"></span>' : ''}</b><span>${esc(m.n)}</span></div></td>
-        <td class="r ${cls(r.chg)}"><span class="chg-cell">${r.chg >= 0 ? ARROW_UP : ARROW_DN}${pct(r.chg).replace('+', '')}</span><small class="muted">${(abs >= 0 ? '' : '-') + Math.abs(abs).toFixed(r.p >= 1 ? 2 : 4)}</small></td>
+        <td class="r ${cls(r.chg)}">${r.chg == null || !isFinite(r.chg) ? dash : `<span class="chg-cell">${r.chg >= 0 ? ARROW_UP : ARROW_DN}${pct(r.chg).replace('+', '')}</span>${isFinite(abs) ? `<small class="muted">${(abs >= 0 ? '' : '-') + Math.abs(abs).toFixed(r.p >= 1 ? 2 : 4)}</small>` : ''}`}</td>
         <td class="hide-sm">${spark}</td>
-        <td class="hide-md range-cell"><span>L: ${money(lo, m.cur)}</span><span>H: ${money(hi, m.cur)}</span></td>
-        <td class="hide-md"><div class="sent"><span class="sent-l">${sentTxt} ${sent >= 50 ? ARROW_UP : ARROW_DN}</span><div class="sent-bar"><i style="width:${sent}%"></i></div></div></td>
-        <td class="r hide-sm">${r.yld > 0 ? (r.yld * 100).toFixed(2) + '%' : '<span class="muted">-</span>'}</td>
+        <td class="hide-md range-cell">${lo == null || hi == null ? dash : `<span>L: ${money(lo, m.cur)}</span><span>H: ${money(hi, m.cur)}</span>`}</td>
+        <td class="hide-md">${sent == null ? dash : `<div class="sent"><span class="sent-l">${sentTxt} ${sent >= 50 ? ARROW_UP : ARROW_DN}</span><div class="sent-bar"><i style="width:${sent}%"></i></div></div>`}</td>
+        <td class="r hide-sm">${r.yld > 0 ? (r.yld * 100).toFixed(2) + '%' : dash}</td>
         <td class="r"><button type="button" class="qcell sell" data-trade="${m.t}:sell">${priceHTML(q.bid, m.cur)}${ARROW_DN}</button></td>
         <td class="r"><button type="button" class="qcell buy" data-trade="${m.t}:buy">${priceHTML(q.ask, m.cur)}${ARROW_UP}</button></td>
       </tr>`;
@@ -750,6 +873,166 @@
     $('setRiskPct').value = st.riskPct;
     $('setMaxPos').value = st.maxPosPct;
     $('setDayLoss').value = st.dayLossPct;
+
+    const Q = window.Quotes;
+    $('setProvider').innerHTML = ['<option value="">Work it out from the proxy</option>']
+      .concat(Object.values(Q.PROVIDERS).map((pv) => `<option value="${pv.id}"${pv.id === st.provider ? ' selected' : ''}>${esc(pv.name)}</option>`)).join('');
+    $('setEndpoint').value = st.endpoint || '';
+    $('setMarket').value = ui.newMarket || 'sim';
+    renderMarketNote();
+    renderDataState();
+  }
+
+  /* ---------- real market data ----------
+   * The requirements are blunt about this and they are right: a price has to say where it came
+   * from, how old it is and whether it is current, and a failure has to look like a failure. So
+   * this panel reports the plain state of the connection -- including, when there is nothing to
+   * report, that there is nothing to report -- rather than going quiet and leaving the last
+   * number on screen looking authoritative.
+   */
+  function renderDataState() {
+    const el = $('dataState');
+    if (!el) return;
+    const Q = window.Quotes, st = Q.state();
+    const rows = [];
+    if (!st.configured) {
+      el.className = 'data-state off';
+      el.innerHTML = `<p class="note"><b>Not connected.</b> Real-market mode has no data endpoint, so it has no prices. Simulated and replay modes do not need one and are unaffected.</p>`;
+      return;
+    }
+    el.className = 'data-state ' + (st.lastError ? 'bad' : st.lastOk ? 'ok' : 'idle');
+    rows.push(`<div><span>Provider</span><b>${esc(st.providerName)}</b></div>`);
+    if (st.delayNote) rows.push(`<div><span>Freshness</span><b>${esc(st.delayNote)}</b></div>`);
+    rows.push(`<div><span>Last good answer</span><b>${st.lastOk ? esc(st.lastOkText) : 'never'}</b></div>`);
+    if (st.limits.perMin) rows.push(`<div><span>Requests used</span><b>${st.limits.usedMin} of ${st.limits.perMin} this minute &middot; ${st.limits.usedDay} of ${st.limits.perDay} today</b></div>`);
+    rows.push(`<div><span>Prices held</span><b>${st.symbols} symbol${st.symbols === 1 ? '' : 's'}</b></div>`);
+    if (st.paused) rows.push(`<div class="bad"><span>Paused</span><b>After repeated failures. Retrying in ${st.pausedFor}s.</b></div>`);
+    if (st.lastError) rows.push(`<div class="bad"><span>Last error</span><b>${esc(st.lastError.message)}</b></div>`);
+    el.innerHTML = `<dl class="kv">${rows.join('')}</dl>${st.attribution ? `<p class="note src-note">${esc(st.attribution)} Prices are shown under that provider's terms and are for personal use in this simulator.</p>` : ''}`;
+  }
+
+  /*
+   * Push the saved endpoint and provider into the quote layer. Called on boot and whenever either
+   * changes, so there is exactly one place where the two are connected.
+   */
+  function applyQuoteConfig() {
+    const st = S() && S().settings;
+    if (!st || !window.Quotes) return;
+    window.Quotes.configure({ endpoint: st.endpoint || '', provider: st.provider || '' });
+  }
+
+  function agoShort(ms) {
+    const sec = Math.round(ms / 1000);
+    if (sec < 60) return `${sec}s ago`;
+    const m = Math.round(sec / 60);
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+  }
+
+  function renderLiveAt() {
+    const el = $('liveAt');
+    if (!el) return;
+    const s = S();
+    if (ui.liveBusy) { el.textContent = 'Fetching…'; el.className = 'live-at busy'; return; }
+    if (!s.liveAt) { el.textContent = 'No prices yet'; el.className = 'live-at bad'; return; }
+    const age = Date.now() - s.liveAt;
+    const stale = age > 15 * 60000;
+    el.textContent = `Updated ${agoShort(age)}`;
+    el.className = 'live-at ' + (stale ? 'warn' : 'ok');
+    el.title = stale
+      ? `These prices were fetched ${agoShort(age)} and are not current. Refresh to get new ones.`
+      : `Prices last fetched ${agoShort(age)}. Each one also carries its own timestamp from the provider.`;
+  }
+
+  /*
+   * Refresh the prices that are actually on screen: what you hold, what you are watching, and the
+   * product whose chart is open. Not all 761 -- a free plan allows five requests a minute, and
+   * fetching a universe would exhaust the day's budget in one click and price nothing.
+   */
+  async function refreshLive(explicit) {
+    if (!E.liveOn() || ui.liveBusy) return;
+    const s = S();
+    const want = [];
+    const add = (t) => { if (t && E.BY[t] && want.indexOf(t) < 0) want.push(t); };
+    if (ui.sheet) add(ui.sheet);
+    if (ui.chartT) add(ui.chartT);
+    Object.keys(s.holdings).forEach((t) => { if (s.holdings[t] && s.holdings[t].qty > 0) add(t); });
+    (s.orders || []).forEach((o) => add(o.t));
+    (s.watch || []).forEach(add);
+    if (!want.length) ['SPY', 'AAPL', 'MSFT'].forEach(add);
+
+    ui.liveBusy = true;
+    renderLiveAt();
+    const btn = $('liveRefresh');
+    if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
+    let res = null;
+    try {
+      res = await E.syncLive(want);
+    } catch (e) {
+      res = null;
+    } finally {
+      ui.liveBusy = false;
+      if (btn) { btn.disabled = false; btn.textContent = 'Refresh prices'; }
+    }
+    const st = window.Quotes.state();
+    if (res && res.priced) {
+      save();
+      refresh();
+      if (explicit) {
+        const missed = res.unpriced.length;
+        toast(missed
+          ? `Priced ${res.priced}. ${missed} could not be priced: ${res.unpriced.slice(0, 4).join(', ')}${missed > 4 ? '…' : ''}.`
+          : `Priced ${res.priced} product${res.priced === 1 ? '' : 's'} from ${st.providerName}.`);
+      }
+    } else if (explicit) {
+      // A failure says what failed. It does not leave the old numbers looking fresh.
+      toast(st.lastError ? st.lastError.message : 'No prices came back.', 'err');
+      refresh();
+    }
+    renderDataState();
+  }
+
+  async function testQuoteConnection() {
+    const msg = $('dataMsg'), btn = $('dataTestBtn');
+    const ep = String($('setEndpoint').value || '').trim();
+    if (!ep) { msg.textContent = 'Put your proxy address in first.'; msg.className = 'note msg err'; return; }
+    S().settings.endpoint = ep;
+    applyQuoteConfig();
+    btn.disabled = true; btn.textContent = 'Testing…';
+    msg.textContent = 'Asking for a quote…'; msg.className = 'note msg';
+    const q = await window.Quotes.quote('AAPL', { force: true });
+    btn.disabled = false; btn.textContent = 'Test the connection';
+    const st = window.Quotes.state();
+    if (q) {
+      const f = window.Quotes.freshness(q);
+      S().settings.provider = st.provider;
+      save();
+      msg.innerHTML = `Connected to <b>${esc(st.providerName)}</b>. AAPL came back at ${q.price} &mdash; ${esc(f.label.toLowerCase())}, ${esc(f.note)}`;
+      msg.className = 'note msg ok';
+    } else {
+      msg.textContent = st.lastError ? st.lastError.message : 'Nothing came back, and no reason was given.';
+      msg.className = 'note msg err';
+    }
+    renderSettings();
+  }
+
+  function renderMarketNote() {
+    const m = $('setMarket') ? $('setMarket').value : 'sim';
+    const wrap = $('setMarketDateWrap');
+    if (wrap) wrap.hidden = m !== 'real';
+    const note = $('setMarketNote');
+    if (!note) return;
+    if (m === 'sim') note.textContent = 'An invented market. Every one of the 761 products trades, the clock is yours to run, and nothing here is a real price.';
+    else if (m === 'real') {
+      const b = E.realBounds();
+      note.textContent = b ? `Recorded history, ${b.first} to ${b.last}. The prices, dividends and splits that really happened, one day at a time, with nothing after the current day visible.` : 'Recorded history has not loaded yet.';
+    } else {
+      const st = window.Quotes.state();
+      note.innerHTML = st.configured
+        ? `Live prices from <b>${esc(st.providerName)}</b> with virtual money. ${esc(st.delayNote || '')} There is no chart until history is fetched for a product, and dividends and splits are not tracked in this mode.`
+        : 'This needs a data endpoint, which is not set yet. Set one above first, or the market will have no prices at all.';
+    }
   }
 
   /* ---------- security sheet ---------- */
@@ -1776,6 +2059,41 @@
     limit('setRiskPct', 'riskPct', 0.1, 100, 1);
     limit('setMaxPos', 'maxPosPct', 1, 100, 20);
     limit('setDayLoss', 'dayLossPct', 0.5, 100, 3);
+    /*
+     * The endpoint and the provider are saved as settings, never a key -- there is no field for a
+     * key anywhere in this app, by design. Changing either throws away every cached price, since
+     * prices from a different source are a different set of facts.
+     */
+    $('setEndpoint').addEventListener('change', (e) => {
+      const v = String(e.target.value || '').trim();
+      if (v && !/^https?:\/\//i.test(v)) {
+        $('dataMsg').textContent = 'That needs to be a full address starting with https:// (or http:// for a proxy you are running locally).';
+        $('dataMsg').className = 'note msg err';
+        return;
+      }
+      S().settings.endpoint = v;
+      applyQuoteConfig();
+      save();
+      $('dataMsg').textContent = v ? 'Saved. Test the connection to check it answers.' : 'Cleared. Real-market mode has no prices until an endpoint is set.';
+      $('dataMsg').className = 'note msg';
+      renderDataState(); renderMarketNote();
+    });
+    $('setProvider').addEventListener('change', (e) => {
+      S().settings.provider = e.target.value;
+      applyQuoteConfig();
+      save();
+      renderDataState(); renderMarketNote();
+    });
+    $('dataTestBtn').addEventListener('click', testQuoteConnection);
+    $('dataClearBtn').addEventListener('click', () => {
+      window.Quotes.clear();
+      $('dataMsg').textContent = 'Cached prices cleared. The request budget is not reset, because that belongs to your key rather than to this page.';
+      $('dataMsg').className = 'note msg';
+      renderDataState();
+      if (E.liveOn()) refresh();
+    });
+    $('setMarket').addEventListener('change', (e) => { ui.newMarket = e.target.value; renderMarketNote(); });
+    $('liveRefresh').addEventListener('click', () => refreshLive(true));
     $('setFractional').addEventListener('change', (e) => { S().settings.fractional = e.target.checked; save(); });
     $('setDrip').addEventListener('change', (e) => { S().settings.drip = e.target.checked; save(); });
     $('setStamp').addEventListener('change', (e) => { S().settings.stamp = e.target.checked; save(); });
@@ -1790,7 +2108,10 @@
         return;
       }
       clearTimeout(armTimer);
-      startNewGame(+$('setStart').value);
+      const mk = $('setMarket').value;
+      const opts = mk === 'real' ? { mode: 'real', startDate: $('setMarketDate').value || undefined }
+        : mk === 'live' ? { mode: 'live' } : null;
+      startNewGame(+$('setStart').value, opts);
       b.classList.remove('armed');
       b.textContent = 'Start a new game';
       $('resetNote').textContent = 'New game started.';
@@ -1838,9 +2159,18 @@
   function startNewGame(cash, opts) {
     setPlaying(false);
     if (ui.sheet) closeSheet();
-    const academy = S() && S().academy;   // course progress survives a new trading game
+    /*
+     * A new trading game replaces the trading, not everything you have set up. Course progress
+     * already survived it; so now do your settings -- your data endpoint, your region, your risk
+     * limits, your account type. Making someone re-enter their proxy address every time they
+     * start a fresh run would be a small cruelty, and none of it is part of the game state.
+     */
+    const academy = S() && S().academy;
+    const settings = S() && Object.assign({}, S().settings);
     E.newGame(cash, opts);
     if (academy) S().academy = academy;
+    if (settings) S().settings = Object.assign(S().settings, settings);
+    applyQuoteConfig();
     ui.calMonth = null; ui.calSel = null; ui.calFollow = true;
     save();
     saveNow();   // a new game is a big change: write it straight away
@@ -2447,6 +2777,8 @@
     if (!restored) {
       E.newGame(100000);
     }
+    applyQuoteConfig();
+    ui.newMarket = S().mode || 'sim';
     ui.chartT = uiPref('chartT') || null;
     const cr = +uiPref('chartRange'); if ([21, 63, 126, 260].includes(cr)) ui.chartRange = cr;
     if (uiPref('chartType') === 'line') ui.chartType = 'line';

@@ -25,13 +25,22 @@ const dialect = (process.argv[3] || 'mock').toLowerCase();   // mock | av | td
 function seed(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
 function priceFor(sym) { return Math.round((8 + seed(sym) * 400) * 100) / 100; }
 
+/*
+ * One generator for both the quote and the series, so the latest bar and the latest quote agree.
+ * A stand-in whose two endpoints contradict each other would hide exactly the kind of bug the
+ * suite is meant to catch.
+ */
 function bars(sym, n, stepMin) {
   const out = [];
-  let p = priceFor(sym) * 0.85;
   const end = Date.UTC(2026, 9, 9, 20, 0, 0);
+  // Walk backwards from a fixed anchor so bar i counts from the END of the series. The last two
+  // bars are then the same whether you ask for 2 of them or 500, which is what makes the quote
+  // and the chart agree.
+  let p = priceFor(sym);
+  const walk = [];
+  for (let i = 0; i < n; i++) { walk.unshift(p); p = Math.max(0.5, p / (1 + (seed(sym + i) - 0.48) * 0.03)); }
   for (let i = n - 1; i >= 0; i--) {
-    const r = seed(sym + i);
-    p = Math.max(0.5, p * (1 + (r - 0.48) * 0.03));
+    p = walk[n - 1 - i];
     const o = Math.round(p * 100) / 100;
     const c = Math.round(p * (1 + (seed(sym + 'c' + i) - 0.5) * 0.02) * 100) / 100;
     const h = Math.round(Math.max(o, c) * 1.006 * 100) / 100;

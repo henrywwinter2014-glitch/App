@@ -22,7 +22,11 @@
       <div class="clock-date"><span id="simDate">-</span><span class="clock-day" id="simDay"></span></div>
       <span class="mode-badge sim" id="modeBadge" hidden></span>
       <span class="mkt-status open" id="mktStatus" hidden></span>
-      <div class="controls">
+      <div class="controls" id="liveControls" hidden>
+        <button class="btn btn-primary" id="liveRefresh" type="button">Refresh prices</button>
+        <span class="live-at" id="liveAt"></span>
+      </div>
+      <div class="controls" id="simControls">
         <button class="btn btn-play" id="playBtn" type="button" aria-pressed="false">Play</button>
         <div class="seg speed" id="speedSeg" role="group" aria-label="Speed (trading days per second)">
           <button type="button" data-speed="0.5">&frac12;&times;</button>
@@ -34,7 +38,7 @@
           <button type="button" data-speed="100">100&times;</button>
         </div>
       </div>
-      <div class="controls">
+      <div class="controls" id="skipControls">
         <div class="seg" role="group" aria-label="Skip ahead">
           <button type="button" data-skip="1d" title="Skip 1 trading day">+1D</button>
           <button type="button" data-skip="1w" title="Skip 1 week">+1W</button>
@@ -457,8 +461,17 @@
                 <option value="1000000000">$1,000,000,000</option>
               </select>
             </label>
+            <label class="field"><span>Market</span>
+              <select id="setMarket">
+                <option value="sim">Simulated &mdash; invented prices, every product tradeable</option>
+                <option value="real">Replay &mdash; recorded history from January 2020</option>
+                <option value="live">Real market &mdash; live prices, virtual money</option>
+              </select>
+            </label>
+            <label class="field" id="setMarketDateWrap" hidden><span>Replay start date</span><input id="setMarketDate" type="date"></label>
+            <p class="note" id="setMarketNote"></p>
             <button class="btn btn-danger" id="resetBtn" type="button">Start a new game</button>
-            <p class="note" id="resetNote">This clears your holdings, orders and history.</p>
+            <p class="note" id="resetNote">This clears your holdings, orders and history. Results from each market are kept separate, because comparing a run on invented prices with a run on real ones would not mean anything.</p>
           </div>
         </div>
         <div class="card">
@@ -489,6 +502,21 @@
             <p class="note" id="customMsg" role="status"></p>
           </form>
         </div>
+      </div>
+      <div class="card" id="dataCard">
+        <h2>Real market data</h2>
+        <p class="note">Bullpen can trade against real prices instead of invented ones. The money stays virtual either way &mdash; nothing here places an order with a broker.</p>
+        <p class="note warn-note"><b>It needs a proxy, not a key.</b> This page is static, and a static page cannot keep a secret: an API key pasted into it is published to everyone who loads it. So Bullpen never asks for your key. Instead you run a small proxy that holds the key and forwards the request &mdash; the code is in <code>server/</code> in this project, about fifty lines, and deploys free on Cloudflare Workers. Paste its address below.</p>
+        <div class="form">
+          <label class="field"><span>Data provider</span><select id="setProvider"></select></label>
+          <label class="field"><span>Your proxy address</span><input id="setEndpoint" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://your-worker.workers.dev"></label>
+          <div class="row2">
+            <button class="btn" id="dataTestBtn" type="button">Test the connection</button>
+            <button class="btn" id="dataClearBtn" type="button">Forget cached prices</button>
+          </div>
+          <p class="note" id="dataMsg" role="status" aria-live="polite"></p>
+        </div>
+        <div id="dataState" class="data-state"></div>
       </div>
       <div class="card about">
         <h2>How the simulation works</h2>
@@ -643,9 +671,10 @@
 
     <fieldset id="setupMarketWrap">
       <legend>Which market do you want to trade?</legend>
-      <div class="opts opts-2">
+      <div class="opts opts-3">
         <button type="button" class="opt" data-setup-market="sim"><b>Simulated market</b><span>An invented market that starts today and moves on its own. Every product is tradeable.</span></button>
         <button type="button" class="opt" data-setup-market="real"><b>Replay real history</b><span>Prices, dividends and splits that really happened, one day at a time. You never see past today.</span></button>
+        <button type="button" class="opt" data-setup-market="live"><b>Real market, virtual money</b><span>Today&rsquo;s actual prices from a data provider. Needs a free API key and a small proxy you run &mdash; Settings explains how.</span></button>
       </div>
       <label class="setup-custom" id="setupDateWrap"><span>Start the replay on</span><input id="setupDate" type="date"></label>
       <div class="opts opts-cash" id="setupEras"></div>
