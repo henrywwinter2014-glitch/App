@@ -1034,6 +1034,12 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .data-empty { display: grid; gap: 8px; place-items: center; text-align: center; padding: 28px 16px; color: var(--muted); }
 .data-empty b { color: var(--fg); }
 
+.cool-off { border-left: 4px solid #e6b422; }
+.cool-off p { margin: 6px 0 0; }
+.plan-note { border-left: 3px solid var(--line-strong); padding-left: 10px; }
+.plan-note .dn { color: var(--down); }
+.plan-note .up { color: var(--up); }
+
 .export-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .toast.err { border-color: var(--down); color: var(--down); }

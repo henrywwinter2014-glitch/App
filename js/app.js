@@ -2280,6 +2280,34 @@
       <p class="muted small">Both lines start at 0% on your first day, so they share one scale. The index line is buying and holding SPY over the same period.</p>
     </div>`;
 
+    // A losing run, said out loud. Placed before the statistics because it is the thing most
+    // worth reading, and the moment it matters is the moment nobody goes looking for it.
+    if (ex.coolOff) {
+      html += `<div class="card cool-off">
+        <div class="ac-row"><b>Take a breath</b><span class="muted small">${ex.coolOff.run} losses in a row</span></div>
+        <p>${esc(ex.coolOff.note)}</p>
+        <p class="muted small">Nothing here stops you trading, and this is not a prediction. It is the note your own record would leave you if it could.</p>
+      </div>`;
+    }
+
+    // Risk across the whole account rather than one trade at a time.
+    {
+      const pr = ex.portfolioRisk, dd = ex.drawdown;
+      const tiles = [
+        ['At risk to your stops', pr.atRisk > 0 ? money(pr.atRisk) : '—', pr.atRisk > 0 ? `${pctAbs(pr.atRiskPct)} of the account` : 'No sell stops are resting'],
+        ['Held with no stop', pr.uncovered > 0 ? money(pr.uncovered) : '—', pr.uncovered > 0 ? `${pctAbs(pr.uncoveredPct)} of the account` : 'Everything you hold has a stop'],
+        ['If everything fell 10%', pctAbs(pr.shockPct), 'A yardstick, not a forecast'],
+        ['Worst fall from a peak', pct(dd.max), dd.current < -0.0001 ? `${pct(dd.current)} below the high now` : 'At a new high'],
+      ];
+      const warn = [];
+      if (pr.uncoveredPct > 0.5 && pr.uncovered > 0) warn.push(`More than half your account is in positions with no resting stop. That is a choice, not a mistake — but it means the exit is a decision you will have to make while it is happening.`);
+      if (pr.atRiskPct > (s.settings.riskPct || 1) / 100 * 4) warn.push(`Your stops together give up ${pctAbs(pr.atRiskPct)} of the account, well beyond the ${pctAbs((s.settings.riskPct || 1) / 100)} you set for a single trade. Positions that fall together are one bet wearing several hats.`);
+      if (ex.topSector && ex.topSector.pct > 0.4) warn.push(`${pctAbs(ex.topSector.pct)} of the account is in ${esc(ex.topSector.sector)}.`);
+      html += `<div class="card"><div class="ac-row"><b>Risk across the account</b><span class="muted small">not one trade at a time</span></div>
+        <div class="perf-tiles">${tiles.map(([k, v, sub]) => `<div><span>${k}</span><b>${v}</b>${sub ? `<small>${sub}</small>` : ''}</div>`).join('')}</div>
+        ${warn.length ? `<ul class="perf-warn">${warn.map((w) => `<li>${w}</li>`).join('')}</ul>` : ''}</div>`;
+    }
+
     // trade statistics
     if (!sum.n) {
       html += `<div class="card perf-empty"><b>No closed trades yet</b><p class="muted">Buy something and sell it, and every number on this page fills in from what you actually did. Nothing here is an example.</p></div>`;
@@ -2500,9 +2528,19 @@
         <label class="field"><span>What was your plan to get out?</span><textarea data-jf="plan" rows="3" placeholder="Where would you sell if right, and if wrong?">${esc(e.plan || '')}</textarea></label>
       </div>
       <div class="jr-grid three">
+        <label class="field"><span>Planned entry</span><input data-jn="pEntry" type="number" step="any" min="0" inputmode="decimal" value="${e.pEntry > 0 ? e.pEntry : ''}" placeholder="price you meant to pay"></label>
+        <label class="field"><span>Planned stop</span><input data-jn="pStop" type="number" step="any" min="0" inputmode="decimal" value="${e.pStop > 0 ? e.pStop : ''}" placeholder="where you'd admit you were wrong"></label>
+        <label class="field"><span>Planned target</span><input data-jn="pTarget" type="number" step="any" min="0" inputmode="decimal" value="${e.pTarget > 0 ? e.pTarget : ''}" placeholder="where you'd take the profit"></label>
+      </div>
+      ${planNote(p, e)}
+      <div class="jr-grid three">
         <label class="field"><span>Strategy</span><input data-jf="strategy" list="jrStrats" value="${esc(e.strategy || '')}" placeholder="e.g. Dividend income"></label>
         <label class="field"><span>How risky did it feel?</span><select data-jf="risk"><option value="">—</option>${opts(J.RISKS, e.risk)}</select></label>
         <label class="field"><span>How did you feel?</span><select data-jf="emotion"><option value="">—</option>${opts(J.EMOTIONS, e.emotion)}</select></label>
+      </div>
+      <div class="jr-grid">
+        <label class="field"><span>What was the market doing?</span><select data-jf="conditions"><option value="">—</option>${opts(J.CONDITIONS, e.conditions)}</select></label>
+        <label class="field"><span>Did you follow your own rules?</span><select data-jf="followed"><option value="">—</option>${opts(J.FOLLOWED, e.followed)}</select></label>
       </div>
       ${p.open ? `<p class="note">Still open. Come back and review it once you have sold.</p>` : `
       <label class="field"><span>Looking back, what happened?</span><textarea data-jf="review" rows="3" placeholder="Did it go to plan? What would you do differently?">${esc(e.review || '')}</textarea></label>`}
@@ -2512,6 +2550,35 @@
       </div>
       <div class="jr-actions"><button type="button" class="btn btn-ghost" data-jrdel="${esc(p.k)}">Delete entry</button><span class="muted small" id="jrSaved">Saved as you type</span></div>
     </div>`;
+  }
+
+  /*
+   * What the plan was worth, once the trade is closed.
+   *
+   * Reward-to-risk before the event, and after it the one comparison that stings: did you sell
+   * below the stop you set yourself? It is stated without scolding, because the number does the
+   * work, and it is only ever shown where you wrote a stop down.
+   */
+  function planNote(p, e) {
+    const entry = +e.pEntry, stop = +e.pStop, target = +e.pTarget;
+    const bits = [];
+    if (entry > 0 && stop > 0 && stop < entry) {
+      const risk = entry - stop;
+      if (target > entry) bits.push(`Reward to risk <b>${((target - entry) / risk).toFixed(2)} to 1</b> — risking ${money(risk, 'USD')} a share to make ${money(target - entry, 'USD')}.`);
+      else bits.push(`Risking <b>${money(risk, 'USD')}</b> a share to the stop.`);
+      if (p.qty > 0) {
+        const total = risk * p.qty;
+        const acct = E.netWorth();
+        bits.push(`On ${qtyFmt(+p.qty.toFixed(4))} shares that is ${money(total, 'USD')}${acct > 0 ? `, or ${pctAbs(total / acct)} of the account` : ''}.`);
+      }
+    }
+    if (!p.open && stop > 0 && isFinite(p.px)) {
+      if (p.px < stop * 0.995) bits.push(`<b class="dn">You sold at ${money(p.px, 'USD')}, below your ${money(stop, 'USD')} stop.</b> Selling at the stop would have left ${money((stop - p.px) * p.qty, 'USD')} more in the account.`);
+      else if (target > 0 && p.px >= target * 0.995) bits.push(`<b class="up">You held to your ${money(target, 'USD')} target.</b>`);
+      else bits.push(`You sold at ${money(p.px, 'USD')}, above your ${money(stop, 'USD')} stop.`);
+    }
+    if (!bits.length) return '<p class="note">Writing the stop down before you buy is what makes the rest of this journal worth reading: it is the only part of the plan that can be checked afterwards.</p>';
+    return `<p class="note plan-note">${bits.join(' ')}</p>`;
   }
 
   function fillStrategies() {
@@ -2532,6 +2599,8 @@
     $('journal').addEventListener('change', (e) => {
       if (e.target.id === 'jrStrat') { jrUI.strat = e.target.value; return renderJournal(); }
       if (e.target.id === 'jrOutcome') { jrUI.outcome = e.target.value; return renderJournal(); }
+      const sel = e.target.closest('select[data-jf]');
+      if (sel && jrUI.open) { window.Journal.set(jrUI.open, { [sel.dataset.jf]: sel.value }); save(); renderJournal(); return; }
       const pick = e.target.closest('[data-jrimg="pick"]');
       if (pick && pick.files && pick.files[0] && jrUI.open) {
         window.Journal.shrinkImage(pick.files[0], (url) => {
@@ -2543,6 +2612,15 @@
     });
     $('journal').addEventListener('input', (e) => {
       if (e.target.id === 'jrQ') { jrUI.q = e.target.value; jrUI.focusQ = true; return renderJournal(); }
+      const n = e.target.closest('[data-jn]');
+      if (n && jrUI.open) {
+        const v = parseFloat(n.value);
+        window.Journal.set(jrUI.open, { [n.dataset.jn]: isFinite(v) && v > 0 ? v : null });
+        save();
+        const tg = $('jrSaved');
+        if (tg) { tg.textContent = 'Saved'; clearTimeout(jrUI.t); jrUI.t = setTimeout(() => { if ($('jrSaved')) $('jrSaved').textContent = 'Saved as you type'; }, 1200); }
+        return;
+      }
       const f = e.target.closest('[data-jf]');
       if (!f || !jrUI.open) return;
       window.Journal.set(jrUI.open, { [f.dataset.jf]: f.value });

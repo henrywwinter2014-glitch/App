@@ -17,6 +17,10 @@
   const STRATEGIES = ['Dividend income', 'Long-term hold', 'Value', 'Growth', 'Momentum', 'Breakout', 'Mean reversion', 'Earnings', 'Index tracking', 'Speculation'];
   const EMOTIONS = ['Calm', 'Confident', 'Unsure', 'Rushed', 'Greedy', 'Fearful', 'Bored', 'Getting even'];
   const RISKS = ['Low', 'Medium', 'High'];
+  // What the market was doing when you entered, so a pattern can be read against the weather.
+  const CONDITIONS = ['Rising market', 'Falling market', 'Choppy, going nowhere', 'Very volatile', 'Quiet', 'Around the results', 'Not sure'];
+  // Whether you did what you said you would. The honest middle option matters more than either end.
+  const FOLLOWED = ['Yes, stuck to the plan', 'Partly', 'No, I broke my own rules'];
 
   const key = (t, opened) => `${t}@${opened}`;
   function all() {
@@ -30,10 +34,16 @@
     const e = j[k] || (j[k] = { k, created: S().date });
     Object.assign(e, patch, { edited: S().date });
     // An entry with nothing written in it is not worth keeping.
-    if (!FIELDS.some((f) => (e[f] || '').toString().trim()) && !e.img) delete j[k];
+    if (!FIELDS.some((f) => (e[f] || '').toString().trim()) && !NUM_FIELDS.some((f) => isFinite(e[f]) && e[f] > 0) && !e.img) delete j[k];
     return j[k] || null;
   }
-  const FIELDS = ['why', 'plan', 'risk', 'strategy', 'emotion', 'review', 'notes'];
+  /*
+   * The written fields. The numbers below them (planned entry, stop, target) are kept separately
+   * because they are the half of a plan that can be checked afterwards: a free-text "I'll get out
+   * if it turns" cannot be compared with what you actually did, and a number can.
+   */
+  const FIELDS = ['why', 'plan', 'risk', 'strategy', 'emotion', 'review', 'notes', 'conditions', 'followed'];
+  const NUM_FIELDS = ['pEntry', 'pStop', 'pTarget'];
   function remove(k) { delete all()[k]; }
 
   /*
@@ -88,6 +98,26 @@
         out.push({ title: `Trading while ${em.toLowerCase()}`, detail: `${lost} of your ${g.length} trades entered feeling ${em.toLowerCase()} lost money.` });
       }
     }
+    /*
+     * Rules broken. Counted from the stop you wrote down rather than from what you say about
+     * yourself afterwards, because the two disagree more often than anyone would like.
+     */
+    const d = discipline();
+    if (d && d.n >= 3 && d.broken >= 2) {
+      out.push({
+        title: 'Selling below your own stop',
+        detail: `On ${d.broken} of the ${d.n} trades where you wrote a stop down, you sold below it. Holding past the stop on those cost ${Math.abs(d.costOfBreaking).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} more than the stop would have.`,
+      });
+    }
+    if (d && d.said >= 3 && d.admitted >= 2) {
+      out.push({ title: 'You keep saying you broke your rules', detail: `You marked ${d.admitted} of ${d.said} reviewed trades as breaking your own rules. Noticing it is the first half; the second half is writing the exit down before you buy, not after.` });
+    }
+    for (const c of CONDITIONS) {
+      const g = rows.filter((p) => p.entry.conditions === c);
+      if (g.length < 3) continue;
+      const lost = g.filter((p) => p.pl < 0).length;
+      if (lost / g.length >= 0.6) out.push({ title: `Trading in a ${c.toLowerCase()}`, detail: `${lost} of your ${g.length} trades entered in that market lost money.` });
+    }
     const byStrat = {};
     for (const p of rows) {
       const k = (p.entry.strategy || '').trim();
@@ -106,6 +136,33 @@
       });
     }
     return out;
+  }
+
+  /*
+   * Did the plan survive contact with the market?
+   *
+   * This compares the stop you wrote down before buying with the price you actually sold at. It is
+   * the single most useful thing a journal can tell you, because the gap between the two is not a
+   * market outcome, it is a decision -- and it is nearly always the same decision, made again:
+   * holding past the stop and hoping. The numbers are only reported where you wrote a stop down,
+   * and a sale above the stop is never counted against you.
+   */
+  function discipline() {
+    const rows = positions().filter((p) => !p.open && p.entry && isFinite(p.entry.pStop) && p.entry.pStop > 0);
+    if (!rows.length) return null;
+    const broken = rows.filter((p) => isFinite(p.px) && p.px < p.entry.pStop * 0.995);
+    const kept = rows.length - broken.length;
+    const extraLoss = broken.reduce((a, p) => a + (p.entry.pStop - p.px) * p.qty, 0);
+    const targets = rows.filter((p) => isFinite(p.entry.pTarget) && p.entry.pTarget > 0);
+    const hitTarget = targets.filter((p) => isFinite(p.px) && p.px >= p.entry.pTarget * 0.995).length;
+    return {
+      n: rows.length, kept, broken: broken.length,
+      // What holding past your own stop has cost, in money, across those trades.
+      costOfBreaking: extraLoss,
+      targets: targets.length, hitTarget,
+      said: rows.filter((p) => p.entry.followed).length,
+      admitted: rows.filter((p) => p.entry.followed === FOLLOWED[2]).length,
+    };
   }
 
   // Shrink an attached picture so a journal full of them cannot fill the browser's storage.
@@ -128,5 +185,5 @@
     fr.readAsDataURL(file);
   }
 
-  window.Journal = { STRATEGIES, EMOTIONS, RISKS, FIELDS, key, get, set, remove, positions, patterns, shrinkImage, all };
+  window.Journal = { STRATEGIES, EMOTIONS, RISKS, CONDITIONS, FOLLOWED, FIELDS, NUM_FIELDS, key, get, set, remove, positions, patterns, discipline, shrinkImage, all };
 })();

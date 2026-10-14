@@ -217,6 +217,83 @@
       topSector: topSector ? { sector: topSector[0], pct: topSector[1] } : null,
       dayPL: dayPL(),
       dayLimit: (s.settings.dayLossPct || 3) / 100,
+      portfolioRisk: portfolioRisk(),
+      drawdown: drawdown(),
+      coolOff: coolOff(),
+    };
+  }
+
+  /*
+   * Risk across the whole portfolio, not one trade at a time.
+   *
+   * Five positions each risking "only 1%" are not five separate 1% risks if they are the same
+   * bet in five costumes -- five tech stocks fall together, and the account finds out it was
+   * risking 5% all along. There is no correlation matrix here and inventing one would be worse
+   * than useless, so this reports the plain arithmetic instead: what is at risk to the stops you
+   * have actually placed, and how much of the account sits in its largest sector.
+   */
+  function portfolioRisk() {
+    const s = S(), eq = E().netWorth();
+    let atRisk = 0, covered = 0, uncovered = 0;
+    for (const t in s.holdings || {}) {
+      const h = s.holdings[t];
+      if (!h || !(h.qty > 0)) continue;
+      // The highest resting sell-stop for this holding is the floor you have actually set.
+      const stops = (s.orders || []).filter((o) => o.t === t && o.side === 'sell' && (o.kind === 'stop' || o.kind === 'stopLimit'));
+      const px = E().price(t);
+      if (!stops.length || !isFinite(px)) { uncovered += E().holdingValue(t); continue; }
+      const best = Math.max(...stops.map((o) => o.px));
+      const qty = Math.min(h.qty, stops.reduce((a, o) => a + (o.qty - o.filled), 0));
+      atRisk += Math.max(0, (px - best) * qty) * E().fxOf(E().BY[t] || {});
+      covered += E().holdingValue(t);
+    }
+    return {
+      atRisk, covered, uncovered,
+      atRiskPct: eq > 0 ? atRisk / eq : 0,
+      uncoveredPct: eq > 0 ? uncovered / eq : 0,
+      // What a 10% fall across everything you hold would take out. Not a forecast: a yardstick.
+      shockPct: eq > 0 ? (covered + uncovered) * 0.1 / eq : 0,
+    };
+  }
+
+  // The worst fall from a peak, and where the account stands against its own high-water mark.
+  function drawdown() {
+    const s = S();
+    const nw = (s.nw || []).map((x) => x.v);
+    if (nw.length < 2) return { max: 0, current: 0, peak: s.startCash };
+    let peak = -Infinity, max = 0;
+    for (const v of nw) { if (v > peak) peak = v; const d = peak > 0 ? v / peak - 1 : 0; if (d < max) max = d; }
+    const now = E().netWorth();
+    let high = -Infinity;
+    for (const v of nw) if (v > high) high = v;
+    high = Math.max(high, now);
+    return { max, current: high > 0 ? now / high - 1 : 0, peak: high };
+  }
+
+  /*
+   * A cooling-off prompt after a run of losses.
+   *
+   * Not a block -- nothing here stops anyone trading, and a simulator that pretended it could
+   * would be lying about what self-control is. It is a note, shown when the recent record says
+   * something the person in the middle of it usually cannot see: that the last few have all gone
+   * the same way, and that the urge to win it straight back is the expensive part.
+   */
+  function coolOff(given) {
+    const tr = given || trades();
+    if (tr.length < 3) return null;
+    let run = 0;
+    for (let i = tr.length - 1; i >= 0; i--) { if (tr[i].pl < 0) run++; else break; }
+    if (run < 3) return null;
+    const lost = tr.slice(-run).reduce((a, x) => a + x.pl, 0);
+    // Did the size go up as the losses mounted? That is the tell for chasing.
+    const sizes = tr.slice(-run).map((x) => Math.abs(x.qty * x.px));
+    const rising = sizes.length >= 2 && sizes[sizes.length - 1] > sizes[0] * 1.25;
+    return {
+      run, lost,
+      rising,
+      note: `Your last ${run} closed trades all lost, ${Math.abs(lost).toLocaleString('en-US', { style: 'currency', currency: 'USD' })} in total.` +
+        (rising ? ' Your position sizes have gone up over that run, which is what trying to win it back looks like from the outside.' : '') +
+        ' A losing run is normal and proves nothing about the next trade — but it is the moment people trade biggest and worst.',
     };
   }
 
@@ -302,5 +379,6 @@
 
   window.Stats = {
     csvTrades, csvTransactions, csvPortfolio, streaks,
-    trades, summary, equity, byTicker, byMonth, concentration, positionSize, exposure, dayPL };
+    trades, summary, equity, byTicker, byMonth, concentration, positionSize, exposure, dayPL,
+    portfolioRisk, drawdown, coolOff };
 })();
