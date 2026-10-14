@@ -182,6 +182,19 @@
             </table>
           </div>
           <div class="more"><button class="btn" id="moreBtn" type="button">Show more</button></div>
+          <!--
+            Searching every exchange in the world. The built-in list is a few hundred curated
+            products with real reference prices; this is how you reach the rest, by asking the
+            data provider rather than by shipping fifty thousand invented rows.
+          -->
+          <div class="world" id="worldSearch" hidden>
+            <div class="ac-row"><b>Not in the list?</b><span class="muted small" id="worldSub"></span></div>
+            <div class="world-go">
+              <button class="btn btn-primary" id="worldBtn" type="button">Search every exchange</button>
+              <span class="muted small" id="worldNote"></span>
+            </div>
+            <div id="worldResults"></div>
+          </div>
         </div>
       </div>
     </section>

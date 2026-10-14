@@ -22,11 +22,17 @@ Open `index.html` in a browser. No build step or server is needed. (To serve it 
 | REITs, BDCs and MLPs | PLD, AMT, ARCC, ET, EPD |
 | Preferred shares | JPM-PC, BAC-PL, PFF |
 | International and ADRs | TSM, ASML, NVO, TM, SHOP |
-| UK shares on the LSE (priced in GBP) | AZN.L, SHEL.L, LLOY.L, VUSA.L |
+| UK shares on the LSE (priced in GBP) | AZN.L, SHEL.L, LLOY.L, VOD.L, TSCO.L, BARC.L |
+| UK and European UCITS ETFs | IUKD.L, VUKE.L, VMID.L, VHYL.L, SWDA.L, EQQQ.L, IGLT.L |
+| UK investment trusts | SMT.L, FCIT.L, CTY.L, JGGI.L, BRWM.L, HFEL.L |
 | Penny stocks | SNDL, PLUG, TLRY |
 | Mutual funds | VFIAX, FXAIX, VTSAX |
 
-Anything missing can be added under **Settings → List a new security**.
+**Anything else in the world.** The table above is the curated list — a few hundred products with real reference prices. For everything else, type a name or ticker into the Markets search and press **Search every exchange**: that asks your data provider, which knows every listed security on every exchange, and one click lists what it finds. A Tokyo share comes in priced in yen on the Tokyo exchange, a Swiss one in francs, and each is converted to dollars for your net worth at its own rate. It needs a data connection, for the obvious reason that nobody can know what a share in Tokyo costs without being told.
+
+A dividend yield the provider does not report is recorded as zero rather than guessed, so a real company never carries an invented payout.
+
+You can also add something by hand under **Settings → List a new security**.
 
 ## Features
 
@@ -38,6 +44,7 @@ Anything missing can be added under **Settings → List a new security**.
 - Watchlists and alerts: several named lists, and alerts for a price reaching a level, a move of a given percent in a day, going ex-dividend or reporting earnings. Alerts run on the simulation clock and trigger on a price the day actually reached, including part-way through a skip.
 - Performance tab: every figure is derived from your own recorded trades and account history, never a stubbed example. An equity curve against a buy-and-hold S&P 500, both indexed to 0% on your first day so they share one scale; win rate, average win and loss, profit factor, expectancy, typical holding period and worst fall from a peak; what trading cost you in spread, market impact, commission and dividend tax; profit broken down by product and by month; and the closed-trade log behind all of it. It also tells you how much of your profit came from your single best trade, because a record resting on one trade says much less than it appears to.
 - Risk management: a position-size calculator that sizes a trade from the loss you are prepared to take rather than the cash you happen to hold, with reward-to-risk, warnings when a position breaks your limits, and a reminder that a stop is an instruction rather than a promise. Set your risk per trade, biggest single position and daily loss limit in Settings; the Performance tab flags concentration, sector exposure and a day that has gone past the limit. Risk is also reported across the whole account — what is at risk to the stops actually resting, what is held with no stop at all, what a 10% fall across everything would cost, and the worst fall from a peak — plus a cooling-off note after three losses in a row that also says when your position sizes have been climbing through the run. It blocks nothing.
+- 848 products built in, across US stocks, ETFs, bonds, REITs, preferreds, 121 London listings including UK ETFs and investment trusts, international ADRs, mutual funds and penny stocks — plus any security on any exchange in the world, added from the Markets search in one click.
 - **Three markets.** The **simulated** one invents prices from today and every product is tradeable. **Replay** runs recorded history instead: pick a date from 14 January 2020 onwards and trade forward through the prices, dividends and splits that really happened, one day at a time, never seeing past the current day. Four periods are offered to start from (the Covid crash, the 2022 bear market, the AI rally, the 2025 tariff shock). 602 of the 761 products have real history; the rest are hidden while replaying, as are any that had not listed yet on the day you are on, so a fund that floated in May 2020 only appears once the replay reaches it. **Real market** trades against genuine current prices from a data provider with virtual money (see below).
 - Real market data, kept honest. Every real price carries its source, its own timestamp and a freshness label — real-time, delayed, end of day, stale or unavailable. If the provider fails, the app says so: there is no code path anywhere that substitutes an invented price for a real one, because a plausible fake is the one error you cannot spot. A product the provider does not cover is hidden and untradeable rather than guessed at, a chart stays empty until its history is fetched, and net worth leaves out any holding it cannot price and tells you how many.
 - Virtual deposits and withdrawals, recorded as transactions so they cannot quietly flatter your return, and CSV export of your closed trades, full account history and current portfolio.

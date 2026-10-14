@@ -244,14 +244,22 @@
 
   function customMeta(input) {
     const volMap = { low: 0.15, medium: 0.3, high: 0.55, extreme: 0.9 };
-    const t = input.t.toUpperCase().replace(/[^A-Z0-9.\-]/g, '').slice(0, 10);
+    // World tickers are longer and busier than US ones: 7203.T, NESN.SW, 0700.HK, BRK-B, MC.PA.
+    const t = String(input.t || '').toUpperCase().replace(/[^A-Z0-9.\-^=]/g, '').slice(0, 16);
     const type = input.type || 'Stock';
+    const cur = /^[A-Za-z]{3}$/.test(input.cur || '') ? String(input.cur).toUpperCase() : 'USD';
     return {
       t, n: input.n || t, sector: SECTORS.includes(input.sector) ? input.sector : (input.sector || 'Other'),
       sec: SECTORS.includes(input.sector) ? input.sector : null,
-      type, exch: 'OTC', cur: 'USD', base: +input.p, y: +input.y || 0, q: +input.q || 0,
-      beta: type === 'Preferred' ? 0.2 : type === 'Penny Stock' ? 1.4 : 1, vol: volMap[input.vol] || 0.3,
+      type,
+      exch: String(input.exch || 'OTC').slice(0, 24),
+      cat: input.cat || undefined,
+      cur,
+      base: +input.p, y: +input.y || 0, q: +input.q || 0,
+      beta: isFinite(input.beta) ? +input.beta : (type === 'Preferred' ? 0.2 : type === 'Penny Stock' ? 1.4 : 1),
+      vol: isFinite(input.volNum) ? +input.volNum : (volMap[input.vol] || 0.3),
       rate: type === 'REIT' || type === 'Preferred' ? 0.6 : 0,
+      world: !!input.world,
     };
   }
 
@@ -497,7 +505,8 @@
       date: START_DATE,
       day: 0,
       startCash, cash: startCash,
-      fx: 1.34,               // GBP -> USD
+      fx: 1.34,               // GBP -> USD, the one the news engine moves
+      fx2: {},                // other currencies -> USD, seeded or fetched
       sec: {},
       dates: [],
       holdings: {},
@@ -770,7 +779,35 @@
     if (liveOn()) { const l = liveOf(t); return l && isFinite(l.prevClose) ? l.prevClose : price(t); }
     const h = S.sec[t].h; return h[h.length - 2] ?? h[h.length - 1];
   };
-  const fxOf = (m) => (m.cur === 'GBP' ? S.fx : 1);
+  /*
+   * Currencies.
+   *
+   * The simulated market only ever needed dollars and pounds, and the pound has its own drifting
+   * rate driven by the news engine. Listing a share from anywhere in the world brings in other
+   * currencies, so there is a rate table as well. The seeded rates are approximate levels, which
+   * is honest enough for a simulated market; in real-market mode they are refreshed from the data
+   * provider, because there a wrong rate would quietly misstate your net worth.
+   */
+  const FX_SEED = {
+    USD: 1, GBP: 1.34, EUR: 1.09, JPY: 0.0067, CHF: 1.12, CAD: 0.73, AUD: 0.66, NZD: 0.60,
+    HKD: 0.128, SGD: 0.75, CNY: 0.14, INR: 0.0119, KRW: 0.00072, TWD: 0.031, JPYX: 0.0067,
+    SEK: 0.094, NOK: 0.092, DKK: 0.146, PLN: 0.25, ZAR: 0.055, BRL: 0.18, MXN: 0.050,
+    ILS: 0.27, TRY: 0.029, THB: 0.029, IDR: 0.000062, MYR: 0.22, PHP: 0.017, AED: 0.272,
+    SAR: 0.267, GBp: 0.0134,
+  };
+  function fxRate(cur) {
+    if (!cur || cur === 'USD') return 1;
+    if (cur === 'GBP') return S.fx;                       // the simulated, drifting one
+    if (S.fx2 && isFinite(S.fx2[cur]) && S.fx2[cur] > 0) return S.fx2[cur];
+    return FX_SEED[cur] || 1;
+  }
+  const fxOf = (m) => fxRate(m && m.cur);
+  // Every currency in the current universe, so live mode knows which rates to fetch.
+  function currenciesInUse() {
+    const out = new Set();
+    for (const m of U) if (m.cur && m.cur !== 'USD') out.add(m.cur);
+    return [...out];
+  }
   const priceUSD = (t) => price(t) * fxOf(BY[t]);
   function fmtUSD(v) { return '$' + Math.round(v).toLocaleString('en-US'); }
 
@@ -1787,6 +1824,65 @@
     return { ok: true, m };
   }
 
+  /*
+   * List a security that is not in the built-in universe.
+   *
+   * This is what makes "every stock in the world" possible without shipping a file with fifty
+   * thousand rows of invented fundamentals in it. The data provider knows every exchange; this
+   * takes what it returns -- the symbol, the name, the currency, the exchange and a real current
+   * price -- and lists it alongside everything else.
+   *
+   * What it will not do is guess the parts the provider did not send. A dividend yield it does
+   * not know is zero and says so, rather than a plausible-looking number attached to a real
+   * company. In the simulated market the share then moves like any other; in real-market mode its
+   * price only ever comes from the provider.
+   */
+  function listWorld(info) {
+    if (!info || !info.symbol) return { ok: false, msg: 'No symbol given.' };
+    const sym = String(info.symbol).toUpperCase();
+    if (BY[sym]) return { ok: false, msg: `${sym} is already listed in your market.` };
+    const px = +info.price;
+    if (!(px > 0)) return { ok: false, msg: `No price came back for ${sym}, so it cannot be listed. A share with no price is not tradeable.` };
+
+    // Yahoo and the rest describe instruments in their own words; map the common ones.
+    const kind = String(info.type || '').toLowerCase();
+    const type = /etf|fund/.test(kind) ? 'ETF'
+      : /trust/.test(kind) ? 'Investment Trust'
+        : /reit/.test(kind) ? 'REIT'
+          : /bond/.test(kind) ? 'Bond Fund'
+            : 'Stock';
+    const res = addCustom({
+      t: sym,
+      n: info.name || sym,
+      p: px,
+      y: +info.yield || 0,
+      q: +info.yield > 0 ? (info.q || 4) : 0,
+      type,
+      sector: info.sector || 'World',
+      exch: info.exchange || 'World',
+      cur: info.currency || 'USD',
+      cat: type === 'ETF' ? 'World ETF' : undefined,
+      // No fundamentals to go on, so a middling beta and a volatility by instrument type.
+      beta: type === 'ETF' ? 0.95 : 1,
+      volNum: type === 'ETF' ? 0.17 : px < 1 ? 0.8 : 0.32,
+      world: true,
+    });
+    if (res.ok && info.currency && info.currency !== 'USD' && info.currency !== 'GBP') {
+      if (!S.fx2) S.fx2 = {};
+      if (!isFinite(S.fx2[info.currency])) S.fx2[info.currency] = FX_SEED[info.currency] || 1;
+    }
+    return res;
+  }
+
+  // Record a fetched exchange rate. Live mode calls this; nothing else should.
+  function setFxRate(cur, rate) {
+    if (!cur || !(rate > 0)) return false;
+    if (cur === 'GBP') { S.fxPrev = S.fx; S.fx = rate; return true; }
+    if (!S.fx2) S.fx2 = {};
+    S.fx2[cur] = rate;
+    return true;
+  }
+
   function serialize() {
     return JSON.stringify(S);
   }
@@ -1794,8 +1890,8 @@
   window.Engine = {
     U, BY, SECTORS, TD,
     get S() { return S; },
-    newGame, load, step, execute, quote, placeOrder, cancelOrder, setDrip, addCustom, serialize,
-    price, prevClose, priceUSD, fxOf, netWorth, marketValue, holdingValue, annualDps, fwdYield, nextExDate,
+    newGame, load, step, execute, quote, placeOrder, cancelOrder, setDrip, addCustom, listWorld, setFxRate, serialize,
+    price, prevClose, priceUSD, fxOf, fxRate, currenciesInUse, FX_SEED, netWorth, marketValue, holdingValue, annualDps, fwdYield, nextExDate,
     addTradingDays, nextTradingDay, parseISO, addNews,
     perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,
     halfSpread, dividendTax, taxRateEstimate, isOrdinaryIncome, ACCOUNTS,

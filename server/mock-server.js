@@ -51,7 +51,25 @@ function bars(sym, n, stepMin) {
   return out;
 }
 
-const NAMES = { AAPL: 'Apple Inc', MSFT: 'Microsoft Corporation', NVDA: 'NVIDIA Corporation', KO: 'The Coca-Cola Company', SPY: 'SPDR S&P 500 ETF Trust' };
+/*
+ * A few genuinely international listings as well as the US ones, so the search path can be tested
+ * against the symbology it will actually meet: suffixed tickers, non-dollar currencies and
+ * exchanges the built-in universe does not carry.
+ */
+const NAMES = {
+  AAPL: 'Apple Inc', MSFT: 'Microsoft Corporation', NVDA: 'NVIDIA Corporation',
+  KO: 'The Coca-Cola Company', SPY: 'SPDR S&P 500 ETF Trust',
+  'IUKD.L': 'iShares UK Dividend UCITS ETF', '7203.T': 'Toyota Motor Corporation',
+  'NESN.SW': 'Nestle S.A.', 'MC.PA': 'LVMH Moet Hennessy Louis Vuitton',
+  '0700.HK': 'Tencent Holdings Limited', 'BHP.AX': 'BHP Group Limited',
+  'SAP.DE': 'SAP SE', 'RELIANCE.NS': 'Reliance Industries Limited',
+};
+const CUR = { '.L': 'GBP', '.T': 'JPY', '.SW': 'CHF', '.PA': 'EUR', '.HK': 'HKD', '.AX': 'AUD', '.DE': 'EUR', '.NS': 'INR' };
+const EXCH = { '.L': 'LSE', '.T': 'Tokyo', '.SW': 'Swiss', '.PA': 'Paris', '.HK': 'HKSE', '.AX': 'ASX', '.DE': 'XETRA', '.NS': 'NSE' };
+const suffix = (s0) => Object.keys(CUR).find((k) => s0.endsWith(k)) || '';
+const curOf = (s0) => CUR[suffix(s0)] || 'USD';
+const exchOf = (s0) => EXCH[suffix(s0)] || 'NASDAQ';
+const match = (q) => Object.keys(NAMES).filter((k) => (k + ' ' + NAMES[k]).toLowerCase().includes(String(q || '').toLowerCase()));
 
 function body(fn, q) {
   const sym = (q.symbol || '').toUpperCase();
@@ -85,7 +103,7 @@ function body(fn, q) {
       }
       return { provider: 'alphavantage', data: { 'Meta Data': { '2. Symbol': sym, '6. Time Zone': 'US/Eastern' }, [key]: rows } };
     }
-    return { provider: 'alphavantage', data: { bestMatches: Object.keys(NAMES).filter((k) => (k + NAMES[k]).toLowerCase().includes(String(q.q || '').toLowerCase())).map((k) => ({ '1. symbol': k, '2. name': NAMES[k], '3. type': 'Equity', '4. region': 'United States', '8. currency': 'USD' })) } };
+    return { provider: 'alphavantage', data: { bestMatches: match(q.q).map((k) => ({ '1. symbol': k, '2. name': NAMES[k], '3. type': 'Equity', '4. region': exchOf(k), '8. currency': curOf(k) })) } };
   }
 
   if (dialect === 'td') {
@@ -94,7 +112,7 @@ function body(fn, q) {
       return {
         provider: 'twelvedata',
         data: {
-          symbol: sym, name: NAMES[sym] || sym, exchange: 'NASDAQ', currency: 'USD',
+          symbol: sym, name: NAMES[sym] || sym, exchange: exchOf(sym), currency: curOf(sym),
           datetime: '2026-10-09', timestamp: Math.floor(Date.UTC(2026, 9, 9, 20, 0, 0) / 1000),
           open: String(last.o), high: String(last.h), low: String(last.l), close: String(last.c),
           volume: String(last.v), previous_close: String(prev.c),
@@ -113,7 +131,7 @@ function body(fn, q) {
         },
       };
     }
-    return { provider: 'twelvedata', data: { data: Object.keys(NAMES).filter((k) => (k + NAMES[k]).toLowerCase().includes(String(q.q || '').toLowerCase())).map((k) => ({ symbol: k, instrument_name: NAMES[k], exchange: 'NASDAQ', currency: 'USD', instrument_type: 'Common Stock', country: 'United States' })) } };
+    return { provider: 'twelvedata', data: { data: match(q.q).map((k) => ({ symbol: k, instrument_name: NAMES[k], exchange: exchOf(k), currency: curOf(k), instrument_type: 'Common Stock', country: exchOf(k) })) } };
   }
 
   if (dialect === 'yh') {
@@ -125,7 +143,7 @@ function body(fn, q) {
     const base = Date.UTC(2026, 9, 9, 20, 0, 0);
     const result = {
       meta: {
-        symbol: sym, currency: 'USD', shortName: NAMES[sym] || sym, fullExchangeName: 'NasdaqGS',
+        symbol: sym, currency: curOf(sym), shortName: NAMES[sym] || sym, fullExchangeName: exchOf(sym),
         regularMarketPrice: last.c, chartPreviousClose: prev.c, regularMarketOpen: last.o,
         regularMarketDayHigh: last.h, regularMarketDayLow: last.l, regularMarketVolume: last.v,
         regularMarketTime: Math.floor(base / 1000), exchangeTimezoneName: 'America/New_York',
@@ -142,7 +160,7 @@ function body(fn, q) {
       for (const k of ['open', 'high', 'low', 'close']) result.indicators.quote[0][k][3] = null;
     }
     if (fn === 'search') {
-      return { provider: 'yahoo', data: { quotes: Object.keys(NAMES).filter((k) => (k + NAMES[k]).toLowerCase().includes(String(q.q || '').toLowerCase())).map((k) => ({ symbol: k, shortname: NAMES[k], exchDisp: 'NASDAQ', typeDisp: 'Equity' })) } };
+      return { provider: 'yahoo', data: { quotes: match(q.q).map((k) => ({ symbol: k, shortname: NAMES[k], exchDisp: exchOf(k), typeDisp: /ETF/.test(NAMES[k]) ? 'ETF' : 'Equity' })) } };
     }
     return { provider: 'yahoo', data: { chart: { result: [result], error: null } } };
   }
@@ -156,13 +174,13 @@ function body(fn, q) {
         bullpenMock: true, symbol: sym, name: NAMES[sym] || sym, price: last.c, open: last.o,
         high: last.h, low: last.l, volume: last.v, prevClose: prev.c,
         change: +(last.c - prev.c).toFixed(4), changePct: +((last.c / prev.c - 1) * 100).toFixed(4),
-        currency: 'USD', asOf: Date.UTC(2026, 9, 9, 20, 0, 0), asOfText: '2026-10-09', kind: 'eod',
+        currency: curOf(sym), asOf: Date.UTC(2026, 9, 9, 20, 0, 0), asOfText: '2026-10-09', kind: 'eod',
         marketStatus: 'closed',
       },
     };
   }
   if (fn === 'series') return { provider: 'mock', data: { bullpenMock: true, bars: bars(sym, n, stepMin), tz: 'UTC' } };
-  return { provider: 'mock', data: { bullpenMock: true, results: Object.keys(NAMES).filter((k) => (k + NAMES[k]).toLowerCase().includes(String(q.q || '').toLowerCase())).map((k) => ({ symbol: k, name: NAMES[k], type: 'Equity', region: 'United States', currency: 'USD' })) } };
+  return { provider: 'mock', data: { bullpenMock: true, results: match(q.q).map((k) => ({ symbol: k, name: NAMES[k], type: 'Equity', region: exchOf(k), currency: curOf(k) })) } };
 }
 
 http.createServer((req, res) => {

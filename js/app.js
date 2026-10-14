@@ -76,6 +76,8 @@
     calMonth: null, calSel: null, calFollow: true, calWatch: false,
     newMarket: 'sim', liveBusy: false, liveInterval: '1day',
   };
+  // State for the search-the-world panel.
+  const wsUI = { busy: false, results: null, error: '', forQuery: null };
 
   const S = () => E.S;
   const isEquity = (m) => ['Stock', 'International', 'UK Share', 'REIT', 'BDC', 'MLP', 'Penny Stock', 'Investment Trust'].includes(m.type);
@@ -641,9 +643,108 @@
     return out;
   }
 
+  /* ---------- every exchange in the world ----------
+   * The built-in list is a few hundred products with real reference prices. The rest of the
+   * world's fifty-odd thousand listings are reached by asking the data provider, which knows
+   * every exchange, rather than by shipping a file of invented fundamentals.
+   *
+   * It needs a data connection for the obvious reason: we cannot know what a share in Tokyo costs
+   * without being told. Without one this says so instead of offering a search that cannot work.
+   */
+  function renderWorldSearch(localCount) {
+    const el = $('worldSearch');
+    if (!el) return;
+    const q = ui.q.trim();
+    // Results belong to the query that produced them. Changing the search throws them away rather
+    // than leaving a Swiss listing sitting under a search for something else entirely.
+    if (wsUI.forQuery != null && wsUI.forQuery !== q) { wsUI.results = null; wsUI.error = ''; wsUI.forQuery = null; }
+    // Only worth offering once they have typed something a local filter did not satisfy.
+    el.hidden = q.length < 2;
+    if (el.hidden) { wsUI.results = null; wsUI.forQuery = null; return; }
+    const st = window.Quotes.state();
+    $('worldSub').textContent = localCount
+      ? `${localCount} here match “${q}”`
+      : `Nothing here matches “${q}”`;
+    const btn = $('worldBtn');
+    btn.disabled = !st.configured || wsUI.busy;
+    btn.textContent = wsUI.busy ? 'Searching…' : `Search every exchange for “${q.slice(0, 20)}”`;
+    $('worldNote').textContent = st.configured
+      ? `via ${st.providerName}`
+      : 'Needs a data connection — set one up under Settings → Real market data.';
+    $('worldResults').innerHTML = wsUI.results == null ? '' : worldResultsHTML();
+  }
+
+  function worldResultsHTML() {
+    const list = wsUI.results;
+    if (!list || !list.length) return `<p class="world-empty">${esc(wsUI.error || 'No matches anywhere.')}</p>`;
+    return list.map((r) => {
+      const have = !!E.BY[r.symbol];
+      return `<div class="world-row">
+        <span class="wr-id"><b>${esc(r.symbol)}</b><span>${esc(r.name || '')}</span></span>
+        <span class="wr-meta">${esc([r.type, r.region].filter(Boolean).join(' · '))}</span>
+        ${have
+          ? '<span class="muted small">Already listed</span>'
+          : `<button class="btn btn-sm" type="button" data-world="${esc(r.symbol)}">List it</button>`}
+      </div>`;
+    }).join('');
+  }
+
+  async function doWorldSearch() {
+    const q = ui.q.trim();
+    if (q.length < 2 || wsUI.busy) return;
+    wsUI.busy = true; wsUI.error = ''; wsUI.results = null; wsUI.forQuery = q;
+    renderWorldSearch(marketRows().length);
+    const list = await window.Quotes.search(q);
+    wsUI.busy = false;
+    // The box may have moved on while the request was in flight; if so, these are not its results.
+    if (ui.q.trim() !== q) { renderWorldSearch(marketRows().length); return; }
+    const st = window.Quotes.state();
+    if (list == null) {
+      wsUI.results = [];
+      wsUI.error = st.lastError ? st.lastError.message : 'The search could not be run.';
+    } else {
+      wsUI.results = list.slice(0, 15);
+      if (!list.length) wsUI.error = `Nothing on any exchange matched “${q}”.`;
+    }
+    renderWorldSearch(marketRows().length);
+  }
+
+  /*
+   * List one. The price has to come from the provider: a share with no price is not tradeable,
+   * and inventing one for a real company is the one thing this app will not do.
+   */
+  async function listWorldSymbol(sym, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Fetching…'; }
+    const q = await window.Quotes.quote(sym, { force: true });
+    const st = window.Quotes.state();
+    if (!q) {
+      if (btn) { btn.disabled = false; btn.textContent = 'List it'; }
+      return toast(st.lastError ? st.lastError.message : `No price came back for ${sym}.`, 'err');
+    }
+    const hit = (wsUI.results || []).find((r) => r.symbol === sym) || {};
+    const res = E.listWorld({
+      symbol: sym,
+      name: q.name || hit.name || sym,
+      price: q.price,
+      currency: q.currency || hit.currency || 'USD',
+      exchange: q.exchange || hit.region || 'World',
+      type: hit.type || '',
+    });
+    if (!res.ok) {
+      if (btn) { btn.disabled = false; btn.textContent = 'List it'; }
+      return toast(res.msg, 'err');
+    }
+    save();
+    renderSelects();
+    refresh();
+    renderWorldSearch(marketRows().length);
+    toast(`${res.m.n} (${res.m.t}) is now listed, priced in ${res.m.cur} on ${res.m.exch}.`);
+  }
+
   function renderMarkets() {
     const rows = marketRows();
     $('resultCount').textContent = `${rows.length.toLocaleString()} ${rows.length === 1 ? 'product' : 'products'}`;
+    renderWorldSearch(rows.length);
     const shown = rows.slice(0, ui.limit);
     const s = S();
     const cur = chartTicker();
@@ -2002,6 +2103,8 @@
       }
       const cancel = e.target.closest('[data-cancel]');
       if (cancel) { E.cancelOrder(+cancel.dataset.cancel); save(); refresh(); toast('Order cancelled'); return; }
+      const w = e.target.closest('[data-world]');
+      if (w) { e.stopPropagation(); listWorldSymbol(w.dataset.world, w); return; }
       const exp = e.target.closest('[data-export]');
       if (exp) {
         e.stopPropagation();
@@ -2253,6 +2356,7 @@
     });
     $('setMarket').addEventListener('change', (e) => { ui.newMarket = e.target.value; renderMarketNote(); });
     $('liveRefresh').addEventListener('click', () => refreshLive(true));
+    $('worldBtn').addEventListener('click', doWorldSearch);
     $('setFractional').addEventListener('change', (e) => { S().settings.fractional = e.target.checked; save(); });
     $('setDrip').addEventListener('change', (e) => { S().settings.drip = e.target.checked; save(); });
     $('setStamp').addEventListener('change', (e) => { S().settings.stamp = e.target.checked; save(); });

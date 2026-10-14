@@ -737,7 +737,28 @@ NTES|NetEase (ADR)|150|1.8|n
 TCEHY|Tencent Holdings (ADR, OTC)|75|0.9|A
 NSRGY|Nestle (ADR, OTC)|95|3.3|A
 LVMUY|LVMH (ADR, OTC)|120|2|S
-`,
+LYG|Lloyds Banking Group (ADR)|4|4.5|S
+BCS|Barclays (ADR)|18|2.6|S
+NGG|National Grid (ADR)|70|4.5|S
+RELX|RELX (ADR)|50|1.8|S
+E|Eni (ADR)|32|6|S
+EQNR|Equinor (ADR)|25|5.5|
+WDS|Woodside Energy (ADR)|17|6.5|S
+PBR|Petrobras (ADR)|14|12|S
+ITUB|Itau Unibanco (ADR)|6.5|4|M
+BBD|Banco Bradesco (ADR)|2.6|5|M
+AMX|America Movil (ADR)|18|2.5|S
+BNS|Bank of Nova Scotia|55|5.8|
+SU|Suncor Energy|40|4.2|
+RHHBY|Roche Holding (ADR, OTC)|40|3.3|A
+ABB|ABB (ADR)|55|1.8|A
+PHG|Philips (ADR)|25|2|A
+SMFG|Sumitomo Mitsui Financial (ADR)|15|3.5|S
+HMC|Honda Motor (ADR)|30|4|S
+WIT|Wipro (ADR)|3|0.5|A
+IBN|ICICI Bank (ADR)|30|0.7|A
+LI|Li Auto (ADR)|25|0|Ah
+XPEV|XPeng (ADR)|20|0|Ah`,
 
   // London Stock Exchange (priced in GBP, pounds). UK purchases pay 0.5% stamp duty.
   uk: `
@@ -797,6 +818,73 @@ ISF.L|iShares Core FTSE 100 ETF|8.9|3.5|
 VUSA.L|Vanguard S&P 500 UCITS ETF|98|1|
 VWRL.L|Vanguard FTSE All-World UCITS ETF|130|1.5|
 VUKE.L|Vanguard FTSE 100 UCITS ETF|40|3.6|
+STAN.L|Standard Chartered|12.5|2|S
+ANTO.L|Antofagasta|22|1.5|S
+SGE.L|Sage Group|12|1.8|S
+WTB.L|Whitbread|29|2.5|S
+SN.L|Smith & Nephew|11|2.5|
+SMIN.L|Smiths Group|22|1.9|S
+HLMA.L|Halma|30|0.9|S
+CRDA.L|Croda International|30|3.5|S
+BNZL.L|Bunzl|24|2.5|S
+SPX.L|Spirax Group|65|2.3|S
+BDEV.L|Barratt Redrow|4|5|S
+BKG.L|Berkeley Group|38|2.5|S
+HWDN.L|Howden Joinery|8|2.5|S
+BLND.L|British Land (REIT)|3.8|6|
+ADM.L|Admiral Group|32|4.5|S
+HSX.L|Hiscox|12|2.5|S
+BEZ.L|Beazley|8.5|2|S
+SDR.L|Schroders|3.5|6|S
+OCDO.L|Ocado Group|3|0|A
+AUTO.L|Auto Trader Group|7.5|1.3|S
+RMV.L|Rightmove|7|1.4|S
+ITRK.L|Intertek Group|48|2.8|S
+DCC.L|DCC|50|4|S
+KGF.L|Kingfisher|2.8|4.5|S
+WISE.L|Wise|10|0|A
+FRES.L|Fresnillo|12|1.5|S
+MNDI.L|Mondi|11|4.5|S
+PSON.L|Pearson|11|2.4|S
+IHG.L|InterContinental Hotels Group|85|1.5|S
+RTO.L|Rentokil Initial|3.5|2.5|S
+WEIR.L|Weir Group|24|1.6|S
+MRO.L|Melrose Industries|5|0.5|S
+CCH.L|Coca-Cola HBC|38|2.5|A
+ENT.L|Entain|7|2|S
+HIK.L|Hikma Pharmaceuticals|19|2|S
+BAB.L|Babcock International|8|1|S
+QQ.L|QinetiQ|4.5|2.2|S
+TATE.L|Tate & Lyle|5.5|4|S
+GAW.L|Games Workshop|140|4|S
+
+IUKD.L|iShares UK Dividend UCITS ETF|10.5|5.5|
+VMID.L|Vanguard FTSE 250 UCITS ETF|33|3.2|
+VHYL.L|Vanguard FTSE All-World High Dividend Yield UCITS ETF|62|3.1|
+VEVE.L|Vanguard FTSE Developed World UCITS ETF|76|1.6|
+VFEM.L|Vanguard FTSE Emerging Markets UCITS ETF|55|2.7|
+SWDA.L|iShares Core MSCI World UCITS ETF|95|1.3|S
+IWDG.L|iShares Core MSCI World GBP Hedged UCITS ETF|8|1.5|S
+HMWO.L|HSBC MSCI World UCITS ETF|32|1.5|S
+EQQQ.L|Invesco EQQQ Nasdaq-100 UCITS ETF|450|0.4|S
+IUSA.L|iShares Core S&P 500 UCITS ETF|45|1.2|
+IGLT.L|iShares Core UK Gilts UCITS ETF|10.3|4.1|S
+IGLS.L|iShares UK Gilts 0-5yr UCITS ETF|5.1|3.9|S
+INXG.L|iShares Index-Linked Gilts UCITS ETF|12|1.5|S
+SGLN.L|iShares Physical Gold ETC|45|0|A
+VAGP.L|Vanguard Global Aggregate Bond GBP Hedged UCITS ETF|22|3.5|
+
+FCIT.L|F&C Investment Trust|11.5|1.3|
+ATST.L|Alliance Witan Investment Trust|13|2|
+JGGI.L|JPMorgan Global Growth & Income Investment Trust|5.7|3.6|
+MYI.L|Murray International Investment Trust|2.7|4.3|
+HFEL.L|Henderson Far East Income Investment Trust|2.3|11|
+BRWM.L|BlackRock World Mining Investment Trust|5.9|6|
+PNL.L|Personal Assets Investment Trust|5|1.2|
+RCP.L|RIT Capital Partners Investment Trust|19|2|
+TMPL.L|Temple Bar Investment Trust|3|3.8|
+EDIN.L|Edinburgh Investment Trust|7.8|3.6|
+MRCH.L|Merchants Investment Trust|6.1|4.9|
 `,
 
   // Small-cap and penny stocks: cheap, thin, and very volatile.
