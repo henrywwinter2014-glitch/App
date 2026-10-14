@@ -1113,3 +1113,13 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .wl-alert.done { color: var(--muted); }
 .wl-new { border-left: 3px solid var(--accent); }
 .wl-tbl td { vertical-align: middle; }
+.mkt-status { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 8px 2px 16px; border-radius: 999px; position: relative; white-space: nowrap; cursor: help; border: 1px solid var(--line-strong); color: var(--muted); }
+.mkt-status::before { content: ""; position: absolute; left: 7px; top: 50%; transform: translateY(-50%); width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.mkt-status.open { color: var(--gain); border-color: color-mix(in srgb, var(--gain) 40%, transparent); }
+.mkt-status.shut { color: var(--muted); }
+.news-src { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+#newsList .d small { display: block; font-size: 10px; color: var(--muted); font-weight: 400; }
+.ev.ev-econ { background: var(--accent-soft); color: var(--accent); }
+.ev.ev-holiday { background: var(--surface-2); color: var(--muted); }
+.ev-dot.ev-econ { background: var(--accent); }
+.ev-dot.ev-holiday { background: var(--line-strong); }

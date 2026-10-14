@@ -56,9 +56,64 @@
   /* ---------- dates ---------- */
   function parseISO(s) { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
   function iso(d) { return d.toISOString().slice(0, 10); }
+  /* ---------- the trading calendar ---------- */
+  // US exchange holidays. Dates are computed rather than listed, so any year works.
+  const nthWd = (y, m, wd, n) => { const d = new Date(Date.UTC(y, m, 1)); d.setUTCDate(1 + ((wd - d.getUTCDay() + 7) % 7) + (n - 1) * 7); return d; };
+  const lastWd = (y, m, wd) => { const d = new Date(Date.UTC(y, m + 1, 0)); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() - wd + 7) % 7)); return d; };
+  function easter(y) {
+    const a = y % 19, b = Math.floor(y / 100), c = y % 100;
+    const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const mo = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(Date.UTC(y, mo - 1, day));
+  }
+  // A holiday falling at a weekend is observed on the nearest weekday, as the exchanges do.
+  function observed(d) {
+    const x = new Date(d);
+    if (x.getUTCDay() === 6) x.setUTCDate(x.getUTCDate() - 1);
+    if (x.getUTCDay() === 0) x.setUTCDate(x.getUTCDate() + 1);
+    return x;
+  }
+  const holidayCache = {};
+  function holidays(y) {
+    if (holidayCache[y]) return holidayCache[y];
+    const gf = easter(y); gf.setUTCDate(gf.getUTCDate() - 2);
+    const list = [
+      [observed(new Date(Date.UTC(y, 0, 1))), 'New Year\u2019s Day'],
+      [nthWd(y, 0, 1, 3), 'Martin Luther King Jr. Day'],
+      [nthWd(y, 1, 1, 3), 'Presidents\u2019 Day'],
+      [gf, 'Good Friday'],
+      [lastWd(y, 4, 1), 'Memorial Day'],
+      [observed(new Date(Date.UTC(y, 5, 19))), 'Juneteenth'],
+      [observed(new Date(Date.UTC(y, 6, 4))), 'Independence Day'],
+      [nthWd(y, 8, 1, 1), 'Labor Day'],
+      [nthWd(y, 10, 4, 4), 'Thanksgiving'],
+      [observed(new Date(Date.UTC(y, 11, 25))), 'Christmas Day'],
+    ];
+    const out = {};
+    for (const [d, name] of list) out[iso(d)] = name;
+    holidayCache[y] = out;
+    return out;
+  }
+  const holidayOn = (ds) => holidays(+ds.slice(0, 4))[ds] || null;
+  const isWeekend = (ds) => { const w = parseISO(ds).getUTCDay(); return w === 0 || w === 6; };
+  // In a replay the recorded calendar already knows which days traded.
+  function isTradingDay(ds) {
+    if (S && S.mode === 'real' && RD() && RD().ready) return RD().indexOf(ds) >= 0;
+    return !isWeekend(ds) && !holidayOn(ds);
+  }
+  function marketStatus(ds) {
+    const d = ds || (S ? S.date : '');
+    if (S && S.mode === 'real') return { open: true, why: 'Recorded trading day', holiday: null };
+    if (holidayOn(d)) return { open: false, why: holidayOn(d), holiday: holidayOn(d) };
+    if (isWeekend(d)) return { open: false, why: 'Weekend', holiday: null };
+    return { open: true, why: 'Trading day', holiday: null };
+  }
+
   function nextTradingDay(s) {
     const d = parseISO(s);
-    do { d.setUTCDate(d.getUTCDate() + 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+    do { d.setUTCDate(d.getUTCDate() + 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6 || holidayOn(iso(d)));
     return iso(d);
   }
   function prevTradingDay(s) {
@@ -536,6 +591,30 @@
    * Projected ex-dividend dates, pay dates and earnings days for the given tickers,
    * from the day after today up to and including `toISO`.
    */
+  /*
+   * The recurring economic dates a trader plans around. Simulated, but on a realistic rhythm:
+   * inflation mid-month, jobs on the first Friday, the central bank roughly every six weeks.
+   */
+  function econEvents(fromISO, toISO) {
+    const out = [];
+    const y0 = +fromISO.slice(0, 4), y1 = +toISO.slice(0, 4);
+    for (let y = y0; y <= y1; y++) {
+      for (let m = 0; m < 12; m++) {
+        const cpi = observed(new Date(Date.UTC(y, m, 13)));
+        const jobs = nthWd(y, m, 5, 1);
+        if (iso(cpi) >= fromISO && iso(cpi) <= toISO) out.push({ d: iso(cpi), kind: 'econ', name: 'Inflation figures', note: 'Monthly consumer price index' });
+        if (iso(jobs) >= fromISO && iso(jobs) <= toISO) out.push({ d: iso(jobs), kind: 'econ', name: 'Jobs report', note: 'Monthly employment figures' });
+        if (m % 2 === 1) {
+          const fed = nthWd(y, m, 3, 3);
+          if (iso(fed) >= fromISO && iso(fed) <= toISO) out.push({ d: iso(fed), kind: 'econ', name: 'Interest rate decision', note: 'The central bank sets rates' });
+        }
+      }
+      const hs = holidays(y);
+      for (const d in hs) if (d >= fromISO && d <= toISO) out.push({ d, kind: 'holiday', name: hs[d], note: 'Market closed' });
+    }
+    return out.sort((a, b) => (a.d < b.d ? -1 : 1));
+  }
+
   function futureEvents(tickers, toISO, opts = {}) {
     if (S.mode === 'real') return futureEventsReal(tickers, toISO);
     const ms = tickers.map((t) => BY[t]).filter(Boolean);
@@ -600,8 +679,24 @@
   }
 
   /* ---------- news ---------- */
+  // Where a headline came from, so nothing reads as though a real newsroom filed it.
+  const NEWS_SOURCE = {
+    macro: 'Bullpen macro desk (simulated)',
+    earnings: 'Company results (simulated)',
+    dividend: 'Company announcement (simulated)',
+    split: 'Company announcement (simulated)',
+    order: 'Your account',
+    econ: 'Economic calendar (simulated)',
+  };
+  // A plausible publication time of day, stable for a given headline.
+  function newsTime(id, kind) {
+    const slot = kind === 'earnings' ? 16 : kind === 'macro' || kind === 'econ' ? 8 : 9;
+    const mins = (id * 37) % 60;
+    return `${String(slot + ((id * 7) % 3)).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+  }
   function addNews(kind, text, t, chg) {
-    S.news.unshift({ id: S.nextId++, d: S.date, kind, text, t: t || null, chg: chg ?? null });
+    const id = S.nextId++;
+    S.news.unshift({ id, d: S.date, kind, text, t: t || null, chg: chg ?? null, src: NEWS_SOURCE[kind] || 'Bullpen (simulated)', at: newsTime(id, kind) });
     if (S.news.length > 400) S.news.length = 400;
   }
 
@@ -1316,6 +1411,7 @@
     addTradingDays, nextTradingDay, parseISO, addNews,
     perPayment, payoutsPerYear, payLagOf, divSpeed, futureEvents, tradingDaysUntil,
     halfSpread, dividendTax, taxRateEstimate, isOrdinaryIncome, ACCOUNTS,
+    holidays, holidayOn, isTradingDay, marketStatus, econEvents,
     bars, barAt, lastBar, typicalVolume, impact,
     realOn, hasReal, listed, tradeable, realBounds, realStartIndex,
     availableCash, availableQty, reservedCash, reservedQty,

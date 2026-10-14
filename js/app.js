@@ -103,6 +103,16 @@
     $('simDate').textContent = longDate(s.date);
     const ds = E.divSpeed();
     $('simDay').textContent = `Day ${s.day + 1}${ds !== 'normal' ? ` · dividends ${ds}` : ''}`;
+    const ms = E.marketStatus();
+    const mk = $('mktStatus');
+    if (mk) {
+      mk.hidden = false;
+      mk.className = 'mkt-status ' + (ms.open ? 'open' : 'shut');
+      mk.textContent = ms.open ? 'Market open' : `Closed · ${ms.why}`;
+      mk.title = ms.open
+        ? 'US exchanges, 9:30 to 16:00 New York time. Bullpen moves one whole trading day at a time.'
+        : `No trading on this day: ${ms.why}.`;
+    }
     const badge = $('modeBadge');
     if (badge) {
       const real = E.realOn();
@@ -714,7 +724,7 @@
     const mine = (t) => t && (s.holdings[t] || s.watch.includes(t));
     const items = s.news.filter((n) => ui.newsFilter === 'all' || mine(n.t)).slice(0, 200);
     const label = { macro: 'Markets', earnings: 'Earnings', dividend: 'Dividends', split: 'Split', order: 'Orders', listing: 'Listing' };
-    $('newsList').innerHTML = items.length ? items.map((n) => `<li${mine(n.t) ? ' class="mine"' : ''}><span class="d">${C.shortDate(n.d)}</span><span><span class="k">${label[n.kind] || n.kind}</span>${esc(n.text)}${n.t ? ` <a data-open="${n.t}">${esc(n.t)}</a>` : ''}</span><span class="num small ${n.chg != null ? cls(n.chg) : ''}">${n.chg != null && n.kind === 'earnings' ? pct(n.chg) : ''}</span></li>`).join('')
+    $('newsList').innerHTML = items.length ? items.map((n) => `<li${mine(n.t) ? ' class="mine"' : ''}><span class="d">${C.shortDate(n.d)}${n.at ? `<small>${n.at}</small>` : ''}</span><span><span class="k">${label[n.kind] || n.kind}</span>${esc(n.text)}${n.t ? ` <a data-open="${n.t}">${esc(n.t)}</a>` : ''}<small class="news-src">${esc(n.src || 'Bullpen (simulated)')}</small></span><span class="num small ${n.chg != null ? cls(n.chg) : ''}">${n.chg != null && n.kind === 'earnings' ? pct(n.chg) : ''}</span></li>`).join('')
       : `<li><span></span><span class="muted">No news about your holdings or watchlist yet.</span><span></span></li>`;
 
     const tx = s.tx.slice(0, 200);
@@ -1267,9 +1277,10 @@
   /* ---------- calendar ---------- */
   function calEvents(fromISO, toISO) {
     const s = S();
+    const extra = E.econEvents(fromISO, toISO).map((e) => ({ d: e.d, kind: e.kind, name: e.name, note: e.note }));
     const held = Object.keys(s.holdings);
     const tickers = ui.calWatch ? [...new Set([...held, ...s.watch])] : held;
-    const ev = [];
+    const ev = extra.slice();
     const within = (d) => d && d >= fromISO && d <= toISO;
     for (const d of s.divLog) {
       if (d.d < fromISO && (!d.ex || d.ex < fromISO)) break;   // divLog is newest first
@@ -1331,7 +1342,7 @@
       const list = byDay[ds] || [];
       const cash = list.filter((e) => e.kind === 'pay' || e.kind === 'paid').reduce((a, e) => a + e.amt, 0);
       const cls2 = ['cal-cell', wd > 4 ? 'wk' : '', ds === s.date ? 'today' : '', ds < s.date ? 'past' : '', ds === ui.calSel ? 'sel' : ''].filter(Boolean).join(' ');
-      const shown = list.slice(0, 3).map((e) => `<span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${esc(e.t)}${e.kind === 'ex' ? ' ex' : e.kind === 'earn' ? ' earns' : ''}</span>`).join('');
+      const shown = list.slice(0, 3).map((e) => `<span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${e.t ? `${esc(e.t)}${e.kind === 'ex' ? ' ex' : e.kind === 'earn' ? ' earns' : ''}` : esc(e.kind === 'holiday' ? 'Closed' : e.name)}</span>`).join('');
       const dots = [...new Set(list.map((e) => e.kind))].map((k) => `<i class="ev-dot ev-${k}"></i>`).join('');
       html += `<button type="button" class="${cls2}" data-day="${ds}" aria-label="${longDate(ds)}${list.length ? `, ${list.length} events` : ''}">
         <span class="cal-num">${dnum}${ds === s.date ? '<em>today</em>' : ''}</span>
@@ -1355,17 +1366,19 @@
         : e.qty ? `About <b>${money(e.amt)}</b> if you still own ${qtyFmt(+e.qty.toFixed(4))} shares on ${C.shortDate(e.ex)}` : `Pays ${per}. Own shares on ${C.shortDate(e.ex)} to get it.`;
       case 'ex': return e.past ? `Went ex-dividend: ${per}` : `Ex-dividend day: ${per}. You must own the shares <b>before</b> this day.`;
       case 'earn': return `Quarterly earnings. ${m && m.vol > 0.45 ? 'Expect a big move either way.' : 'The price can jump either way.'}`;
+      case 'econ': return `${esc(e.note)}. Figures like this move the whole market, not one company.`;
+      case 'holiday': return 'US exchanges are shut. No prices move and nothing trades.';
     }
     return '';
   }
-  const EV_LABEL = { paid: 'Paid', pay: 'Payday', ex: 'Ex-dividend', earn: 'Earnings' };
+  const EV_LABEL = { paid: 'Paid', pay: 'Payday', ex: 'Ex-dividend', earn: 'Earnings', econ: 'Economy', holiday: 'Closed' };
 
   function renderCalDay(list) {
     const s = S();
     const ds = ui.calSel;
     const wd = E.parseISO(ds).getUTCDay();
     let body = list.length
-      ? `<ul class="cal-list">${list.map((e) => `<li data-open="${e.t}"><span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${EV_LABEL[e.kind]}${e.est ? ' (est.)' : ''}</span><span><b class="num">${esc(e.t)}</b> <span class="muted">${esc(E.BY[e.t] ? E.BY[e.t].n : '')}</span><br>${evText(e)}</span></li>`).join('')}</ul>`
+      ? `<ul class="cal-list">${list.map((e) => `<li${e.t ? ` data-open="${e.t}"` : ''}><span class="ev ev-${e.kind}${e.est ? ' est' : ''}">${EV_LABEL[e.kind]}${e.est ? ' (est.)' : ''}</span><span>${e.t ? `<b class="num">${esc(e.t)}</b> <span class="muted">${esc(E.BY[e.t] ? E.BY[e.t].n : '')}</span>` : `<b>${esc(e.name || '')}</b>`}<br>${evText(e)}</span></li>`).join('')}</ul>`
       : `<p class="muted">${ds < s.date ? 'Nothing happened for your holdings on this day.' : 'Nothing scheduled for your holdings on this day.'}</p>`;
     let action = '';
     if (ds > s.date) {

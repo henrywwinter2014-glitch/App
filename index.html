@@ -21,6 +21,7 @@
     <div class="clock">
       <div class="clock-date"><span id="simDate">-</span><span class="clock-day" id="simDay"></span></div>
       <span class="mode-badge sim" id="modeBadge" hidden></span>
+      <span class="mkt-status open" id="mktStatus" hidden></span>
       <div class="controls">
         <button class="btn btn-play" id="playBtn" type="button" aria-pressed="false">Play</button>
         <div class="seg speed" id="speedSeg" role="group" aria-label="Speed (trading days per second)">
@@ -252,6 +253,8 @@
           <span><i class="ev-dot ev-paid"></i>Paid</span>
           <span><i class="ev-dot ev-ex"></i>Ex-dividend (own it before this day)</span>
           <span><i class="ev-dot ev-earn"></i>Earnings</span>
+          <span><i class="ev-dot ev-econ"></i>Economy</span>
+          <span><i class="ev-dot ev-holiday"></i>Market closed</span>
           <label class="check"><input type="checkbox" id="calWatch"> Include watchlist</label>
         </div>
         <div class="cal-grid" id="calGrid"></div>
