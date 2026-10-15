@@ -344,8 +344,11 @@
    */
   function scrub(text) {
     let t = String(text == null ? '' : text);
-    if (cfg.key) t = t.split(cfg.key).join('<your key>');
-    return t.replace(/([?&](?:token|apikey|api_key)=)[^&\s"']+/gi, '$1<your key>');
+    // The URL param goes first: replacing the key itself first would leave the
+    // placeholder sitting where a value belongs, and the pattern would then eat
+    // half of it, printing "<your key> key>".
+    t = t.replace(/([?&](?:token|apikey|api_key)=)[^&\s"']+/gi, '$1<your key>');
+    return cfg.key ? t.split(cfg.key).join('<your key>') : t;
   }
 
   function fail(kind, message, extra) {
