@@ -131,6 +131,19 @@
 
   function finish(m) {
     m.h = hash(m.t);
+    /*
+     * Real starting levels, if the user has fetched them.
+     *
+     * The reference prices shipped in data.js are approximate levels written by hand, and they
+     * age: a list put together when Apple was $230 is simply wrong once it is $343. Refreshing
+     * them from the data provider makes a new simulated game start where the market actually is.
+     *
+     * This only moves the seed. It cannot disturb a game in progress, because an existing save
+     * already has its own price history and initSecState is never re-run for a product that has
+     * one.
+     */
+    const ref = S && S.settings && S.settings.refPrices;
+    if (ref && ref[m.t] > 0) { m.base = ref[m.t]; m.refreshed = true; }
     m.q = m.y > 0 ? m.q : 0;
     m.rate = m.rate || 0;
     m.carry = (m.y / 100) / TD;
@@ -708,6 +721,12 @@
 
   function newGame(startCash, opts) {
     S = freshState(startCash);
+    /*
+     * Settings first, because the market is seeded from them -- refreshed starting prices in
+     * particular. The caller used to restore them after newGame returned, by which time the
+     * prices had already been chosen from the built-in levels.
+     */
+    if (opts && opts.settings) S.settings = Object.assign(S.settings, opts.settings);
     const wantReal = opts && opts.mode === 'real' && RD() && RD().ready;
     const wantLive = opts && opts.mode === 'live';
     if (wantReal) {
@@ -1883,6 +1902,29 @@
     return true;
   }
 
+  /*
+   * Store refreshed starting prices. Kept in settings rather than in the market data so they
+   * survive a new game -- the whole point is that the next game starts from today's levels.
+   */
+  function setRefPrices(map, when) {
+    if (!S.settings) return { ok: false, msg: 'No game loaded.' };
+    const out = Object.assign({}, S.settings.refPrices || {});
+    let n = 0;
+    for (const t in map || {}) {
+      const v = +map[t];
+      if (BY[t] && v > 0 && isFinite(v)) { out[t] = v; n++; }
+    }
+    S.settings.refPrices = out;
+    S.settings.refPricesAt = when || Date.now();
+    return { ok: true, n, total: Object.keys(out).length };
+  }
+  function clearRefPrices() {
+    if (!S.settings) return;
+    delete S.settings.refPrices;
+    delete S.settings.refPricesAt;
+  }
+  const refPriceCount = () => Object.keys((S && S.settings && S.settings.refPrices) || {}).length;
+
   function serialize() {
     return JSON.stringify(S);
   }
@@ -1900,6 +1942,7 @@
     realOn, hasReal, listed, tradeable, realBounds, realStartIndex,
     liveOn, liveOf, livePx, liveSym, liveSupported, liveFresh, liveBars, syncLive, unpricedHoldings,
     deposit, withdraw, netContributions,
+    setRefPrices, clearRefPrices, refPriceCount,
     ORDER_SOURCE,
     availableCash, availableQty, reservedCash, reservedQty, fmtQtyExact,
     ALERT_KINDS, addAlert, removeAlert, alertText,

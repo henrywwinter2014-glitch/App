@@ -104,6 +104,8 @@ For Vercel or Netlify use `server/api/market-data.js` instead and set `PROVIDER`
 | Alpha Vantage | free key | End of day on the free plan | 5 a minute, 25 a day | Yes |
 | Twelve Data | free key | Delayed, about 15 minutes for US equities | 8 a minute | Yes |
 
+**Real starting prices.** The built-in list ships with approximate reference levels written by hand, and they age — a list put together when Apple was $230 reads oddly once it is $343. Under **Settings → Real market data**, *Fetch real starting prices* walks the whole universe through your proxy, slowly enough to stay inside a free plan's rate limit, and records what comes back. Your next **simulated** game then starts from today's actual prices. It never touches a game already in progress, and it reports what it could not price: a free plan typically covers US shares and nothing else, so London lines, mutual funds and preferreds keep their built-in levels.
+
 **Finnhub** gives the freshest free quotes and the most generous call allowance, but its historical candle endpoint is not on the free plan: you get live prices and no chart. The app handles that honestly — the chart states the provider's own refusal and says live prices still work — but if you want charts on a free key, use Yahoo.
 
 Real-time needs a paid plan on Alpha Vantage or Twelve Data. Bullpen holds itself to these limits, tells you how much of the budget is spent, and labels every price with which kind it is. Intraday candles appear only where the provider supports them.

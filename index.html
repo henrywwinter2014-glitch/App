@@ -531,6 +531,20 @@
           <p class="note" id="dataMsg" role="status" aria-live="polite"></p>
         </div>
         <div id="dataState" class="data-state"></div>
+        <!--
+          Bringing the whole built-in list up to today's prices. The reference levels in data.js
+          are approximate and they age; this replaces them with real ones for every product the
+          provider covers, so a new simulated game starts where the market actually is.
+        -->
+        <div class="ref-prices">
+          <div class="ac-row"><b>Starting prices for the simulated market</b><span class="muted small" id="refState"></span></div>
+          <p class="note">The built-in list ships with approximate reference levels, and they go out of date. Fetch the real ones and your next simulated game starts from today's prices. It does not touch a game already in progress.</p>
+          <div class="row2">
+            <button class="btn" id="refBtn" type="button">Fetch real starting prices</button>
+            <button class="btn btn-ghost" id="refClear" type="button" hidden>Forget them</button>
+          </div>
+          <p class="note" id="refMsg" role="status" aria-live="polite"></p>
+        </div>
       </div>
       <div class="card about">
         <h2>How the simulation works</h2>

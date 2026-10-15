@@ -1002,6 +1002,7 @@
     $('setMarket').value = ui.newMarket || 'sim';
     renderMarketNote();
     renderDataState();
+    renderRefState();
   }
 
   /* ---------- real market data ----------
@@ -1151,6 +1152,72 @@
     } else {
       msg.textContent = st.lastError ? st.lastError.message : 'Nothing came back, and no reason was given.';
       msg.className = 'note msg err';
+    }
+    renderSettings();
+  }
+
+  /* ---------- real starting prices ----------
+   * Walks the whole built-in list through the provider, slowly enough to stay inside a free
+   * plan's rate limit, and records what comes back as the seed for the next simulated game.
+   *
+   * It reports what it could NOT price as well as what it could: a free plan typically covers US
+   * shares and nothing else, so London lines, mutual funds and preferreds come back refused. That
+   * is worth saying plainly rather than leaving someone to wonder why Vodafone did not move.
+   */
+  const refUI = { busy: false, stop: false };
+
+  function renderRefState() {
+    const n = E.refPriceCount();
+    const at = S().settings.refPricesAt;
+    const el = $('refState');
+    if (el) el.textContent = n ? `${n} product${n === 1 ? '' : 's'} refreshed${at ? ` ${agoShort(Date.now() - at)}` : ''}` : 'using the built-in levels';
+    if ($('refClear')) $('refClear').hidden = !n;
+    if ($('refBtn')) $('refBtn').textContent = refUI.busy ? 'Stop' : n ? 'Fetch again' : 'Fetch real starting prices';
+  }
+
+  async function fetchRefPrices() {
+    if (refUI.busy) { refUI.stop = true; return; }
+    const st = window.Quotes.state();
+    const msg = $('refMsg');
+    if (!st.configured) {
+      msg.textContent = 'This needs a data connection. Set your proxy address above first.';
+      msg.className = 'note msg err';
+      return;
+    }
+    refUI.busy = true; refUI.stop = false;
+    renderRefState();
+    const list = E.U.filter((m) => E.liveSupported(m.t)).map((m) => m.t);
+    const got = {};
+    const failed = [];
+    let done = 0;
+    for (const t of list) {
+      if (refUI.stop) break;
+      const lim = window.Quotes.state().limits;
+      if (lim.roomDay === 0) { failed.push(t); break; }
+      const q = await window.Quotes.quote(E.liveSym(t), { force: true });
+      done++;
+      if (q && q.price > 0) got[t] = q.price; else failed.push(t);
+      if (done % 5 === 0 || done === list.length) {
+        msg.innerHTML = `Fetched <b>${Object.keys(got).length}</b> of ${done} tried${failed.length ? `, ${failed.length} not covered` : ''}… <span class="muted">${list.length - done} to go</span>`;
+        msg.className = 'note msg';
+        renderRefState();
+      }
+      // A beat between calls so a 60-a-minute key is never pushed over.
+      await new Promise((r) => setTimeout(r, 1100));
+    }
+    refUI.busy = false;
+    const res = E.setRefPrices(got);
+    save();
+    renderRefState();
+    const stopped = refUI.stop ? ' Stopped early.' : '';
+    if (!res.n) {
+      msg.textContent = `Nothing could be priced.${stopped} ${failed.length ? `${st.providerName} does not cover these on your plan.` : ''}`;
+      msg.className = 'note msg err';
+    } else {
+      msg.innerHTML = `Saved <b>${res.n}</b> real starting prices.${stopped} ${failed.length
+        ? `${failed.length} could not be priced — ${esc(st.providerName)} does not cover them on your plan (typically London lines, mutual funds and preferreds). Those keep their built-in levels.`
+        : ''} Your next simulated game starts from these.`;
+      msg.className = 'note msg ok';
     }
     renderSettings();
   }
@@ -2390,6 +2457,12 @@
     $('setMarket').addEventListener('change', (e) => { ui.newMarket = e.target.value; renderMarketNote(); });
     $('liveRefresh').addEventListener('click', () => refreshLive(true));
     $('worldBtn').addEventListener('click', doWorldSearch);
+    $('refBtn').addEventListener('click', fetchRefPrices);
+    $('refClear').addEventListener('click', () => {
+      E.clearRefPrices(); save(); renderRefState();
+      $('refMsg').textContent = 'Forgotten. New games go back to the built-in reference levels.';
+      $('refMsg').className = 'note msg';
+    });
     $('setFractional').addEventListener('change', (e) => { S().settings.fractional = e.target.checked; save(); });
     $('setDrip').addEventListener('change', (e) => { S().settings.drip = e.target.checked; save(); });
     $('setStamp').addEventListener('change', (e) => { S().settings.stamp = e.target.checked; save(); });
@@ -2463,9 +2536,10 @@
      */
     const academy = S() && S().academy;
     const settings = S() && Object.assign({}, S().settings);
-    E.newGame(cash, opts);
+    // Settings go in through newGame so they are in place before the market is built: the
+    // refreshed starting prices are read while it is being seeded.
+    E.newGame(cash, settings ? Object.assign({}, opts, { settings }) : opts);
     if (academy) S().academy = academy;
-    if (settings) S().settings = Object.assign(S().settings, settings);
     applyQuoteConfig();
     ui.calMonth = null; ui.calSel = null; ui.calFollow = true;
     save();

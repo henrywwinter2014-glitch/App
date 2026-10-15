@@ -1054,6 +1054,9 @@ canvas { max-width: 100%; }
  */
 html, body { overflow-x: clip; }
 
+.ref-prices { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 10px; }
+.ref-prices .row2 { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .jr-outcome { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 8px; }
 .jr-outcome .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 8px 16px; margin: 0; }
 .jr-outcome .stats > div { min-width: 0; }

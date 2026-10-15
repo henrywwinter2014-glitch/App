@@ -14,10 +14,10 @@
 window.MARKET_DATA = {
   stocks: {
     "Technology": `
-AAPL|Apple|230|0.44|nb
-MSFT|Microsoft|510|0.65|nb
-NVDA|NVIDIA|180|0.02|nbh
-AVGO|Broadcom|330|0.7|nb
+AAPL|Apple|342.96|0.44|nb
+MSFT|Microsoft|533.69|0.65|nb
+NVDA|NVIDIA|221.3|0.02|nbh
+AVGO|Broadcom|346.25|0.7|nb
 ORCL|Oracle|290|0.6|b
 CRM|Salesforce|245|0.7|
 ADBE|Adobe|350|0|n
@@ -99,7 +99,7 @@ IONQ|IonQ|60|0|h
 SNDK|SanDisk|110|0|nh
 `,
     "Communication Services": `
-GOOGL|Alphabet Class A|245|0.35|nb
+GOOGL|Alphabet Class A|347.64|0.35|nb
 GOOG|Alphabet Class C|246|0.35|nb
 META|Meta Platforms|720|0.3|nb
 NFLX|Netflix|1200|0|n
@@ -130,7 +130,7 @@ SIRI|Sirius XM|22|4.9|n
 `,
     "Consumer Discretionary": `
 AMZN|Amazon|225|0|nb
-TSLA|Tesla|430|0|nbh
+TSLA|Tesla|367.16|0|nbh
 HD|Home Depot|410|2.3|b
 MCD|McDonald's|305|2.4|r
 LOW|Lowe's|255|1.9|r
@@ -198,7 +198,7 @@ DKS|Dick's Sporting Goods|220|2.2|
 WMT|Walmart|100|0.9|rb
 COST|Costco|920|0.55|nb
 PG|Procter & Gamble|155|2.7|rb
-KO|Coca-Cola|68|3|rb
+KO|Coca-Cola|91.78|3|rb
 PEP|PepsiCo|145|3.9|nr
 PM|Philip Morris International|160|3.6|
 MO|Altria Group|65|6.4|
@@ -457,7 +457,7 @@ RKLB|Rocket Lab|45|0|nh
 JOBY|Joby Aviation|15|0|h
 `,
     "Energy": `
-XOM|Exxon Mobil|115|3.5|rb
+XOM|Exxon Mobil|177.01|3.5|rb
 CVX|Chevron|155|4.4|rb
 COP|ConocoPhillips|92|3.4|
 EOG|EOG Resources|120|3.3|
@@ -552,7 +552,7 @@ AMT|American Tower|195|3.5|
 EQIX|Equinix|800|2.3|n
 WELL|Welltower|165|1.8|
 SPG|Simon Property Group|180|4.7|
-O|Realty Income|58|5.5|Mr
+O|Realty Income|55.17|5.5|Mr
 PSA|Public Storage|290|4.1|
 DLR|Digital Realty|170|2.9|
 CCI|Crown Castle|95|4.5|
@@ -591,7 +591,7 @@ EPR|EPR Properties|55|6.4|M
   // Fields: t, n, p (price), y (yield %), q (dividends/year), cat (category),
   //   beta (vs market), vol (annual), rate (bond-rate sensitivity), fac (extra factor), track/lev (leveraged)
   funds: [
-    { t: "SPY", n: "SPDR S&P 500 ETF Trust", p: 660, y: 1.1, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
+    { t: "SPY", n: "SPDR S&P 500 ETF Trust", p: 769.6, y: 1.1, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
     { t: "VOO", n: "Vanguard S&P 500 ETF", p: 605, y: 1.2, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
     { t: "IVV", n: "iShares Core S&P 500 ETF", p: 662, y: 1.2, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
     { t: "VTI", n: "Vanguard Total Stock Market ETF", p: 325, y: 1.2, q: 4, cat: "Index ETF", beta: 1.02, vol: 0.165 },
@@ -605,7 +605,7 @@ EPR|EPR Properties|55|6.4|M
     { t: "VTV", n: "Vanguard Value ETF", p: 185, y: 2.1, q: 4, cat: "Index ETF", beta: 0.9, vol: 0.15 },
     { t: "SCHG", n: "Schwab U.S. Large-Cap Growth ETF", p: 31, y: 0.4, q: 4, cat: "Index ETF", beta: 1.15, vol: 0.21 },
     { t: "VEA", n: "Vanguard FTSE Developed Markets ETF", p: 58, y: 2.8, q: 4, cat: "International ETF", beta: 0.8, vol: 0.16, fac: "intl" },
-    { t: "VWO", n: "Vanguard FTSE Emerging Markets ETF", p: 52, y: 2.7, q: 4, cat: "International ETF", beta: 0.8, vol: 0.19, fac: "intl" },
+    { t: "VWO", n: "Vanguard FTSE Emerging Markets ETF", p: 58.9, y: 2.7, q: 4, cat: "International ETF", beta: 0.8, vol: 0.19, fac: "intl" },
     { t: "EFA", n: "iShares MSCI EAFE ETF", p: 92, y: 2.8, q: 2, cat: "International ETF", beta: 0.8, vol: 0.16, fac: "intl" },
     { t: "VXUS", n: "Vanguard Total International Stock ETF", p: 72, y: 2.9, q: 4, cat: "International ETF", beta: 0.8, vol: 0.16, fac: "intl" },
     { t: "ACWI", n: "iShares MSCI ACWI ETF", p: 135, y: 1.6, q: 2, cat: "International ETF", beta: 0.95, vol: 0.15, fac: "intl" },
