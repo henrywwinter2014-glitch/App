@@ -545,6 +545,24 @@
     return `<span class="fresh-chip ${f.level}" title="${esc(f.note)}">${esc(label)}</span>`;
   }
 
+  /*
+   * Says where the bars on screen came from. Provider candles need no explaining; a tape chart
+   * does, because it is not the market's history -- it is the prices this app was quoted while
+   * the game was open, which is a narrower and more honest thing.
+   */
+  function renderChartSource(d, t) {
+    const el = $('chartSource');
+    if (!el) return;
+    if (!d || !d.tape) { el.hidden = true; el.textContent = ''; return; }
+    const span = (n) => (n < 90 ? `${Math.round(n)} seconds` : n < 5400 ? `${Math.round(n / 60)} minutes` : n < 172800 ? `${Math.round(n / 3600)} hours` : `${Math.round(n / 86400)} days`);
+    const st = window.Quotes.state();
+    const who = st.providerName || 'your provider';
+    const one = d.step < 3600 ? `${d.step / 60}-minute` : d.step < 86400 ? `${d.step / 3600}-hour` : 'daily';
+    el.hidden = false;
+    el.innerHTML = `Drawn from the <b>${d.points}</b> price${d.points === 1 ? '' : 's'} ${esc(who)} has sent for ${esc(t)}, covering ${span(d.to - d.from)} — one ${one} bar each. `
+      + `This is the tape this app has seen, not ${esc(t)}'s full history: your plan sends no candles, so nothing before you started watching can be drawn. Refresh prices to extend it.`;
+  }
+
   // The empty state for a live chart whose history has not been fetched yet.
   function liveChartEmpty(t) {
     const st = window.Quotes.state();
@@ -560,10 +578,17 @@
      * Finnhub key, say -- the button would otherwise invite the same refusal for ever.
      */
     const err = st.lastError && /series|candle|resource|plan|access|premium/i.test(st.lastError.message || '') ? st.lastError.message : '';
+    // One price is not yet a chart, but it is the start of one: say so, so that refreshing looks
+    // like progress rather than a button that does nothing.
+    const got = E.tapeCount(t);
+    const building = `<p class="note">${got
+      ? `One price so far. Each refresh adds another, and the second one draws a chart of what ${esc(st.providerName)} has quoted since you started watching.`
+      : `Refresh prices and the app charts what ${esc(st.providerName)} quotes from then on, even on a plan that sends no history.`}</p>`;
     return `<div class="data-empty"><b>${err ? 'No chart from this provider' : 'No history fetched yet'}</b>
       <p class="note">${err
         ? `${esc(st.providerName)} refused the request: “${esc(err)}” Live prices still work; some plans serve quotes but not history.`
         : `Nothing is drawn here until ${esc(st.providerName)} sends the bars, because a chart in this mode must not contain a price nobody traded.`}</p>
+      ${building}
       <button class="btn ${err ? '' : 'btn-primary'}" id="loadHistBtn" type="button">${err ? 'Try again' : `Load ${esc(t)} history`}</button></div>`;
   }
 
@@ -619,8 +644,16 @@
         if (lb) lb.addEventListener('click', () => loadLiveHistory(t));
       } else {
         host.hidden = false;
-        C.candles(host, Object.assign(d0, { timeAxis: false, type: ui.chartType, fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
+        C.candles(host, Object.assign(d0, {
+          timeAxis: false,
+          // Tape bars are clock times of our own making, not trading dates.
+          labelFmt: d0.tape ? (x) => x : undefined,
+          drawings: drawingsFor(t, d0.c.length),
+          type: ui.chartType,
+          fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', ''),
+        }));
       }
+      renderChartSource(d0, t);
       if ($('chTrend')) $('chTrend').hidden = true;
       return;
     }
@@ -632,6 +665,7 @@
     const nd = ((s.drawings || {})[t] || []).length;
     $('chDraw').innerHTML = `&#x270E; Draw${nd ? ` <span class="muted">(${nd})</span>` : ''}`;
     const d = ohlcFor(t, ui.chartRange);
+    renderChartSource(null, t);
     C.candles($('mainChart'), Object.assign(d, { timeAxis: true, drawings: drawingsFor(t, d.c.length), trades: tradesFor(t, d.c.length), type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     const tr = window.Learn && window.Learn.trendOf(s.sec[t].h.slice(-126));
     const badge = $('chTrend');

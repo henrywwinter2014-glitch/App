@@ -315,6 +315,7 @@
     }
 
     // bottom axis
+    const lab = d.labelFmt || shortDate;
     ctx.fillStyle = T.muted; ctx.textBaseline = 'alphabetic';
     if (d.timeAxis) {
       // A tick for every 5-minute bar, and a time label at the roundest step that fits.
@@ -345,7 +346,7 @@
       for (let k = 0; k < count; k++) {
         const i = Math.round((k / (count - 1 || 1)) * (n - 1));
         ctx.textAlign = k === 0 ? 'left' : k === count - 1 ? 'right' : 'center';
-        ctx.fillText(shortDate(d.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
+        ctx.fillText(lab(d.labels[i]), Math.min(Math.max(xAt(i), L), R), h - 5);
       }
     }
 
@@ -437,7 +438,7 @@
       ctx.strokeStyle = T.muted; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(x, Top - 4); ctx.lineTo(x, XB); ctx.stroke(); ctx.setLineDash([]);
     }
-    const when = d.timeAxis ? hhmm(barMinute(idx, n)) : shortDate(d.labels[idx]);
+    const when = d.timeAxis ? hhmm(barMinute(idx, n)) : (d.labelFmt || shortDate)(d.labels[idx]);
     const parts = line
       ? [when, 'Close ' + d.fmt(d.c[idx])]
       : [when, 'O ' + d.fmt(d.o[idx]), 'H ' + d.fmt(d.h[idx]), 'L ' + d.fmt(d.l[idx]), 'C ' + d.fmt(d.c[idx])];

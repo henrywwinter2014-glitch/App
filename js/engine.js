@@ -396,7 +396,64 @@
       currency: q.currency || null,
     };
     st.h = [q.price];
+    recordTape(t, q);
     return true;
+  }
+
+  /*
+   * The tape: the prices this app has actually been given, kept per product so that a plan with
+   * no candle history still has a chart. Every point carries the provider's own timestamp, so a
+   * point is a dated observation of a price that really was quoted -- never a current price and
+   * never a guess at one. price() does not read it; only the chart does.
+   */
+  const TAPE_MAX = 1500;
+  function recordTape(t, q) {
+    const at = isFinite(q.asOf) ? q.asOf : (q.fetchedAt || Date.now());
+    const sec = Math.round(at / 1000);
+    if (!(sec > 0) || !isFinite(q.price)) return;
+    if (!S.tape) S.tape = {};
+    const a = S.tape[t] || (S.tape[t] = []);
+    const last = a[a.length - 1];
+    // The same quote served twice from the cache is one observation, not two ticks; and a
+    // provider that repeats an older timestamp must not drag the tape backwards.
+    if (last && (sec < last[0] || (sec === last[0] && +q.price === last[1]))) return;
+    a.push([sec, +q.price]);
+    if (a.length > TAPE_MAX) a.splice(0, a.length - TAPE_MAX);
+  }
+
+  function tapeCount(t) { return ((S.tape && S.tape[t]) || []).length; }
+
+  /*
+   * Bucket the tape into bars. The bucket is chosen from how long the tape spans, so a morning's
+   * watching reads as minutes and a fortnight's as hours, and it is reported back so the screen
+   * can say what one bar means rather than implying a standard interval.
+   */
+  const TAPE_STEPS = [60, 300, 900, 1800, 3600, 4 * 3600, 12 * 3600, 86400];
+  function tapeBars(t, n) {
+    const a = (S.tape && S.tape[t]) || [];
+    if (a.length < 2) return null;
+    const want = Math.max(10, Math.min(n || 120, 160));
+    const span = a[a.length - 1][0] - a[0][0];
+    const step = TAPE_STEPS.find((v) => span / v <= want) || TAPE_STEPS[TAPE_STEPS.length - 1];
+    const multiDay = span > 86400 || new Date(a[0][0] * 1000).toDateString() !== new Date(a[a.length - 1][0] * 1000).toDateString();
+    const out = { o: [], h: [], l: [], c: [], v: [], labels: [], tape: true, step, points: a.length, from: a[0][0], to: a[a.length - 1][0] };
+    let key = null;
+    for (const [sec, px] of a) {
+      const k = Math.floor(sec / step) * step;
+      if (k !== key) {
+        key = k;
+        out.o.push(px); out.h.push(px); out.l.push(px); out.c.push(px); out.v.push(0);
+        const d = new Date(k * 1000);
+        const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        out.labels.push(multiDay ? `${d.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]} ${hm}` : hm);
+      } else {
+        const i = out.c.length - 1;
+        out.h[i] = Math.max(out.h[i], px);
+        out.l[i] = Math.min(out.l[i], px);
+        out.c[i] = px;
+      }
+    }
+    return out.c.length >= 2 ? out : null;
   }
 
   /*
@@ -528,6 +585,7 @@
       lists: [],            // named watchlists; S.watch stays as the union of them all
       alerts: [],           // simulated price and event alerts, checked on the simulation clock
       drawings: {},           // per ticker: chart drawings, points as { d: game day, p: price }
+      tape: {},               // per ticker: [unix seconds, price] for every real quote received
       pending: [],             // declared dividends awaiting payment
       tx: [],
       divLog: [],
@@ -758,6 +816,7 @@
     build(S.custom);
     ensureAllSecStates();
     if (!S.drawings) S.drawings = {};
+    if (!S.tape) S.tape = {};
     if (S.histV !== HIST_V && S.mode !== 'real') refreshBackHistory();
     else S.histV = HIST_V;
     return S;
@@ -1324,7 +1383,10 @@
     if (liveOn()) {
       const s0 = liveBars(t, interval);
       const out = { o: [], h: [], l: [], c: [], v: [], labels: [], live: true, interval: s0 ? s0.interval : (interval || '1day'), provider: s0 ? s0.provider : '', fetchedAt: s0 ? s0.fetchedAt : 0 };
-      if (!s0) return out;
+      // No candles from the provider -- a free Finnhub key never gets any -- so fall back to the
+      // prices this app was actually given. Marked as the tape, because it is not the whole market:
+      // it is only what was quoted while this game was open.
+      if (!s0) return Object.assign(out, tapeBars(t, n) || {});
       for (const b of s0.bars.slice(-n)) {
         out.o.push(b.o); out.h.push(b.h); out.l.push(b.l); out.c.push(b.c); out.v.push(b.v); out.labels.push(b.t);
       }
@@ -1940,7 +2002,7 @@
     holidays, holidayOn, nationalOn, isTradingDay, marketStatus, econEvents, region,
     bars, barAt, lastBar, typicalVolume, impact,
     realOn, hasReal, listed, tradeable, realBounds, realStartIndex,
-    liveOn, liveOf, livePx, liveSym, liveSupported, liveFresh, liveBars, syncLive, unpricedHoldings,
+    liveOn, liveOf, livePx, liveSym, liveSupported, liveFresh, liveBars, tapeBars, tapeCount, applyLiveQuote, syncLive, unpricedHoldings,
     deposit, withdraw, netContributions,
     setRefPrices, clearRefPrices, refPriceCount,
     ORDER_SOURCE,

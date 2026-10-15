@@ -1034,6 +1034,10 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 .data-empty { display: grid; gap: 8px; place-items: center; text-align: center; padding: 28px 16px; color: var(--muted); }
 .data-empty b { color: var(--fg); }
 
+/* Where a chart's bars came from. In real-market mode that is never decoration: a chart
+   drawn from the prices this app happened to be quoted must say so. */
+.chart-source { margin: 2px 2px 0; font-size: 12px; line-height: 1.45; }
+
 /*
  * A canvas is sized in script from the width available at the moment it is drawn. If a vertical
  * scrollbar appears afterwards the page gets narrower and the canvas does not, which leaves the
