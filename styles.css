@@ -1038,6 +1038,9 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
    drawn from the prices this app happened to be quoted must say so. */
 .chart-source { margin: 2px 2px 0; font-size: 12px; line-height: 1.45; }
 
+/* The auto-refresh toggle, lit while it is running. */
+#liveAuto.on { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 -2px 0 var(--gain); }
+
 /*
  * A canvas is sized in script from the width available at the moment it is drawn. If a vertical
  * scrollbar appears afterwards the page gets narrower and the canvas does not, which leaves the

@@ -72,7 +72,7 @@
     nwRange: 0, newsFilter: 'all',
     sheet: null, side: 'buy', unit: 'shares', range: 260,
     playing: false, timer: null, speed: 1, skip: null,
-    chartT: null, chartRange: 126, chartType: 'candles', lastPx: null, chartMA: false,
+    chartT: null, auto: false, autoTimer: null, autoFails: 0, chartRange: 126, chartType: 'candles', lastPx: null, chartMA: false,
     calMonth: null, calSel: null, calFollow: true, calWatch: false,
     newMarket: 'sim', liveBusy: false, liveInterval: '1day',
   };
@@ -159,6 +159,9 @@
     if ($('simControls')) $('simControls').hidden = live;
     if ($('skipControls')) $('skipControls').hidden = live;
     if (live) renderLiveAt();
+    // Leaving real-market mode must stop the timer: there is nothing to fetch, and a simulated
+    // market moving on its own clock has no use for one.
+    else if (ui.auto) setAuto(false);
     const nw = E.netWorth();
     $('hdrWorth').textContent = money(nw);
     const prev = s.nw.length > 1 ? s.nw[s.nw.length - 2].v : s.startCash;
@@ -1195,8 +1198,8 @@
    * product whose chart is open. Not all 761 -- a free plan allows five requests a minute, and
    * fetching a universe would exhaust the day's budget in one click and price nothing.
    */
-  async function refreshLive(explicit) {
-    if (!E.liveOn() || ui.liveBusy) return;
+  // What a refresh asks for: whatever is on screen, held, resting, or watched.
+  function liveWanted() {
     const s = S();
     const want = [];
     const add = (t) => { if (t && E.BY[t] && want.indexOf(t) < 0) want.push(t); };
@@ -1206,6 +1209,12 @@
     (s.orders || []).forEach((o) => add(o.t));
     (s.watch || []).forEach(add);
     if (!want.length) ['SPY', 'AAPL', 'MSFT'].forEach(add);
+    return want;
+  }
+
+  async function refreshLive(explicit) {
+    if (!E.liveOn() || ui.liveBusy) return null;
+    const want = liveWanted();
 
     ui.liveBusy = true;
     renderLiveAt();
@@ -1236,6 +1245,54 @@
       refresh();
     }
     renderDataState();
+    return res;
+  }
+
+  /*
+   * Auto-refresh. On a plan with no candle history the chart is built from the prices that
+   * arrive, so leaving this on is how a chart appears at all. The interval grows with the number
+   * of products asked for, to stay well inside a free key's calls a minute; it pauses when the
+   * page is hidden rather than spending the quota on a tab nobody is looking at; and a run of
+   * failures stops it instead of hammering a provider that is refusing.
+   */
+  const AUTO_FAIL_STOP = 3;
+  function autoEvery() { return Math.max(30, liveWanted().length * 3) * 1000; }
+
+  function setAuto(on, why) {
+    ui.auto = !!on;
+    ui.autoFails = 0;
+    uiPref('liveAuto', ui.auto ? '1' : '');
+    clearTimeout(ui.autoTimer);
+    ui.autoTimer = null;
+    const btn = $('liveAuto');
+    if (btn) {
+      btn.classList.toggle('on', ui.auto);
+      btn.setAttribute('aria-pressed', ui.auto ? 'true' : 'false');
+      btn.textContent = ui.auto ? 'Auto on' : 'Auto';
+    }
+    if (ui.auto) armAuto();
+    if (why) toast(why, 'err');
+    renderLiveAt();
+  }
+
+  function armAuto() {
+    clearTimeout(ui.autoTimer);
+    if (!ui.auto || !E.liveOn()) return;
+    ui.autoTimer = setTimeout(autoTick, autoEvery());
+  }
+
+  async function autoTick() {
+    if (!ui.auto || !E.liveOn()) return;
+    // A hidden page spends nobody's attention, so it should not spend the quota either.
+    if (document.hidden) { armAuto(); return; }
+    const res = await refreshLive(false);
+    if (res && res.priced) ui.autoFails = 0;
+    else if (++ui.autoFails >= AUTO_FAIL_STOP) {
+      const st = window.Quotes.state();
+      setAuto(false, `Auto-refresh stopped after ${AUTO_FAIL_STOP} failed attempts. ${st.lastError ? st.lastError.message : ''}`.trim());
+      return;
+    }
+    armAuto();
   }
 
   async function testQuoteConnection() {
@@ -2581,6 +2638,8 @@
     });
     $('setMarket').addEventListener('change', (e) => { ui.newMarket = e.target.value; renderMarketNote(); });
     $('liveRefresh').addEventListener('click', () => refreshLive(true));
+    $('liveAuto').addEventListener('click', () => setAuto(!ui.auto));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.auto) armAuto(); });
     $('worldBtn').addEventListener('click', doWorldSearch);
     $('refBtn').addEventListener('click', fetchRefPrices);
     $('refClear').addEventListener('click', () => {
@@ -3452,6 +3511,8 @@
     ui.newMarket = S().mode || 'sim';
     ui.chartT = uiPref('chartT') || null;
     const cr = +uiPref('chartRange'); if ([21, 63, 126, 260].includes(cr)) ui.chartRange = cr;
+    // Auto-refresh is remembered per browser, and only starts if this game is a live one.
+    if (uiPref('liveAuto') && E.liveOn()) setTimeout(() => setAuto(true), 0);
     if (uiPref('chartType') === 'line') ui.chartType = 'line';
     ui.chartMA = uiPref('chartMA') === '1';
     $('chMA').setAttribute('aria-pressed', String(ui.chartMA));
@@ -3506,5 +3567,7 @@
     netWorth: () => E.netWorth(),
     newGame: startNewGame,
     getTheme, setTheme,
+    // exposed for the test suite: one tick of the auto-refresh timer, without waiting it out
+    _autoTick: autoTick,
   };
 })();
