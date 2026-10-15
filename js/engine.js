@@ -412,6 +412,15 @@
     const sec = Math.round(at / 1000);
     if (!(sec > 0) || !isFinite(q.price)) return;
     if (!S.tape) S.tape = {};
+    if (!S.tapeSrc) S.tapeSrc = {};
+    if (!S.tapeSrc) S.tapeSrc = {};
+    /*
+     * One tape, one source. Prices from a different provider -- or from the mock, which makes its
+     * numbers up -- are a different series, and drawing them as one chart would invent a jump
+     * that nobody traded. Changing provider starts the tape again.
+     */
+    const src = q.provider || '';
+    if (S.tapeSrc[t] !== src) { S.tape[t] = []; S.tapeSrc[t] = src; }
     const a = S.tape[t] || (S.tape[t] = []);
     const last = a[a.length - 1];
     // The same quote served twice from the cache is one observation, not two ticks; and a
@@ -586,6 +595,7 @@
       alerts: [],           // simulated price and event alerts, checked on the simulation clock
       drawings: {},           // per ticker: chart drawings, points as { d: game day, p: price }
       tape: {},               // per ticker: [unix seconds, price] for every real quote received
+      tapeSrc: {},            // per ticker: which provider those points came from
       pending: [],             // declared dividends awaiting payment
       tx: [],
       divLog: [],
