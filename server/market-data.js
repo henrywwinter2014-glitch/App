@@ -17,7 +17,7 @@
  *   1. npm install -g wrangler && wrangler login
  *   2. From this directory:  wrangler deploy
  *   3. Set the provider and the key as secrets, so they are never in the source:
- *        wrangler secret put PROVIDER          # yahoo, alphavantage or twelvedata
+ *        wrangler secret put PROVIDER          # yahoo, finnhub, alphavantage or twelvedata
  *        wrangler secret put API_KEY           # not needed for yahoo
  *   4. Optional but worth doing — restrict who may call it:
  *        wrangler secret put ALLOW_ORIGIN      # e.g. https://yourname.github.io
@@ -84,6 +84,33 @@ const PROVIDERS = {
       'user-agent': 'Mozilla/5.0 (compatible; BullpenTrader/1.0)',
       accept: 'application/json',
     },
+  },
+  /*
+   * Finnhub. Key goes in a header rather than the query string, which keeps it out of any
+   * request log along the way. Candles want a unix from/to window rather than a bar count.
+   */
+  finnhub: {
+    base: 'https://finnhub.io/api/v1',
+    intraday: true,
+    intervals: ['1min', '5min', '15min', '30min', '60min'],
+    ivMap: { '1min': '1', '5min': '5', '15min': '15', '30min': '30', '45min': '30', '60min': '60', '1h': '60', '1day': 'D', '1week': 'W', '1month': 'M' },
+    // How far back to ask for, in seconds, to get roughly the number of bars requested.
+    spanFor(res, n) {
+      const perBar = { 1: 60, 5: 300, 15: 900, 30: 1800, 60: 3600, D: 86400, W: 604800, M: 2592000 }[res] || 86400;
+      // Intraday bars only exist during market hours, so ask for about four times the window.
+      const slack = res === 'D' || res === 'W' || res === 'M' ? 1.5 : 4;
+      return Math.ceil(perBar * n * slack);
+    },
+    build(fn, p) {
+      if (fn === 'search') return `${this.base}/search?q=${encodeURIComponent(p.q)}`;
+      if (fn === 'quote') return `${this.base}/quote?symbol=${encodeURIComponent(p.symbol)}`;
+      const res = this.ivMap[p.interval] || 'D';
+      const to = Math.floor(Date.now() / 1000);
+      const from = to - this.spanFor(res, Math.min(5000, Math.max(10, Number(p.outputsize) || 500)));
+      return `${this.base}/stock/candle?symbol=${encodeURIComponent(p.symbol)}&resolution=${res}&from=${from}&to=${to}`;
+    },
+    // The key travels as a header, so it never appears in a URL.
+    keyHeader: 'X-Finnhub-Token',
   },
   alphavantage: {
     base: 'https://www.alphavantage.co/query',
@@ -195,9 +222,11 @@ export async function handle(request, env) {
     return json({ error: 'Unknown fn. This proxy serves meta, quote, series and search only.' }, 400, origin);
   }
 
+  const headers = Object.assign({ accept: 'application/json' }, provider.headers || {});
+  if (provider.keyHeader && key) headers[provider.keyHeader] = key;
   let upstream;
   try {
-    upstream = await fetch(provider.build(fn, p, key), { headers: provider.headers || { accept: 'application/json' } });
+    upstream = await fetch(provider.build(fn, p, key), { headers });
   } catch (e) {
     return json({ error: `Could not reach ${providerId}: ${e && e.message ? e.message : e}` }, 502, origin);
   }

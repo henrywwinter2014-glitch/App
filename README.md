@@ -81,13 +81,15 @@ Bullpen can trade against real prices. The money stays virtual: nothing here pla
 
 **It needs a proxy, not a key.** This page is static, and a static page cannot keep a secret — an API key pasted into it is published to everyone who loads it, and free-tier keys get scraped and burned quickly. So Bullpen has no field for a key anywhere. You run a small proxy that holds the key and forwards the request; the code is in `server/`, about fifty lines, and the free tier of Cloudflare Workers is ample.
 
-Three providers are supported. **Yahoo Finance needs no key at all** and is the quickest way to start:
+Four providers are supported. **Yahoo Finance needs no key at all** and is the quickest way to start:
 
 1. `npm install -g wrangler && wrangler login`, then from `server/`: `wrangler deploy`.
 2. `wrangler secret put PROVIDER` — enter `yahoo`. Nothing else to set.
 3. Paste the worker's URL into **Settings → Real market data** and press *Test the connection*.
 
-For Alpha Vantage or Twelve Data, get a free key from [Alpha Vantage](https://www.alphavantage.co/support/#api-key) or [Twelve Data](https://twelvedata.com/pricing), set `PROVIDER` to `alphavantage` or `twelvedata`, and add `wrangler secret put API_KEY`. Optionally `wrangler secret put ALLOW_ORIGIN` to restrict who may call the proxy.
+For a keyed provider, get a free key from [Finnhub](https://finnhub.io/dashboard), [Alpha Vantage](https://www.alphavantage.co/support/#api-key) or [Twelve Data](https://twelvedata.com/pricing), set `PROVIDER` to `finnhub`, `alphavantage` or `twelvedata`, and add `wrangler secret put API_KEY`. Optionally `wrangler secret put ALLOW_ORIGIN` to restrict who may call the proxy.
+
+Your key goes on the proxy and nowhere else. If one ever appears in a screenshot, a chat, a commit or a shared log, treat it as burned and press Regenerate on the provider's dashboard — a leaked key can be used until you do.
 
 Yahoo still needs the proxy even though it needs no key: Yahoo sends no CORS headers, so a browser calling it directly is blocked.
 
@@ -95,11 +97,14 @@ For Vercel or Netlify use `server/api/market-data.js` instead and set `PROVIDER`
 
 **What each provider actually gives you.**
 
-| Provider | Key | Freshness | Limits |
-| --- | --- | --- | --- |
-| Yahoo Finance | none | Varies by exchange and is not stated — commonly real-time for US shares, around 15 minutes elsewhere | None published; Bullpen holds to 60/min |
-| Alpha Vantage | free key | End of day on the free plan | 5 a minute, 25 a day |
-| Twelve Data | free key | Delayed, about 15 minutes for US equities | 8 a minute |
+| Provider | Key | Freshness | Limits | Charts on the free plan |
+| --- | --- | --- | --- | --- |
+| Yahoo Finance | none | Varies by exchange and is not stated — commonly real-time for US shares, around 15 minutes elsewhere | None published; Bullpen holds to 60/min | Yes |
+| Finnhub | free key | Real-time for US shares | 60 a minute | **No** — candles are a paid endpoint |
+| Alpha Vantage | free key | End of day on the free plan | 5 a minute, 25 a day | Yes |
+| Twelve Data | free key | Delayed, about 15 minutes for US equities | 8 a minute | Yes |
+
+**Finnhub** gives the freshest free quotes and the most generous call allowance, but its historical candle endpoint is not on the free plan: you get live prices and no chart. The app handles that honestly — the chart states the provider's own refusal and says live prices still work — but if you want charts on a free key, use Yahoo.
 
 Real-time needs a paid plan on Alpha Vantage or Twelve Data. Bullpen holds itself to these limits, tells you how much of the budget is spent, and labels every price with which kind it is. Intraday candles appear only where the provider supports them.
 

@@ -62,6 +62,27 @@
       search: true,
     },
     /*
+     * Finnhub. A free key, 60 calls a minute, and real-time quotes for US shares -- the most
+     * generous free quote allowance of the four.
+     *
+     * The catch is history: the candle endpoint moved off the free plan, so a free key gets live
+     * prices but no chart. The app handles that the way it handles any refusal -- the chart says
+     * why it is empty instead of drawing something -- and the note below says so up front rather
+     * than letting you discover it.
+     */
+    finnhub: {
+      id: 'finnhub',
+      name: 'Finnhub',
+      site: 'https://finnhub.io/dashboard',
+      kind: 'realtime',
+      delayNote: 'Real-time for US shares on the free plan, 60 calls a minute. Other exchanges and historical candles need a paid plan, so a free key gives live prices but no chart.',
+      perMin: 60,
+      perDay: 100000,          // no published daily cap on the free plan
+      intraday: true,
+      intervals: ['1min', '5min', '15min', '30min', '60min'],
+      search: true,
+    },
+    /*
      * Yahoo Finance. No account and no key: the endpoints behind finance.yahoo.com are open, and
      * one of them returns the quote and the history together, which also halves the requests.
      *
@@ -181,6 +202,13 @@
     unavailable: { level: 'unavailable', label: 'Unavailable', tone: 'bad' },
   };
 
+  /*
+   * An adapter naturally says "realtime"; the label below is keyed "live". Without this they do
+   * not meet, and a genuinely real-time quote gets shown as Delayed -- which went unnoticed only
+   * because the first three providers never claimed real time.
+   */
+  const KIND = { realtime: 'live', live: 'live', delayed: 'delayed', eod: 'eod' };
+
   function freshness(q) {
     if (!q || !isFinite(q.price)) return Object.assign({}, FRESHNESS.unavailable, { age: null, note: 'No price has been received for this symbol.' });
     const age = now() - (q.fetchedAt || 0);
@@ -190,7 +218,7 @@
         note: `Last updated ${agoText(age)}. The provider has not answered since, so this is the last price we were given, not the current one.`,
       });
     }
-    const base = FRESHNESS[q.kind] || FRESHNESS.delayed;
+    const base = FRESHNESS[KIND[q.kind] || q.kind] || FRESHNESS.delayed;
     return Object.assign({}, base, { age, note: noteFor(q) });
   }
 
@@ -198,8 +226,9 @@
     const p = PROVIDERS[q.provider];
     const src = p ? p.name : (q.provider || 'the data provider');
     const when = q.asOfText || (q.asOf ? new Date(q.asOf).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'an unstated time');
-    if (q.kind === 'eod') return `End-of-day close for ${when}, from ${src}. Not an intraday price.`;
-    if (q.kind === 'delayed') return `Delayed quote from ${src}, as of ${when}.`;
+    const k = KIND[q.kind] || q.kind;
+    if (k === 'eod') return `End-of-day close for ${when}, from ${src}. Not an intraday price.`;
+    if (k === 'delayed') return `Delayed quote from ${src}, as of ${when}.`;
     return `Real-time quote from ${src}, as of ${when}.`;
   }
 
@@ -348,6 +377,10 @@
     if (d['Global Quote'] || d['Meta Data'] || d.bestMatches || d['Error Message'] || d.Note) return 'alphavantage';
     if (d.values || d.percent_change != null || d.previous_close != null || (d.meta && d.meta.interval)) return 'twelvedata';
     if (d.chart || (d.quotes && Array.isArray(d.quotes))) return 'yahoo';
+    // Finnhub's quote is a flat object of one-letter keys; its candle carries s/t/c arrays.
+    if (d.pc !== undefined && d.c !== undefined && d.h !== undefined) return 'finnhub';
+    if (d.s === 'ok' || d.s === 'no_data') return 'finnhub';
+    if (Array.isArray(d.result) && d.count !== undefined) return 'finnhub';
     if (d.bullpenMock) return 'mock';
     return '';
   }
@@ -465,6 +498,59 @@
           symbol: x.symbol || '', name: x.instrument_name || '', type: x.instrument_type || '',
           region: x.country || '', currency: x.currency || '',
         })).filter((x) => x.symbol);
+      },
+    },
+
+    finnhub: {
+      error(d) {
+        if (d && d.error) return String(d.error);
+        if (d && d.s === 'no_data') return 'Finnhub has no candles for that symbol and period.';
+        return '';
+      },
+      quote(d, symbol) {
+        /*
+         * An unknown symbol, or one your plan does not cover, comes back as a complete quote of
+         * zeros rather than as an error. Treating that as a price of zero would put a worthless
+         * share in the portfolio, so a zero current price is read as "no data" -- which it is.
+         */
+        const price = num(d.c);
+        if (price == null || price === 0) return null;
+        const ts = d.t ? +d.t * 1000 : null;
+        return {
+          symbol,
+          price,
+          open: num(d.o) || null,
+          high: num(d.h) || null,
+          low: num(d.l) || null,
+          volume: null,                       // the quote endpoint does not carry volume
+          prevClose: num(d.pc) || null,
+          change: num(d.d),
+          changePct: num(d.dp),
+          currency: null,                     // nor the currency; US shares on the free plan
+          asOf: isFinite(ts) && ts > 0 ? ts : null,
+          asOfText: isFinite(ts) && ts > 0 ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '',
+          kind: 'realtime',
+          marketStatus: 'unknown',
+        };
+      },
+      series(d, interval) {
+        if (!d || d.s !== 'ok' || !Array.isArray(d.t) || !d.t.length) return null;
+        const daily = interval === '1day' || interval === '1week' || interval === '1month';
+        const out = [];
+        for (let i = 0; i < d.t.length; i++) {
+          const o = num(d.o && d.o[i]), h = num(d.h && d.h[i]);
+          const l = num(d.l && d.l[i]), c = num(d.c && d.c[i]);
+          if (o == null || h == null || l == null || c == null) continue;
+          const iso = new Date(d.t[i] * 1000).toISOString();
+          out.push({ t: daily ? iso.slice(0, 10) : iso.slice(0, 19).replace('T', ' '), o, h, l, c, v: num(d.v && d.v[i]) || 0 });
+        }
+        return out.length ? { interval, tz: 'UTC', bars: out } : null;
+      },
+      search(d) {
+        return ((d && d.result) || []).filter((x) => x.symbol).map((x) => ({
+          symbol: x.symbol, name: x.description || x.displaySymbol || '',
+          type: x.type || '', region: '', currency: '',
+        }));
       },
     },
 

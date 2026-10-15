@@ -19,7 +19,7 @@
 const http = require('http');
 
 const port = +process.argv[2] || 8788;
-const dialect = (process.argv[3] || 'mock').toLowerCase();   // mock | av | td | yh
+const dialect = (process.argv[3] || 'mock').toLowerCase();   // mock | av | td | yh | fh
 
 // Deterministic per symbol, so a test sees the same numbers every run.
 function seed(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967296; }
@@ -132,6 +132,33 @@ function body(fn, q) {
       };
     }
     return { provider: 'twelvedata', data: { data: match(q.q).map((k) => ({ symbol: k, instrument_name: NAMES[k], exchange: exchOf(k), currency: curOf(k), instrument_type: 'Common Stock', country: exchOf(k) })) } };
+  }
+
+  if (dialect === 'fh') {
+    const n2 = fn === 'quote' ? 2 : n;
+    const step = fn === 'quote' ? 1440 : stepMin;
+    const bb = bars(sym, n2, step);
+    const last = bb[bb.length - 1], prev = bb[bb.length - 2] || last;
+    const base = Date.UTC(2026, 9, 9, 20, 0, 0);
+    if (fn === 'quote') {
+      // An unknown symbol comes back as a quote of zeros, which is how Finnhub really answers.
+      if (!NAMES[sym]) return { provider: 'finnhub', data: { c: 0, d: null, dp: null, h: 0, l: 0, o: 0, pc: 0, t: 0 } };
+      return { provider: 'finnhub', data: {
+        c: last.c, d: +(last.c - prev.c).toFixed(4), dp: +((last.c / prev.c - 1) * 100).toFixed(4),
+        h: last.h, l: last.l, o: last.o, pc: prev.c, t: Math.floor(base / 1000),
+      } };
+    }
+    if (fn === 'series') {
+      if (q.plan === 'free') return { provider: 'finnhub', data: { error: "You don't have access to this resource." } };
+      return { provider: 'finnhub', data: {
+        s: 'ok',
+        t: bb.map((_, i) => Math.floor((base - (bb.length - 1 - i) * step * 60000) / 1000)),
+        o: bb.map((x) => x.o), h: bb.map((x) => x.h), l: bb.map((x) => x.l),
+        c: bb.map((x) => x.c), v: bb.map((x) => x.v),
+      } };
+    }
+    const hits = match(q.q);
+    return { provider: 'finnhub', data: { count: hits.length, result: hits.map((k) => ({ symbol: k, displaySymbol: k, description: NAMES[k], type: /ETF/.test(NAMES[k]) ? 'ETP' : 'Common Stock' })) } };
   }
 
   if (dialect === 'yh') {

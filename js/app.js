@@ -554,7 +554,17 @@
     if (!E.liveSupported(t)) {
       return `<div class="data-empty"><b>${esc(t)} is not covered</b><p class="note">${esc(E.BY[t] ? E.BY[t].n : t)} has no symbol at ${esc(st.providerName)} that we can be sure of, so it has no real price. It is hidden rather than guessed at.</p></div>`;
     }
-    return `<div class="data-empty"><b>No history fetched yet</b><p class="note">Nothing is drawn here until ${esc(st.providerName)} sends the bars, because a chart in this mode must not contain a price nobody traded.</p><button class="btn btn-primary" id="loadHistBtn" type="button">Load ${esc(t)} history</button></div>`;
+    /*
+     * If a fetch has already been refused, keep the provider's own reason on screen. A toast
+     * carries it away after a few seconds, and on a plan that will never serve candles -- a free
+     * Finnhub key, say -- the button would otherwise invite the same refusal for ever.
+     */
+    const err = st.lastError && /series|candle|resource|plan|access|premium/i.test(st.lastError.message || '') ? st.lastError.message : '';
+    return `<div class="data-empty"><b>${err ? 'No chart from this provider' : 'No history fetched yet'}</b>
+      <p class="note">${err
+        ? `${esc(st.providerName)} refused the request: “${esc(err)}” Live prices still work; some plans serve quotes but not history.`
+        : `Nothing is drawn here until ${esc(st.providerName)} sends the bars, because a chart in this mode must not contain a price nobody traded.`}</p>
+      <button class="btn ${err ? '' : 'btn-primary'}" id="loadHistBtn" type="button">${err ? 'Try again' : `Load ${esc(t)} history`}</button></div>`;
   }
 
   async function loadLiveHistory(t) {
