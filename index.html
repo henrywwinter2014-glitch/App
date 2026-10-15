@@ -519,11 +519,20 @@
       <div class="card" id="dataCard">
         <h2>Real market data</h2>
         <p class="note">Bullpen can trade against real prices instead of invented ones. The money stays virtual either way &mdash; nothing here places an order with a broker.</p>
-        <p class="note warn-note"><b>It needs a proxy.</b> This page is static, and a static page cannot keep a secret: an API key pasted into it is published to everyone who loads it. So Bullpen never asks for your key &mdash; there is no field for one here and never will be. Instead you run a small proxy that holds it and forwards the request &mdash; the code is in <code>server/</code> in this project, about fifty lines, and deploys free on Cloudflare Workers. Yahoo Finance needs no key at all, but still needs the proxy, because Yahoo sends no CORS headers and a browser calling it directly is blocked. Paste the proxy's address below.</p>
+        <p class="note" id="modeNote"></p>
+        <p class="note warn-note" id="proxyWhy"><b>Why a proxy at all?</b> This page is static, and a static page cannot keep a secret: an API key pasted into it is published to everyone who loads it. So on any copy other people can open, the key belongs on a small proxy you run &mdash; the code is in <code>server/</code>, about fifty lines, free on Cloudflare Workers. On a copy only you open, straight from this browser is fine and needs no setup at all. Yahoo always needs the proxy, because it sends no CORS headers and a browser calling it directly is blocked.</p>
         <div class="form">
+          <label class="field"><span>How to reach it</span>
+            <select id="setMode">
+              <option value="direct">Straight from this browser &mdash; no proxy to set up</option>
+              <option value="proxy">Through a proxy I run &mdash; keeps the key off the page</option>
+            </select>
+          </label>
           <label class="field"><span>Data provider</span><select id="setProvider"></select></label>
           <p class="note" id="providerNote" hidden></p>
-          <label class="field"><span>Your proxy address</span><input id="setEndpoint" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://your-worker.workers.dev"></label>
+          <label class="field" id="keyWrap" hidden><span>Your API key</span><input id="setKey" type="password" autocomplete="off" spellcheck="false" placeholder="paste it here"></label>
+          <p class="note warn-note" id="keyWarn" hidden></p>
+          <label class="field" id="endpointWrap"><span>Your proxy address</span><input id="setEndpoint" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://your-worker.workers.dev"></label>
           <div class="row2">
             <button class="btn" id="dataTestBtn" type="button">Test the connection</button>
             <button class="btn" id="dataClearBtn" type="button">Forget cached prices</button>

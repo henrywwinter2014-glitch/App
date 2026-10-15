@@ -48,6 +48,20 @@
       intraday: true,
       intervals: ['1min', '5min', '15min', '30min', '60min'],
       search: true,
+      direct: true,
+      directUrl(fn, p, key) {
+        const b = 'https://www.alphavantage.co/query';
+        const q = new URLSearchParams({ apikey: key });
+        if (fn === 'quote') { q.set('function', 'GLOBAL_QUOTE'); q.set('symbol', p.symbol); }
+        else if (fn === 'series') {
+          const iv = p.interval || '1day';
+          q.set('function', iv === '1day' ? 'TIME_SERIES_DAILY' : iv === '1week' ? 'TIME_SERIES_WEEKLY' : iv === '1month' ? 'TIME_SERIES_MONTHLY' : 'TIME_SERIES_INTRADAY');
+          if (!['1day', '1week', '1month'].includes(iv)) q.set('interval', iv);
+          q.set('symbol', p.symbol);
+          q.set('outputsize', +p.outputsize > 100 ? 'full' : 'compact');
+        } else { q.set('function', 'SYMBOL_SEARCH'); q.set('keywords', p.q); }
+        return `${b}?${q}`;
+      },
     },
     twelvedata: {
       id: 'twelvedata',
@@ -60,6 +74,20 @@
       intraday: true,
       intervals: ['1min', '5min', '15min', '30min', '45min', '1h'],
       search: true,
+      direct: true,
+      directUrl(fn, p, key) {
+        const b = 'https://api.twelvedata.com';
+        const q = new URLSearchParams({ apikey: key });
+        if (fn === 'quote') { q.set('symbol', p.symbol); return `${b}/quote?${q}`; }
+        if (fn === 'series') {
+          q.set('symbol', p.symbol);
+          q.set('interval', p.interval || '1day');
+          q.set('outputsize', String(Math.min(5000, Math.max(10, +p.outputsize || 500))));
+          return `${b}/time_series?${q}`;
+        }
+        q.set('symbol', p.q);
+        return `${b}/symbol_search?${q}`;
+      },
     },
     /*
      * Finnhub. A free key, 60 calls a minute, and real-time quotes for US shares -- the most
@@ -81,6 +109,20 @@
       intraday: true,
       intervals: ['1min', '5min', '15min', '30min', '60min'],
       search: true,
+      // Finnhub answers browser requests with CORS headers, so it can be called without a proxy.
+      direct: true,
+      directUrl(fn, p, key) {
+        const b = 'https://finnhub.io/api/v1';
+        if (fn === 'search') return `${b}/search?q=${encodeURIComponent(p.q)}&token=${encodeURIComponent(key)}`;
+        if (fn === 'quote') return `${b}/quote?symbol=${encodeURIComponent(p.symbol)}&token=${encodeURIComponent(key)}`;
+        const map = { '1min': '1', '5min': '5', '15min': '15', '30min': '30', '45min': '30', '60min': '60', '1h': '60', '1day': 'D', '1week': 'W', '1month': 'M' };
+        const res = map[p.interval] || 'D';
+        const per = { 1: 60, 5: 300, 15: 900, 30: 1800, 60: 3600, D: 86400, W: 604800, M: 2592000 }[res] || 86400;
+        const slack = /[DWM]/.test(res) ? 1.5 : 4;
+        const to = Math.floor(Date.now() / 1000);
+        const from = to - Math.ceil(per * Math.min(5000, Math.max(10, +p.outputsize || 500)) * slack);
+        return `${b}/stock/candle?symbol=${encodeURIComponent(p.symbol)}&resolution=${res}&from=${from}&to=${to}&token=${encodeURIComponent(key)}`;
+      },
     },
     /*
      * Yahoo Finance. No account and no key: the endpoints behind finance.yahoo.com are open, and
@@ -106,6 +148,8 @@
       intervals: ['1min', '5min', '15min', '30min', '60min'],
       search: true,
       noKey: true,
+      // Yahoo sends no CORS headers, so a browser calling it directly is blocked. Proxy only.
+      direct: false,
     },
     // Used by the test suite and by the demo endpoint. Never reports itself as real data.
     mock: {
@@ -119,10 +163,32 @@
       intraday: true,
       intervals: ['1min', '5min', '15min', '30min', '60min'],
       search: true,
+      direct: true,
+      directUrl(fn, p, key) {
+        const q = new URLSearchParams({ fn, symbol: p.symbol || '', interval: p.interval || '1day', outputsize: String(p.outputsize || 500), q: p.q || '' });
+        return `${key}${key.indexOf('?') >= 0 ? '&' : '?'}${q}`;
+      },
     },
   };
 
   const DEFAULTS = {
+    /*
+     * Two ways to reach a provider.
+     *
+     * 'proxy' is the one to use for anything other people can open: the key lives on a server you
+     * run and the page never sees it.
+     *
+     * 'direct' is for a copy only you run -- opened from your own disk, or served on your own
+     * machine. The browser calls the provider itself, so there is no proxy to deploy, and the key
+     * is held in this browser's storage. That is a real exposure and a deliberate one: on your own
+     * machine the key is already yours, but on a page anyone else can load it would be theirs too.
+     * The app says so plainly and keeps the key out of the saved game, so it never syncs anywhere.
+     *
+     * Not every provider allows it. A browser can only call one that returns CORS headers;
+     * Yahoo does not, so Yahoo needs the proxy.
+     */
+    mode: 'proxy',
+    key: '',               // direct mode only, never persisted into the save file
     provider: '',          // '' means "work it out from what the proxy sends back"
     endpoint: '',          // the user's own proxy; empty means real-market mode is unconfigured
     quoteTtlOpen: 60000,   // don't re-ask for the same quote more than once a minute
@@ -248,8 +314,19 @@
    * One function does every call, so the rate limit, the breaker, the timeout, the retry policy
    * and the error bookkeeping are applied once and cannot be bypassed by a new call site.
    * ------------------------------------------------------------------------- */
+  /*
+   * Scrub the key out of anything that might be shown or logged. In direct mode it is in the URL,
+   * and a fetch failure happily puts the URL in its message -- which would then be rendered on
+   * screen and, worse, copied into a bug report.
+   */
+  function scrub(text) {
+    let t = String(text == null ? '' : text);
+    if (cfg.key) t = t.split(cfg.key).join('<your key>');
+    return t.replace(/([?&](?:token|apikey|api_key)=)[^&\s"']+/gi, '$1<your key>');
+  }
+
   function fail(kind, message, extra) {
-    lastError = Object.assign({ at: now(), kind, message }, extra || {});
+    lastError = Object.assign({ at: now(), kind, message: scrub(message) }, extra || {});
     budget().failed++;
     if (kind !== 'unconfigured' && kind !== 'ratelimit-local') {
       breaker.fails++;
@@ -262,7 +339,13 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function call(fn, params) {
-    if (!cfg.endpoint) {
+    const direct = cfg.mode === 'direct';
+    if (direct) {
+      const p0 = PROVIDERS[cfg.provider];
+      if (!p0) return fail('unconfigured', 'Pick which data provider your key is for before fetching directly.');
+      if (!p0.direct) return fail('unconfigured', `${p0.name} cannot be called straight from a browser — it sends no CORS headers — so it needs the proxy. Pick another provider, or switch back to proxy mode.`);
+      if (!cfg.key) return fail('unconfigured', `No ${p0.name} key set. Paste it in Settings, or switch to proxy mode.`);
+    } else if (!cfg.endpoint) {
       return fail('unconfigured', 'No market-data endpoint is set. Real-market mode needs the address of your own data proxy — see Settings.');
     }
     if (now() < breaker.openUntil) {
@@ -273,7 +356,7 @@
     if (lim.roomDay === 0) return fail('ratelimit-local', `The daily limit for ${PROVIDERS[cfg.provider].name} on the free plan (${lim.perDay} requests) has been used up. It resets tomorrow.`);
     if (lim.roomMin === 0) return fail('ratelimit-local', `Holding off: ${PROVIDERS[cfg.provider].name} allows ${lim.perMin} requests a minute and that is used up. Try again shortly.`);
 
-    const url = buildUrl(fn, params);
+    const url = direct ? PROVIDERS[cfg.provider].directUrl(fn, params, cfg.key) : buildUrl(fn, params);
     let wait = 700;
     for (let attempt = 0; attempt <= cfg.maxRetries; attempt++) {
       const b = budget();
@@ -305,7 +388,12 @@
       }
       if (!res.ok) {
         // 4xx other than 429 will not fix itself by being asked again.
-        return fail('request', `The data endpoint refused the request (HTTP ${res.status}). ${res.status === 401 || res.status === 403 ? 'That usually means the API key on your proxy is missing or wrong.' : ''}`.trim());
+        const authFail = res.status === 401 || res.status === 403;
+        return fail('request', `${direct ? PROVIDERS[cfg.provider].name : 'The data endpoint'} refused the request (HTTP ${res.status}).${authFail
+          ? (direct
+            ? ' That usually means the key is wrong, or your plan does not cover this.'
+            : ' That usually means the API key on your proxy is missing or wrong.')
+          : ''}`);
       }
       try {
         body = await res.json();
@@ -315,7 +403,7 @@
 
       // Unwrap the envelope our own proxy uses, if that is what answered.
       let provider = cfg.provider, data = body;
-      if (body && typeof body === 'object' && body.data && typeof body.provider === 'string') {
+      if (!direct && body && typeof body === 'object' && body.data && typeof body.provider === 'string') {
         provider = PROVIDERS[body.provider] ? body.provider : provider;
         data = body.data;
       }
@@ -756,11 +844,11 @@
   }
 
   function configure(next) {
-    const before = cfg.endpoint + '|' + cfg.provider;
+    const before = cfg.endpoint + '|' + cfg.provider + '|' + cfg.mode + '|' + (cfg.key ? 'k' : '');
     cfg = Object.assign({}, cfg, next || {});
     if (cfg.provider && !PROVIDERS[cfg.provider]) cfg.provider = '';
     cfg.endpoint = String(cfg.endpoint || '').trim();
-    if (before !== cfg.endpoint + '|' + cfg.provider) {
+    if (before !== cfg.endpoint + '|' + cfg.provider + '|' + cfg.mode + '|' + (cfg.key ? 'k' : '')) {
       // A different endpoint is a different world: nothing cached about the old one is valid, and
       // a different key gets its own request budget.
       clear();
@@ -779,7 +867,11 @@
   function state() {
     const p = PROVIDERS[cfg.provider] || null;
     return {
-      configured: !!cfg.endpoint,
+      configured: cfg.mode === 'direct' ? !!(cfg.key && p && p.direct) : !!cfg.endpoint,
+      mode: cfg.mode,
+      direct: cfg.mode === 'direct',
+      // Never the key itself, only whether there is one.
+      hasKey: !!cfg.key,
       endpoint: cfg.endpoint,
       provider: cfg.provider,
       providerName: p ? p.name : (cfg.provider || 'not identified yet'),
@@ -799,7 +891,9 @@
 
   window.Quotes = {
     PROVIDERS, FRESHNESS,
-    configure, config: () => Object.assign({}, cfg),
+    configure,
+    // The key is deliberately not included: nothing outside this module needs to read it back.
+    config: () => { const c = Object.assign({}, cfg); delete c.key; return c; },
     quote, quotes, series, search,
     cached: (s) => quoteCache.get(String(s || '').toUpperCase()) || null,
     cachedSeries: (s, i) => { const r = seriesCache.get(String(s || '').toUpperCase() + '|' + (i || '1day')); return r ? r.series : null; },

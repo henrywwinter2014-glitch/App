@@ -90,7 +90,13 @@ Prices start near recent real-world levels and are then simulated with a factor 
 
 Bullpen can trade against real prices. The money stays virtual: nothing here places an order with a broker.
 
-**It needs a proxy, not a key.** This page is static, and a static page cannot keep a secret — an API key pasted into it is published to everyone who loads it, and free-tier keys get scraped and burned quickly. So Bullpen has no field for a key anywhere. You run a small proxy that holds the key and forwards the request; the code is in `server/`, about fifty lines, and the free tier of Cloudflare Workers is ample.
+**Two ways to connect.**
+
+*Straight from this browser* needs nothing deployed: paste your key into Settings and the page calls the provider itself. The key is held in that browser only — never in the saved game, so it is never synced to your account. Use this on a copy only you open. Finnhub, Alpha Vantage and Twelve Data all allow it; Yahoo does not, because it sends no CORS headers.
+
+*Through a proxy you run* keeps the key off the page entirely, which is what you want for any copy other people can load. It is the fifty lines in `server/`.
+
+**Why a proxy exists at all.** This page is static, and a static page cannot keep a secret — an API key pasted into it is published to everyone who loads it, and free-tier keys get scraped and burned quickly. So Bullpen has no field for a key anywhere. You run a small proxy that holds the key and forwards the request; the code is in `server/`, about fifty lines, and the free tier of Cloudflare Workers is ample.
 
 Four providers are supported. **Yahoo Finance needs no key at all** and is the quickest way to start:
 

@@ -998,6 +998,9 @@
     $('setProvider').innerHTML = ['<option value="">Work it out from the proxy</option>']
       .concat(Object.values(Q.PROVIDERS).map((pv) => `<option value="${pv.id}"${pv.id === st.provider ? ' selected' : ''}>${esc(pv.name)}</option>`)).join('');
     $('setEndpoint').value = st.endpoint || '';
+    $('setMode').value = st.dataMode === 'direct' ? 'direct' : 'proxy';
+    $('setKey').value = getKey();
+    renderDataMode();
     renderProviderNote();
     $('setMarket').value = ui.newMarket || 'sim';
     renderMarketNote();
@@ -1017,6 +1020,35 @@
    * "set your API key as a secret" to someone using Yahoo would send them looking for one that
    * does not exist.
    */
+  /*
+   * Which fields matter depends on how you are reaching the provider, and the honest warning
+   * belongs next to the field that causes it rather than buried in a paragraph above.
+   */
+  function renderDataMode() {
+    const st = S().settings;
+    const direct = st.dataMode === 'direct';
+    const p = window.Quotes.PROVIDERS[$('setProvider') ? $('setProvider').value : ''] || null;
+    $('endpointWrap').hidden = direct;
+    $('keyWrap').hidden = !direct || (p && p.noKey);
+    $('proxyWhy').hidden = direct;
+    const warn = $('keyWarn');
+    if (direct && p && !p.direct) {
+      warn.hidden = false;
+      warn.innerHTML = `<b>${esc(p.name)} cannot be called from a browser.</b> It sends no CORS headers, so the request is blocked before it leaves the page. Use the proxy for ${esc(p.name)}, or pick a provider that allows it.`;
+    } else if (direct && p && p.noKey) {
+      warn.hidden = false;
+      warn.innerHTML = `<b>${esc(p.name)} needs no key</b>, but it does need the proxy, so this combination will not fetch anything.`;
+    } else if (direct) {
+      warn.hidden = false;
+      warn.innerHTML = '<b>Your key stays in this browser.</b> It is saved here only &mdash; never in your game, so it is never synced to your account &mdash; and it is sent straight to the provider. That is fine on a copy only you open. Do not use this mode on a page other people can load: anyone who opens it can read the key out of it.';
+    } else {
+      warn.hidden = true;
+    }
+    $('modeNote').textContent = direct
+      ? 'Nothing to deploy: this browser calls the provider itself.'
+      : 'The proxy holds your key, so the page never sees it. Needed for Yahoo, and for any copy you share.';
+  }
+
   function renderProviderNote() {
     const el = $('providerNote');
     if (!el) return;
@@ -1054,10 +1086,24 @@
    * Push the saved endpoint and provider into the quote layer. Called on boot and whenever either
    * changes, so there is exactly one place where the two are connected.
    */
+  /*
+   * The API key is kept in this browser only, under its own storage key -- never in the saved
+   * game. The save is serialised whole and synced to your account when you are signed in, and a
+   * key has no business travelling there.
+   */
+  const KEY_PREF = 'apiKey';
+  const getKey = () => uiPref(KEY_PREF) || '';
+  const setKey = (v) => uiPref(KEY_PREF, v || '');
+
   function applyQuoteConfig() {
     const st = S() && S().settings;
     if (!st || !window.Quotes) return;
-    window.Quotes.configure({ endpoint: st.endpoint || '', provider: st.provider || '' });
+    window.Quotes.configure({
+      mode: st.dataMode === 'direct' ? 'direct' : 'proxy',
+      endpoint: st.endpoint || '',
+      provider: st.provider || '',
+      key: getKey(),
+    });
   }
 
   function agoShort(ms) {
@@ -1134,9 +1180,14 @@
 
   async function testQuoteConnection() {
     const msg = $('dataMsg'), btn = $('dataTestBtn');
-    const ep = String($('setEndpoint').value || '').trim();
-    if (!ep) { msg.textContent = 'Put your proxy address in first.'; msg.className = 'note msg err'; return; }
-    S().settings.endpoint = ep;
+    const direct = S().settings.dataMode === 'direct';
+    if (direct) {
+      setKey(String($('setKey').value || '').trim());
+    } else {
+      const ep = String($('setEndpoint').value || '').trim();
+      if (!ep) { msg.textContent = 'Put your proxy address in first.'; msg.className = 'note msg err'; return; }
+      S().settings.endpoint = ep;
+    }
     applyQuoteConfig();
     btn.disabled = true; btn.textContent = 'Testing…';
     msg.textContent = 'Asking for a quote…'; msg.className = 'note msg';
@@ -1145,7 +1196,7 @@
     const st = window.Quotes.state();
     if (q) {
       const f = window.Quotes.freshness(q);
-      S().settings.provider = st.provider;
+      if (st.provider) S().settings.provider = st.provider;
       save();
       msg.innerHTML = `Connected to <b>${esc(st.providerName)}</b>. AAPL came back at ${q.price} &mdash; ${esc(f.label.toLowerCase())}, ${esc(f.note)}`;
       msg.className = 'note msg ok';
@@ -2444,7 +2495,21 @@
       S().settings.provider = e.target.value;
       applyQuoteConfig();
       save();
-      renderProviderNote(); renderDataState(); renderMarketNote();
+      renderDataMode(); renderProviderNote(); renderDataState(); renderMarketNote();
+    });
+    $('setMode').addEventListener('change', (e) => {
+      S().settings.dataMode = e.target.value === 'direct' ? 'direct' : 'proxy';
+      applyQuoteConfig();
+      save();
+      renderDataMode(); renderDataState(); renderMarketNote();
+      $('dataMsg').textContent = '';
+    });
+    $('setKey').addEventListener('change', (e) => {
+      setKey(e.target.value.trim());
+      applyQuoteConfig();
+      renderDataState();
+      $('dataMsg').textContent = getKey() ? 'Key saved in this browser. Test the connection to check it works.' : 'Key cleared.';
+      $('dataMsg').className = 'note msg';
     });
     $('dataTestBtn').addEventListener('click', testQuoteConnection);
     $('dataClearBtn').addEventListener('click', () => {
