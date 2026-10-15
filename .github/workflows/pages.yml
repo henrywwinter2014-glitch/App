@@ -4,8 +4,11 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [stock-simulator]
+    branches: [main]
   workflow_dispatch:
+
+# Pages only accepts a deployment from the default branch, so the site follows
+# main; work lands on stock-simulator first and is fast-forwarded here.
 
 permissions:
   contents: read
