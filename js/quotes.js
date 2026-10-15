@@ -284,7 +284,15 @@
       } catch (e) {
         // A network error, a CORS refusal or a timeout. All transient as far as we can tell.
         if (attempt < cfg.maxRetries) { await sleep(jitter(wait)); wait *= 2; continue; }
-        return fail('network', `Could not reach the data endpoint (${String(e && e.message || e)}). Check the address in Settings and that your proxy is running.`);
+        /*
+         * If the browser says there is no connection at all, say that instead of blaming the
+         * proxy. Telling someone on a train to check their worker is deployed sends them to fix
+         * something that is not broken.
+         */
+        const off = typeof navigator !== 'undefined' && navigator.onLine === false;
+        return fail(off ? 'offline' : 'network', off
+          ? 'You are offline, so no live prices can be fetched. The simulated market and replay mode need no connection and carry on as normal.'
+          : `Could not reach the data endpoint (${String(e && e.message || e)}). Check the address in Settings and that your proxy is running.`);
       }
       if (res.status === 429 || res.status === 503) {
         const ra = +res.headers.get('retry-after');

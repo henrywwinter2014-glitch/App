@@ -8,6 +8,17 @@ It is paper trading throughout: virtual money, no brokerage, no real-money execu
 
 Open `index.html` in a browser. No build step or server is needed. (To serve it locally instead: `python3 -m http.server` and visit http://localhost:8000.)
 
+## Does it work offline?
+
+Yes, apart from real-market mode. Everything ships with the page: the 848 products, the eight years of recorded history for replay, the course, the charts and the calculators. Download the folder, open `index.html` with no connection at all, and the simulated market trades, the clock runs, dividends pay, replay replays, the course teaches and the game saves — all verified with every network request refused.
+
+Two caveats worth knowing:
+
+- **Real-market mode needs a connection**, obviously — it is fetching live prices. Offline it says you are offline and leaves the prices unknown rather than inventing any; the other two markets carry on as normal.
+- **A hosted copy still has to be downloaded first.** Running it from a URL means the browser must fetch the page before it can run; after that, nothing else is requested. For genuinely offline use, keep a local copy of the folder.
+
+The only external request the page makes at all is the Google Fonts stylesheet, and there is a real fallback stack behind it, so offline it simply uses your system font. Signing in and cloud sync need a connection; without one the game saves locally as usual.
+
 ## What you can trade
 
 | Kind | Examples |
