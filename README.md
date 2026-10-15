@@ -8,6 +8,21 @@ It is paper trading throughout: virtual money, no brokerage, no real-money execu
 
 Open `index.html` in a browser. No build step or server is needed. (To serve it locally instead: `python3 -m http.server` and visit http://localhost:8000.)
 
+## Live prices need a copy you run yourself
+
+Real-market mode fetches from a data provider, and a page served inside a sandboxed frame — a published claude.ai artifact, for instance — runs under a security policy that blocks **every** outbound request. No provider and no proxy can be reached from such a page, and no setting changes that. The app detects it and says so rather than sending you off to check your key or your wifi.
+
+The simulated market, replay mode, the course and everything else need no connection and work there normally.
+
+For live prices, run your own copy:
+
+```
+git clone https://github.com/henrywwinter2014-glitch/App.git
+cd App && git checkout stock-simulator
+```
+
+Then open `index.html`. Go to **Settings → Real market data**, choose *Straight from this browser*, pick your provider, paste your key, and press *Test the connection*. Nothing to deploy.
+
 ## Does it work offline?
 
 Yes, apart from real-market mode. Everything ships with the page: the 848 products, the eight years of recorded history for replay, the course, the charts and the calculators. Download the folder, open `index.html` with no connection at all, and the simulated market trades, the clock runs, dividends pay, replay replays, the course teaches and the game saves — all verified with every network request refused.

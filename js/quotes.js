@@ -234,6 +234,29 @@
   const BREAK_FOR = 60000;
 
   const now = () => Date.now();
+
+  /*
+   * Detecting a page that is not allowed to fetch at all.
+   *
+   * Published in a sandboxed frame -- a claude.ai artifact, say -- the page runs under a content
+   * security policy that permits no outbound request. The fetch rejects with the same
+   * "Failed to fetch" a dead connection gives, so without this the app sends people off to check
+   * a proxy, or their wifi, over something neither can fix.
+   *
+   * The browser does say so, through a securitypolicyviolation event. Catching that turns an
+   * unexplainable failure into a plain statement of what is wrong and what to do instead.
+   */
+  let cspBlock = null;
+  try {
+    document.addEventListener('securitypolicyviolation', (e) => {
+      if (/connect-src|default-src/.test(e.violatedDirective || '')) {
+        cspBlock = { at: now(), uri: String(e.blockedURI || ''), directive: e.violatedDirective };
+      }
+    });
+  } catch (e) { /* no document: running under test in node */ }
+  const recentlyBlocked = () => !!(cspBlock && now() - cspBlock.at < 4000);
+  // A page inside someone else's frame is the usual home of such a policy.
+  const framed = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
   const emit = () => { for (const fn of listeners.slice()) { try { fn(); } catch (e) { /* a listener must not break a fetch */ } } };
 
   function limits() {
@@ -372,6 +395,11 @@
          * proxy. Telling someone on a train to check their worker is deployed sends them to fix
          * something that is not broken.
          */
+        // The violation event can land a moment after the rejection; give it that moment.
+        await sleep(60);
+        if (recentlyBlocked()) {
+          return fail('blocked', `This copy of the app is not allowed to fetch outside data. It is running in a sandboxed page${framed ? ' inside another site' : ''}, whose security policy blocks every outbound request, so no provider and no proxy can be reached from here — nothing you change in Settings will help. The simulated market and replay mode need no connection and work normally. For live prices, run your own copy: download the project and open index.html, or host it yourself.`);
+        }
         const off = typeof navigator !== 'undefined' && navigator.onLine === false;
         return fail(off ? 'offline' : 'network', off
           ? 'You are offline, so no live prices can be fetched. The simulated market and replay mode need no connection and carry on as normal.'
@@ -880,6 +908,9 @@
       lastOk,
       lastOkText: lastOk ? agoText(now() - lastOk) : '',
       lastError,
+      // True once the browser has told us a request was refused by policy rather than by network.
+      blocked: recentlyBlocked(),
+      framed,
       paused: now() < breaker.openUntil,
       pausedFor: Math.max(0, Math.ceil((breaker.openUntil - now()) / 1000)),
       limits: limits(),

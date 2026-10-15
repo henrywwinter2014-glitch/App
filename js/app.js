@@ -1071,6 +1071,16 @@
       el.innerHTML = `<p class="note"><b>Not connected.</b> Real-market mode has no data endpoint, so it has no prices. Simulated and replay modes do not need one and are unaffected.</p>`;
       return;
     }
+    /*
+     * A page that is forbidden to fetch at all cannot be fixed from this panel, so say that
+     * instead of listing settings to check.
+     */
+    if (st.blocked || (st.lastError && st.lastError.kind === 'blocked')) {
+      el.className = 'data-state bad';
+      el.innerHTML = `<p class="note"><b>This copy cannot fetch live data.</b> It is running in a sandboxed page whose security policy blocks every outbound request, so no provider and no proxy can be reached — no setting here will change that. The simulated market and replay mode need no connection and work normally.</p>
+        <p class="note">For live prices, run your own copy: download the project and open <code>index.html</code>, or host it yourself. Then <em>Straight from this browser</em> works with just your key.</p>`;
+      return;
+    }
     el.className = 'data-state ' + (st.lastError ? 'bad' : st.lastOk ? 'ok' : 'idle');
     rows.push(`<div><span>Provider</span><b>${esc(st.providerName)}</b></div>`);
     if (st.delayNote) rows.push(`<div><span>Freshness</span><b>${esc(st.delayNote)}</b></div>`);
