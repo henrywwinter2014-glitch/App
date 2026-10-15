@@ -10,6 +10,8 @@
  *   M / S / A = pays monthly / semi-annually / annually (default quarterly)
  *
  * Start prices are approximate reference levels. Everything after day one is simulated.
+ * The most widely held names were last checked against real quotes on 2026-10-15;
+ * Settings > Refresh reference prices will bring the rest up to date from your provider.
  */
 window.MARKET_DATA = {
   stocks: {
@@ -21,7 +23,7 @@ AVGO|Broadcom|346.25|0.7|nb
 ORCL|Oracle|290|0.6|b
 CRM|Salesforce|245|0.7|
 ADBE|Adobe|350|0|n
-AMD|Advanced Micro Devices|160|0|nh
+AMD|Advanced Micro Devices|570.82|0|nh
 CSCO|Cisco Systems|68|2.4|n
 ACN|Accenture|245|2.4|
 IBM|IBM|280|2.4|r
@@ -101,11 +103,11 @@ SNDK|SanDisk|110|0|nh
     "Communication Services": `
 GOOGL|Alphabet Class A|347.64|0.35|nb
 GOOG|Alphabet Class C|246|0.35|nb
-META|Meta Platforms|720|0.3|nb
-NFLX|Netflix|1200|0|n
-DIS|Walt Disney|112|0.9|
+META|Meta Platforms|737.54|0.3|nb
+NFLX|Netflix|70.57|0|n
+DIS|Walt Disney|108.99|0.9|
 CMCSA|Comcast|31|4.2|n
-T|AT&T|27|4.1|
+T|AT&T|23.05|4.1|
 VZ|Verizon|43|6.3|
 TMUS|T-Mobile US|240|1.5|n
 CHTR|Charter Communications|270|0|n
@@ -129,10 +131,10 @@ TKO|TKO Group|200|0.8|
 SIRI|Sirius XM|22|4.9|n
 `,
     "Consumer Discretionary": `
-AMZN|Amazon|225|0|nb
+AMZN|Amazon|254.08|0|nb
 TSLA|Tesla|367.16|0|nbh
-HD|Home Depot|410|2.3|b
-MCD|McDonald's|305|2.4|r
+HD|Home Depot|295.51|2.3|b
+MCD|McDonald's|238.31|2.4|r
 LOW|Lowe's|255|1.9|r
 BKNG|Booking Holdings|5400|0.7|n
 TJX|TJX Companies|140|1.2|
@@ -195,9 +197,9 @@ GAP|Gap Inc|22|3|
 DKS|Dick's Sporting Goods|220|2.2|
 `,
     "Consumer Staples": `
-WMT|Walmart|100|0.9|rb
-COST|Costco|920|0.55|nb
-PG|Procter & Gamble|155|2.7|rb
+WMT|Walmart|116.16|0.9|rb
+COST|Costco|982|0.55|nb
+PG|Procter & Gamble|156.53|2.7|rb
 KO|Coca-Cola|91.78|3|rb
 PEP|PepsiCo|145|3.9|nr
 PM|Philip Morris International|160|3.6|
@@ -235,8 +237,8 @@ BF.B|Brown-Forman|28|3.2|r
 `,
     "Health Care": `
 LLY|Eli Lilly|800|0.75|b
-UNH|UnitedHealth Group|350|2.5|b
-JNJ|Johnson & Johnson|185|2.8|rb
+UNH|UnitedHealth Group|395.62|2.5|b
+JNJ|Johnson & Johnson|253.91|2.8|rb
 ABBV|AbbVie|220|3|rb
 MRK|Merck|85|3.8|
 ABT|Abbott Laboratories|133|1.8|r
@@ -244,7 +246,7 @@ TMO|Thermo Fisher Scientific|520|0.3|
 ISRG|Intuitive Surgical|450|0|n
 DHR|Danaher|200|0.6|
 AMGN|Amgen|290|3.3|n
-PFE|Pfizer|25|6.9|
+PFE|Pfizer|29.21|6.9|
 BSX|Boston Scientific|100|0|
 SYK|Stryker|380|0.9|
 GILD|Gilead Sciences|115|2.8|n
@@ -297,11 +299,11 @@ HIMS|Hims & Hers Health|50|0|h
 `,
     "Financials": `
 BRK.A|Berkshire Hathaway Class A|735000|0|b
-BRK.B|Berkshire Hathaway Class B|490|0|b
-JPM|JPMorgan Chase|300|1.9|b
-V|Visa|345|0.7|b
+BRK.B|Berkshire Hathaway Class B|526.35|0|b
+JPM|JPMorgan Chase|335.28|1.9|b
+V|Visa|391.43|0.7|b
 MA|Mastercard|570|0.5|b
-BAC|Bank of America|50|2.1|
+BAC|Bank of America|51.39|2.1|
 WFC|Wells Fargo|82|2.1|
 GS|Goldman Sachs|780|2|
 MS|Morgan Stanley|155|2.6|
@@ -458,7 +460,7 @@ JOBY|Joby Aviation|15|0|h
 `,
     "Energy": `
 XOM|Exxon Mobil|177.01|3.5|rb
-CVX|Chevron|155|4.4|rb
+CVX|Chevron|222.04|4.4|rb
 COP|ConocoPhillips|92|3.4|
 EOG|EOG Resources|120|3.3|
 WMB|Williams Companies|60|3.3|
@@ -592,12 +594,12 @@ EPR|EPR Properties|55|6.4|M
   //   beta (vs market), vol (annual), rate (bond-rate sensitivity), fac (extra factor), track/lev (leveraged)
   funds: [
     { t: "SPY", n: "SPDR S&P 500 ETF Trust", p: 769.6, y: 1.1, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
-    { t: "VOO", n: "Vanguard S&P 500 ETF", p: 605, y: 1.2, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
+    { t: "VOO", n: "Vanguard S&P 500 ETF", p: 707.43, y: 1.2, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
     { t: "IVV", n: "iShares Core S&P 500 ETF", p: 662, y: 1.2, q: 4, cat: "Index ETF", beta: 1, vol: 0.16 },
     { t: "VTI", n: "Vanguard Total Stock Market ETF", p: 325, y: 1.2, q: 4, cat: "Index ETF", beta: 1.02, vol: 0.165 },
-    { t: "QQQ", n: "Invesco QQQ (Nasdaq-100)", p: 600, y: 0.5, q: 4, cat: "Index ETF", beta: 1.2, vol: 0.22, sec: "Technology" },
-    { t: "DIA", n: "SPDR Dow Jones Industrial Average ETF", p: 460, y: 1.5, q: 12, cat: "Index ETF", beta: 0.95, vol: 0.15 },
-    { t: "IWM", n: "iShares Russell 2000 ETF", p: 240, y: 1.1, q: 4, cat: "Index ETF", beta: 1.2, vol: 0.23 },
+    { t: "QQQ", n: "Invesco QQQ (Nasdaq-100)", p: 728.95, y: 0.5, q: 4, cat: "Index ETF", beta: 1.2, vol: 0.22, sec: "Technology" },
+    { t: "DIA", n: "SPDR Dow Jones Industrial Average ETF", p: 515.63, y: 1.5, q: 12, cat: "Index ETF", beta: 0.95, vol: 0.15 },
+    { t: "IWM", n: "iShares Russell 2000 ETF", p: 271.37, y: 1.1, q: 4, cat: "Index ETF", beta: 1.2, vol: 0.23 },
     { t: "MDY", n: "SPDR S&P MidCap 400 ETF", p: 590, y: 1.2, q: 4, cat: "Index ETF", beta: 1.1, vol: 0.2 },
     { t: "IJR", n: "iShares Core S&P Small-Cap ETF", p: 115, y: 1.4, q: 4, cat: "Index ETF", beta: 1.2, vol: 0.22 },
     { t: "RSP", n: "Invesco S&P 500 Equal Weight ETF", p: 190, y: 1.5, q: 4, cat: "Index ETF", beta: 1, vol: 0.17 },
@@ -609,15 +611,15 @@ EPR|EPR Properties|55|6.4|M
     { t: "EFA", n: "iShares MSCI EAFE ETF", p: 92, y: 2.8, q: 2, cat: "International ETF", beta: 0.8, vol: 0.16, fac: "intl" },
     { t: "VXUS", n: "Vanguard Total International Stock ETF", p: 72, y: 2.9, q: 4, cat: "International ETF", beta: 0.8, vol: 0.16, fac: "intl" },
     { t: "ACWI", n: "iShares MSCI ACWI ETF", p: 135, y: 1.6, q: 2, cat: "International ETF", beta: 0.95, vol: 0.15, fac: "intl" },
-    { t: "SCHD", n: "Schwab U.S. Dividend Equity ETF", p: 27, y: 3.8, q: 4, cat: "Dividend ETF", beta: 0.8, vol: 0.14 },
-    { t: "VYM", n: "Vanguard High Dividend Yield ETF", p: 140, y: 2.6, q: 4, cat: "Dividend ETF", beta: 0.85, vol: 0.14 },
+    { t: "SCHD", n: "Schwab U.S. Dividend Equity ETF", p: 33.71, y: 3.8, q: 4, cat: "Dividend ETF", beta: 0.8, vol: 0.14 },
+    { t: "VYM", n: "Vanguard High Dividend Yield ETF", p: 159.06, y: 2.6, q: 4, cat: "Dividend ETF", beta: 0.85, vol: 0.14 },
     { t: "VIG", n: "Vanguard Dividend Appreciation ETF", p: 210, y: 1.7, q: 4, cat: "Dividend ETF", beta: 0.9, vol: 0.14 },
     { t: "DGRO", n: "iShares Core Dividend Growth ETF", p: 67, y: 2.1, q: 4, cat: "Dividend ETF", beta: 0.9, vol: 0.14 },
     { t: "NOBL", n: "ProShares S&P 500 Dividend Aristocrats ETF", p: 105, y: 2, q: 4, cat: "Dividend ETF", beta: 0.8, vol: 0.14 },
     { t: "HDV", n: "iShares Core High Dividend ETF", p: 122, y: 3.3, q: 4, cat: "Dividend ETF", beta: 0.7, vol: 0.13 },
     { t: "SPYD", n: "SPDR Portfolio S&P 500 High Dividend ETF", p: 44, y: 4.3, q: 4, cat: "Dividend ETF", beta: 0.85, vol: 0.16 },
     { t: "SPHD", n: "Invesco S&P 500 High Div Low Vol ETF", p: 48, y: 3.6, q: 12, cat: "Dividend ETF", beta: 0.7, vol: 0.13 },
-    { t: "JEPI", n: "JPMorgan Equity Premium Income ETF", p: 57, y: 7.5, q: 12, cat: "Income ETF", beta: 0.6, vol: 0.1 },
+    { t: "JEPI", n: "JPMorgan Equity Premium Income ETF", p: 56.87, y: 7.5, q: 12, cat: "Income ETF", beta: 0.6, vol: 0.1 },
     { t: "JEPQ", n: "JPMorgan Nasdaq Equity Premium Income ETF", p: 57, y: 10, q: 12, cat: "Income ETF", beta: 0.85, vol: 0.15, sec: "Technology" },
     { t: "QYLD", n: "Global X Nasdaq-100 Covered Call ETF", p: 17, y: 12, q: 12, cat: "Income ETF", beta: 0.75, vol: 0.13, sec: "Technology" },
     { t: "XLK", n: "Technology Select Sector SPDR", p: 285, y: 0.6, q: 4, cat: "Sector ETF", beta: 1.2, vol: 0.24, sec: "Technology" },
@@ -635,11 +637,11 @@ EPR|EPR Properties|55|6.4|M
     { t: "SMH", n: "VanEck Semiconductor ETF", p: 320, y: 0.4, q: 1, cat: "Sector ETF", beta: 1.5, vol: 0.32, sec: "Technology" },
     { t: "SOXX", n: "iShares Semiconductor ETF", p: 280, y: 0.6, q: 4, cat: "Sector ETF", beta: 1.5, vol: 0.32, sec: "Technology" },
     { t: "ARKK", n: "ARK Innovation ETF", p: 80, y: 0, q: 0, cat: "Thematic ETF", beta: 1.6, vol: 0.45, sec: "Technology" },
-    { t: "GLD", n: "SPDR Gold Shares", p: 370, y: 0, q: 0, cat: "Commodity ETF", beta: 0.05, vol: 0.15, fac: "gold" },
+    { t: "GLD", n: "SPDR Gold Shares", p: 375.99, y: 0, q: 0, cat: "Commodity ETF", beta: 0.05, vol: 0.15, fac: "gold" },
     { t: "IAU", n: "iShares Gold Trust", p: 75, y: 0, q: 0, cat: "Commodity ETF", beta: 0.05, vol: 0.15, fac: "gold" },
     { t: "SLV", n: "iShares Silver Trust", p: 42, y: 0, q: 0, cat: "Commodity ETF", beta: 0.2, vol: 0.28, fac: "gold" },
-    { t: "USO", n: "United States Oil Fund", p: 75, y: 0, q: 0, cat: "Commodity ETF", beta: 0.4, vol: 0.32, sec: "Energy" },
-    { t: "IBIT", n: "iShares Bitcoin Trust ETF", p: 65, y: 0, q: 0, cat: "Crypto ETF", beta: 1.3, vol: 0.5, fac: "crypto" },
+    { t: "USO", n: "United States Oil Fund", p: 153.56, y: 0, q: 0, cat: "Commodity ETF", beta: 0.4, vol: 0.32, sec: "Energy" },
+    { t: "IBIT", n: "iShares Bitcoin Trust ETF", p: 46.24, y: 0, q: 0, cat: "Crypto ETF", beta: 1.3, vol: 0.5, fac: "crypto" },
     { t: "ETHA", n: "iShares Ethereum Trust ETF", p: 32, y: 0, q: 0, cat: "Crypto ETF", beta: 1.5, vol: 0.65, fac: "crypto" },
     { t: "TQQQ", n: "ProShares UltraPro QQQ (3x)", p: 100, y: 0.7, q: 4, cat: "Leveraged ETF", track: "QQQ", lev: 3 },
     { t: "SQQQ", n: "ProShares UltraPro Short QQQ (-3x)", p: 15, y: 0, q: 0, cat: "Inverse ETF", track: "QQQ", lev: -3 },
@@ -647,9 +649,9 @@ EPR|EPR Properties|55|6.4|M
     { t: "SSO", n: "ProShares Ultra S&P 500 (2x)", p: 110, y: 0.6, q: 4, cat: "Leveraged ETF", track: "SPY", lev: 2 },
     { t: "SH", n: "ProShares Short S&P 500 (-1x)", p: 38, y: 0, q: 0, cat: "Inverse ETF", track: "SPY", lev: -1 },
     { t: "SOXL", n: "Direxion Daily Semiconductor Bull 3x", p: 30, y: 0.5, q: 4, cat: "Leveraged ETF", track: "SOXX", lev: 3 },
-    { t: "BND", n: "Vanguard Total Bond Market ETF", p: 74, y: 3.7, q: 12, cat: "Bond ETF", beta: 0.05, vol: 0.055, rate: 0.9 },
+    { t: "BND", n: "Vanguard Total Bond Market ETF", p: 70.4, y: 3.7, q: 12, cat: "Bond ETF", beta: 0.05, vol: 0.055, rate: 0.9 },
     { t: "AGG", n: "iShares Core U.S. Aggregate Bond ETF", p: 100, y: 3.8, q: 12, cat: "Bond ETF", beta: 0.05, vol: 0.055, rate: 0.9 },
-    { t: "TLT", n: "iShares 20+ Year Treasury Bond ETF", p: 89, y: 4.4, q: 12, cat: "Bond ETF", beta: -0.1, vol: 0.15, rate: 2.4 },
+    { t: "TLT", n: "iShares 20+ Year Treasury Bond ETF", p: 78.89, y: 4.4, q: 12, cat: "Bond ETF", beta: -0.1, vol: 0.15, rate: 2.4 },
     { t: "IEF", n: "iShares 7-10 Year Treasury Bond ETF", p: 96, y: 3.8, q: 12, cat: "Bond ETF", beta: -0.05, vol: 0.07, rate: 1.1 },
     { t: "SHY", n: "iShares 1-3 Year Treasury Bond ETF", p: 83, y: 4, q: 12, cat: "Bond ETF", beta: 0, vol: 0.015, rate: 0.2 },
     { t: "SGOV", n: "iShares 0-3 Month Treasury Bond ETF", p: 100.5, y: 4.3, q: 12, cat: "Bond ETF", beta: 0, vol: 0.003, rate: 0.01 },
