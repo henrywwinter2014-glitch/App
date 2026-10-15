@@ -1090,9 +1090,25 @@
     const p = window.Quotes.PROVIDERS[id];
     if (!p) { el.hidden = true; return; }
     el.hidden = false;
-    el.innerHTML = p.noKey
-      ? `<b>${esc(p.name)} needs no key.</b> Set <code>PROVIDER=yahoo</code> on your proxy and leave <code>API_KEY</code> unset. ${esc(p.delayNote)}`
-      : `<b>${esc(p.name)} needs a free API key</b>, which goes on your proxy as a secret and never into this page. ${esc(p.delayNote)} <a href="${esc(p.site)}" target="_blank" rel="noopener">Get one</a>.`;
+    /*
+     * Where the key lives depends entirely on the mode, so the note has to follow it. Saying
+     * "it goes on your proxy and never into this page" while the page is holding the key, three
+     * lines above the box that says it is holding the key, is worse than saying nothing.
+     */
+    const direct = ($('setMode') ? $('setMode').value : window.Quotes.state().mode) === 'direct';
+    if (direct && !p.direct) {
+      el.innerHTML = `<b>${esc(p.name)} cannot be called straight from a browser.</b> It sends none of the headers a browser needs to allow that, so it can only be reached through a proxy: choose <i>Through my own proxy</i> above, or pick a provider that allows direct calls. ${esc(p.delayNote)}`;
+      return;
+    }
+    if (p.noKey) {
+      el.innerHTML = direct
+        ? `<b>${esc(p.name)} needs no key.</b> ${esc(p.delayNote)}`
+        : `<b>${esc(p.name)} needs no key.</b> Set <code>PROVIDER=${esc(p.id)}</code> on your proxy and leave <code>API_KEY</code> unset. ${esc(p.delayNote)}`;
+      return;
+    }
+    el.innerHTML = `<b>${esc(p.name)} needs a free API key</b>, ${direct
+      ? 'which this browser keeps and sends straight to them — nothing to deploy.'
+      : 'which goes on your proxy as a secret and never into this page.'} ${esc(p.delayNote)} <a href="${esc(p.site)}" target="_blank" rel="noopener">Get one</a>.`;
   }
 
   function renderDataState() {
@@ -2545,7 +2561,7 @@
       S().settings.dataMode = e.target.value === 'direct' ? 'direct' : 'proxy';
       applyQuoteConfig();
       save();
-      renderDataMode(); renderDataState(); renderMarketNote();
+      renderDataMode(); renderProviderNote(); renderDataState(); renderMarketNote();
       $('dataMsg').textContent = '';
     });
     $('setKey').addEventListener('change', (e) => {

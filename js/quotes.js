@@ -103,7 +103,7 @@
       name: 'Finnhub',
       site: 'https://finnhub.io/dashboard',
       kind: 'realtime',
-      delayNote: 'Real-time for US shares on the free plan, 60 calls a minute. Other exchanges and historical candles need a paid plan, so a free key gives live prices but no chart.',
+      delayNote: 'Real-time for US shares on the free plan, 60 calls a minute. Other exchanges and historical candles need a paid plan, so on a free key the chart is built from the prices you are sent as you watch, rather than fetched as history.',
       perMin: 60,
       perDay: 100000,          // no published daily cap on the free plan
       intraday: true,
