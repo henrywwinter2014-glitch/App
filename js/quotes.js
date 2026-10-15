@@ -929,6 +929,9 @@
     cached: (s) => quoteCache.get(String(s || '').toUpperCase()) || null,
     cachedSeries: (s, i) => { const r = seriesCache.get(String(s || '').toUpperCase() + '|' + (i || '1day')); return r ? r.series : null; },
     freshness, intervals, state, clear,
+    // Anything about to be shown to the player goes through this first, so a key
+    // typed into this browser never reaches the screen, a log or a copied message.
+    redact: scrub,
     onUpdate: (fn) => { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     // exposed for the test suite
     _adapters: adapters, _sniff: sniff, _resetLimits: () => budgets.clear(),
