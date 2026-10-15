@@ -1,0 +1,44 @@
+# Publishes the app to GitHub Pages, which (unlike a sandboxed preview) is
+# allowed to fetch, so a provider key set under Settings gives real prices.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [stock-simulator]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Keep the server code out of the published site
+        # It holds no secret, but nothing in server/ is served to a browser and
+        # a stray .md or .js there would only be confusing to stumble on.
+        run: |
+          rm -rf server scratchpad
+          touch .nojekyll
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
