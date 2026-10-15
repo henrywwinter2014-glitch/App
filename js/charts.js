@@ -243,11 +243,26 @@
       if (lo < min) min = lo; if (hi > max) max = hi;
     }
     for (const ov of d.overlays || []) for (const v of ov.values) { if (v == null) continue; if (v < min) min = v; if (v > max) max = v; }
-    if (min === max) { min *= 0.99; max *= 1.01; }
+    /*
+     * A penny of range is not a chart. Magnified to the full height it turns noise into a
+     * mountain and prints the same rounded number at every tick, which is what a live tape of
+     * two prices looks like. Keep a sensible slice of the price in view instead, so a flat
+     * stretch looks flat -- the prices are unchanged, only the scale they are drawn on.
+     */
+    const mid = (max + min) / 2 || 1;
+    const floor = Math.abs(mid) * 0.004;
+    if (max - min < floor) { min = mid - floor / 2; max = mid + floor / 2; }
     const pad = (max - min) * 0.06; min -= pad; max += pad;
 
     ctx.font = `11px ${T.mono}`;
-    const ticks = niceTicks(min, max, 5);
+    let ticks = niceTicks(min, max, 5);
+    // Whatever the span, the axis has to read as different numbers: if the labels still collide
+    // once rounded for display, widen until they do not.
+    for (let g = 0; g < 6 && new Set(ticks.map(d.fmt)).size < Math.min(3, ticks.length); g++) {
+      const c = (min + max) / 2, half = (max - min) || Math.abs(c) * 0.01;
+      min = c - half; max = c + half;
+      ticks = niceTicks(min, max, 5);
+    }
     const labelW = Math.max(...ticks.map((t) => ctx.measureText(d.fmt(t)).width), ctx.measureText(d.fmt(d.c[n - 1])).width) + 16;
     const L = 4, R = w - labelW, Top = 24, XB = h - 20;
     const volH = Math.max(36, Math.round(h * 0.18));
