@@ -657,7 +657,13 @@
           asOf: isFinite(ts) && ts > 0 ? ts : null,
           asOfText: isFinite(ts) && ts > 0 ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '',
           kind: 'realtime',
-          marketStatus: 'unknown',
+          /*
+           * The quote endpoint does not say whether the market is open, but it does carry the
+           * time of the trade it is reporting. A trade in the last few minutes means open; older
+           * than that we cannot tell -- a thin stock simply may not have traded -- so we say so
+           * rather than guessing "closed", which would slow every later fetch right down.
+           */
+          marketStatus: isFinite(ts) && ts > 0 && Date.now() - ts < 4 * 60 * 1000 ? 'open' : 'unknown',
         };
       },
       series(d, interval) {
@@ -768,9 +774,15 @@
    * Public calls
    * ------------------------------------------------------------------------- */
   function ttl() {
-    // With the market shut there is nothing new to learn, so we ask far less often.
-    const anyOpen = [...quoteCache.values()].some((q) => q.marketStatus === 'open');
-    return anyOpen ? cfg.quoteTtlOpen : cfg.quoteTtlClosed;
+    /*
+     * With the market shut there is nothing new to learn, so we ask far less often. But only
+     * when we actually know it is shut: a provider that never reports the status at all used to
+     * fall into the closed branch, so every quote was served from a quarter-hour-old cache and a
+     * chart built from arriving prices never got a second point.
+     */
+    const known = [...quoteCache.values()].filter((q) => q.marketStatus === 'open' || q.marketStatus === 'closed');
+    const allShut = known.length > 0 && known.every((q) => q.marketStatus === 'closed');
+    return allShut ? cfg.quoteTtlClosed : cfg.quoteTtlOpen;
   }
 
   async function quote(symbol, opts) {
@@ -932,6 +944,8 @@
     cached: (s) => quoteCache.get(String(s || '').toUpperCase()) || null,
     cachedSeries: (s, i) => { const r = seriesCache.get(String(s || '').toUpperCase() + '|' + (i || '1day')); return r ? r.series : null; },
     freshness, intervals, state, clear,
+    // How long a fetched quote is reused for, so a refresh timer can be spaced to out-wait it.
+    ttlMs: ttl,
     // Anything about to be shown to the player goes through this first, so a key
     // typed into this browser never reaches the screen, a log or a copied message.
     redact: scrub,

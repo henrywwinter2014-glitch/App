@@ -1275,7 +1275,12 @@
    * failures stops it instead of hammering a provider that is refusing.
    */
   const AUTO_FAIL_STOP = 3;
-  function autoEvery() { return Math.max(30, liveWanted().length * 3) * 1000; }
+  function autoEvery() {
+    // Never tick faster than a quote is cached for: those ticks would be served the same price
+    // from the cache, which is not a new observation and would not add a point to the chart.
+    const cache = (window.Quotes.ttlMs ? window.Quotes.ttlMs() : 60000) + 2000;
+    return Math.max(30000, liveWanted().length * 3000, cache);
+  }
 
   function setAuto(on, why) {
     ui.auto = !!on;
