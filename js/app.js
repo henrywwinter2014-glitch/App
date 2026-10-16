@@ -1123,6 +1123,100 @@
     return (m && m.content) || 'dev';
   }
 
+  /* ---------- playing offline ---------- */
+  /*
+   * A service worker keeps a copy of the app's own files in this browser, which is what lets the
+   * page open with no connection. It never caches a price: prices come from a provider over the
+   * network, and with no network there are none -- which the app says, rather than serving an old
+   * one as though it were current.
+   */
+  const SW_OK = () => 'serviceWorker' in navigator && location.protocol.startsWith('http');
+
+  function offlineSupported() {
+    if (SW_OK()) return '';
+    if (location.protocol === 'file:') return 'This copy is opened straight from a file, so it is already on this device and needs nothing saved. It works offline as it is.';
+    if (window.top !== window.self) return 'This copy is running inside another page, which is not allowed to install itself for offline use. Open the app at its own address to save it.';
+    return 'This browser cannot save the app for offline use.';
+  }
+
+  async function renderOffline() {
+    const state = $('offlineState');
+    if (!state) return;
+    const why = offlineSupported();
+    const btn = $('offlineBtn'), drop = $('offlineDrop'), add = $('offlineAdd');
+    if (why) {
+      state.textContent = why;
+      if (btn) btn.hidden = true;
+      if (drop) drop.hidden = true;
+      return;
+    }
+    if (btn) btn.hidden = false;
+    let shell = false, bulk = 0;
+    try {
+      const keys = await caches.keys();
+      for (const k of keys) {
+        const c = await caches.open(k);
+        const n = (await c.keys()).length;
+        if (/^bullpen-shell-/.test(k) && n) shell = true;
+        if (/^bullpen-data-/.test(k)) bulk += n;
+      }
+    } catch (e) { /* a browser that refuses to list caches still works, it just cannot report */ }
+    if (drop) drop.hidden = !shell;
+    state.innerHTML = shell
+      ? `<b>Saved on this device.</b> The app opens with no connection. ${bulk >= 5
+        ? 'Recorded history for replay mode is saved too.'
+        : 'Replay mode\u2019s recorded history is not saved yet \u2014 press Save for offline again while you have a connection to include it.'}`
+      : 'Not saved yet. Press Save for offline while you have a connection, and the app will open without one afterwards.';
+    // On an iPhone or iPad the app only truly launches offline once it is on the Home Screen.
+    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    if (add) {
+      add.hidden = !(iOS && shell && !standalone);
+      add.innerHTML = 'On an iPad or iPhone, also add it to your Home Screen: the <b>Share</b> button, then <b>Add to Home Screen</b>. Opened from there it starts with no connection and no address bar.';
+    }
+  }
+
+  async function saveOffline() {
+    const btn = $('offlineBtn'), state = $('offlineState');
+    if (!SW_OK()) return;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js');
+      await navigator.serviceWorker.ready;
+      // Ask for the big recorded history as well, and follow its progress.
+      const done = new Promise((resolve) => {
+        const onMsg = (e) => {
+          if (!e.data) return;
+          if (e.data.type === 'bulk-progress') state.textContent = `Saving recorded history… ${e.data.done} of ${e.data.total}`;
+          if (e.data.type === 'bulk-done') { navigator.serviceWorker.removeEventListener('message', onMsg); resolve(e.data); }
+        };
+        navigator.serviceWorker.addEventListener('message', onMsg);
+        setTimeout(() => { navigator.serviceWorker.removeEventListener('message', onMsg); resolve(null); }, 120000);
+      });
+      (reg.active || navigator.serviceWorker.controller || {}).postMessage?.({ type: 'cache-bulk' });
+      const res = await done;
+      if (res && res.done < res.total) toast(`Saved the app, but only ${res.done} of ${res.total} history files. Try again on a better connection for replay mode.`, 'err');
+      else toast('Saved. The app will now open without a connection.');
+    } catch (e) {
+      toast('Could not save the app for offline use: ' + (e && e.message ? e.message : 'the browser refused.'), 'err');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save for offline';
+      renderOffline();
+    }
+  }
+
+  async function dropOffline() {
+    try {
+      for (const k of await caches.keys()) if (/^bullpen-/.test(k)) await caches.delete(k);
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const r of regs) await r.unregister();
+      toast('The offline copy has been removed. Your game and settings are untouched.');
+    } catch (e) {
+      toast('Could not remove the offline copy.', 'err');
+    }
+    renderOffline();
+  }
+
   function renderBuildLine() {
     const el = $('buildLine');
     if (!el) return;
@@ -1136,6 +1230,7 @@
     const el = $('dataState');
     if (!el) return;
     renderBuildLine();
+    renderOffline();
     const Q = window.Quotes, st = Q.state();
     const rows = [];
     if (!st.configured) {
@@ -2663,6 +2758,8 @@
     $('setMarket').addEventListener('change', (e) => { ui.newMarket = e.target.value; renderMarketNote(); });
     $('liveRefresh').addEventListener('click', () => refreshLive(true));
     $('liveAuto').addEventListener('click', () => setAuto(!ui.auto));
+    $('offlineBtn').addEventListener('click', saveOffline);
+    $('offlineDrop').addEventListener('click', dropOffline);
     document.addEventListener('visibilitychange', () => { if (!document.hidden && ui.auto) armAuto(); });
     $('worldBtn').addEventListener('click', doWorldSearch);
     $('refBtn').addEventListener('click', fetchRefPrices);
@@ -3571,6 +3668,17 @@
     ui.calMonth = null; ui.calSel = null; ui.calFollow = true;
     renderSelects();
     showTab(ui.tab);
+  }
+
+  /*
+   * Register the worker on load, so the app opens without a connection whether or not anyone
+   * thought to press a button first. Only the app's own files are kept this way -- under a
+   * megabyte. Replay mode's thirteen megabytes of recorded history stay opt-in, under Settings.
+   */
+  if (SW_OK()) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').then(renderOffline).catch(() => { /* offline play simply stays unavailable */ });
+    });
   }
 
   boot();

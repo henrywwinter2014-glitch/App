@@ -7,6 +7,11 @@
 <!-- The deploy stamps the commit here, and the same stamp goes onto every script and
      stylesheet below, so a browser cannot serve yesterday's code from its cache. -->
 <meta name="build" content="dev">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bullpen">
+<meta name="theme-color" content="#0e1116">
 <meta name="description" content="A stock and shares simulator with dividends, ETFs, bonds, REITs, preferreds, UK shares and penny stocks.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -546,6 +551,17 @@
         </div>
         <div id="dataState" class="data-state"></div>
         <p class="note" id="buildLine"></p>
+      </div>
+
+      <div class="card">
+        <h3>Playing offline</h3>
+        <p class="note">The simulated market, replay mode, the course, your journal and every chart work with no connection at all. Save the app to this device and it opens on a plane, in a tunnel, anywhere. Only live prices need the internet, and they say so when it is not there.</p>
+        <div class="row">
+          <button class="btn btn-primary" id="offlineBtn" type="button">Save for offline</button>
+          <button class="btn" id="offlineDrop" type="button" hidden>Remove the offline copy</button>
+        </div>
+        <p class="note" id="offlineState" role="status" aria-live="polite"></p>
+        <p class="note" id="offlineAdd" hidden></p>
         <!--
           Bringing the whole built-in list up to today's prices. The reference levels in data.js
           are approximate and they age; this replaces them with real ones for every product the
