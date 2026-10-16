@@ -574,9 +574,10 @@
     const st = window.Quotes.state();
     const who = st.providerName || 'your provider';
     const one = d.step < 3600 ? `${d.step / 60}-minute` : d.step < 86400 ? `${d.step / 3600}-hour` : 'daily';
+    const line = d.oneEach ? ' Drawn as a line while each bar holds a single price: there is no high or low to show yet.' : '';
     el.hidden = false;
     el.innerHTML = `Drawn from the <b>${d.points}</b> price${d.points === 1 ? '' : 's'} ${esc(who)} has sent for ${esc(t)}, covering ${span(d.to - d.from)} — one ${one} bar each. `
-      + `This is the tape this app has seen, not ${esc(t)}'s full history: your plan sends no candles, so nothing before you started watching can be drawn. Refresh prices to extend it.`;
+      + `This is the tape this app has seen, not ${esc(t)}'s full history: your plan sends no candles, so nothing before you started watching can be drawn. Refresh prices to extend it.${line}`;
   }
 
   // The empty state for a live chart whose history has not been fetched yet.
@@ -671,12 +672,20 @@
         if (lb) lb.addEventListener('click', () => loadLiveHistory(t));
       } else {
         host.hidden = false;
+        /*
+         * One price per bar means open, high, low and close are the same number, and a candle
+         * drawn from that is a flat dash carrying no information. Draw those as a line: it is
+         * the same data, shown as the shape it actually has. Once a bar holds several prices
+         * the candles mean something again, and the chosen type comes back.
+         */
+        const oneEach = !!d0.tape && d0.c.every((c, i) => d0.o[i] === c && d0.h[i] === c && d0.l[i] === c);
         C.candles(host, Object.assign(d0, {
           timeAxis: false,
           // Tape bars are clock times of our own making, not trading dates.
           labelFmt: d0.tape ? (x) => x : undefined,
+          oneEach,
           drawings: drawingsFor(t, d0.c.length),
-          type: ui.chartType,
+          type: oneEach ? 'line' : ui.chartType,
           fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', ''),
         }));
       }
