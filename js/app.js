@@ -1438,7 +1438,9 @@
     // Never tick faster than a quote is cached for: those ticks would be served the same price
     // from the cache, which is not a new observation and would not add a point to the chart.
     const cache = (window.Quotes.ttlMs ? window.Quotes.ttlMs() : 60000) + 2000;
-    return Math.max(30000, liveWanted().length * 3000, cache);
+    // Three seconds a product keeps a long watchlist inside any free plan's budget; the floor
+    // is what a short one ticks at, and the cache sets how often a tick can learn anything.
+    return Math.max(15000, liveWanted().length * 3000, cache);
   }
 
   function setAuto(on, why) {

@@ -192,6 +192,7 @@
     provider: '',          // '' means "work it out from what the proxy sends back"
     endpoint: '',          // the user's own proxy; empty means real-market mode is unconfigured
     quoteTtlOpen: 60000,   // don't re-ask for the same quote more than once a minute
+    quoteTtlFast: 15000,   // ...unless the plan is real-time and has the budget for more
     quoteTtlClosed: 900000, // ...or more than once every fifteen minutes with the market shut
     seriesTtl: 900000,
     staleAfter: 3600000,   // an hour-old quote is labelled stale rather than shown as current
@@ -782,7 +783,16 @@
      */
     const known = [...quoteCache.values()].filter((q) => q.marketStatus === 'open' || q.marketStatus === 'closed');
     const allShut = known.length > 0 && known.every((q) => q.marketStatus === 'closed');
-    return allShut ? cfg.quoteTtlClosed : cfg.quoteTtlOpen;
+    if (allShut) return cfg.quoteTtlClosed;
+    /*
+     * While it is open, ask as often as the plan comfortably allows. A chart built from arriving
+     * prices needs several of them in each bar before a candle has a high and a low, and once a
+     * minute makes that take an hour. A real-time plan with room to spare can be asked more
+     * often; a quarter of the per-minute budget leaves plenty for everything else.
+     */
+    const p = PROVIDERS[cfg.provider];
+    if (p && p.kind === 'realtime' && p.perMin >= 30) return Math.max(cfg.quoteTtlFast, 1000);
+    return cfg.quoteTtlOpen;
   }
 
   async function quote(symbol, opts) {

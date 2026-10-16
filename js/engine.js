@@ -453,7 +453,9 @@
    * watching reads as minutes and a fortnight's as hours, and it is reported back so the screen
    * can say what one bar means rather than implying a standard interval.
    */
-  const TAPE_STEPS = [60, 300, 900, 1800, 3600, 4 * 3600, 12 * 3600, 86400];
+  // Fine enough that watching for longer never gives fewer bars: a jump straight from one
+  // minute to five made a ten-minute tape read as three bars when five minutes read as five.
+  const TAPE_STEPS = [30, 60, 120, 180, 240, 300, 360, 480, 600, 720, 900, 1800, 3600, 2 * 3600, 4 * 3600, 12 * 3600, 86400];
   function tapeBars(t, n) {
     const a = (S.tape && S.tape[t]) || [];
     if (a.length < 2) return null;
