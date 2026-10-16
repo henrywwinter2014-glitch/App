@@ -823,6 +823,8 @@
     S = saved;
     S.settings = Object.assign({ commission: 0, stamp: true, fractional: true, drip: false, divSpeed: 'normal', account: 'us', riskPct: 1, maxPosPct: 20, dayLossPct: 3, provider: '', endpoint: '', dataMode: 'direct' }, S.settings);
     if (!S.settings.region) { const d = HD() ? HD().detect() : null; S.settings.region = d ? d.code : 'us'; S.settings.regionHow = d ? d.how : ''; }
+    // Unpack the price series before anything reads a price off one.
+    unpackState();
     build(S.custom);
     ensureAllSecStates();
     if (!S.drawings) S.drawings = {};
@@ -1997,8 +1999,219 @@
   }
   const refPriceCount = () => Object.keys((S && S.settings && S.settings.refPrices) || {}).length;
 
+  /* ---------- packing the save ---------- */
+  /*
+   * S.sec[t].h is a year of daily closes, and there is one for every product in the market list
+   * -- 848 of them, whether or not the player has ever opened the thing. Written out as JSON
+   * numbers that is 1.5MB, which is 99.7% of the save, before the game has been played at all.
+   * localStorage gives an origin somewhere around 5MB and counts a string by its characters, so
+   * a long game with a few world listings and a live-price tape used to walk into that limit --
+   * and then `saveNow` could only apologise, having already lost the player the hours they put
+   * in. Preventing that is worth more than reporting it.
+   *
+   * So a price series goes into the save the way data/real-*.js stores its bars: as base-64
+   * varint deltas of whole price units. A close is already an exact number of hundredths,
+   * thousandths or hundred-thousandths -- that is what `round` leaves behind -- so the whole
+   * number is the price rather than a rounding of it, and the series that comes back out is the
+   * series that went in, to the last digit. It costs about 2.4 characters a close instead of
+   * 7.4, which takes the history from 1.5MB to 520k and, because `h` is capped at a year, keeps
+   * it there however long the game runs. Nothing is elided, approximated or regenerated: every
+   * price the player could be shown is still a price the game really produced.
+   *
+   * `packSeries` proves its own work -- it unpacks what it just packed and compares -- and falls
+   * back to the plain array if anything at all does not match. A series is never silently
+   * altered to make it fit.
+   */
+  const B64 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_';
+  const B64V = (() => { const v = new Int16Array(128).fill(-1); for (let i = 0; i < B64.length; i++) v[B64.charCodeAt(i)] = i; return v; })();
+
+  // One signed whole number, zigzagged so small negatives are as cheap as small positives,
+  // then base-64 in five-bit groups with the sixth bit saying "another group follows".
+  function putVarint(out, d) {
+    let z = d < 0 ? -2 * d - 1 : 2 * d;
+    for (;;) { const lo = z % 32; z = (z - lo) / 32; out.push(B64[lo + (z ? 32 : 0)]); if (!z) return; }
+  }
+
+  /*
+   * The unit a series is held in: the coarsest one that represents every price in it exactly.
+   * Simulated and replayed closes have been through `round`, so a hundredth or a thousandth
+   * usually does; a price straight from a data provider has whatever precision the provider
+   * sent, which for crypto and currencies can be eight decimals. The unit is found by trying
+   * rather than inferred from how `round` happens to band its decimals today, so a series is
+   * never packed on an assumption about where its numbers came from.
+   */
+  const UNITS = [100, 1000, 100000, 1e8];
+  function seriesUnit(a) {
+    for (const k of UNITS) {
+      let ok = true;
+      /*
+       * Is every price a whole number of these units? The tolerance is absolute and tight: a
+       * price times its unit lands near 1e8 at the worst, where doubles are spaced far finer
+       * than this, so a hundredth of a unit out means the series genuinely has more decimals
+       * than the unit carries rather than that the multiplication drifted.
+       */
+      for (const p of a) { const v = p * k; if (Math.abs(v - Math.round(v)) > 1e-6) { ok = false; break; } }
+      if (ok) return k;
+    }
+    return 0;
+  }
+
+  // Delta-pack a price series into "<unit>|<varints>", or return null if it would not survive.
+  function packSeries(a) {
+    if (!Array.isArray(a) || !a.length) return null;
+    const k = seriesUnit(a);
+    if (!k) return null;                                // finer than we store; keep the numbers
+    const out = [];
+    let prev = 0;
+    for (const p of a) {
+      if (!isFinite(p)) return null;
+      const v = Math.round(p * k);
+      if (!Number.isSafeInteger(v)) return null;
+      putVarint(out, v - prev);
+      prev = v;
+    }
+    const s = k + '|' + out.join('');
+    const back = unpackSeries(s);
+    if (!back || back.length !== a.length) return null;
+    for (let i = 0; i < a.length; i++) if (back[i] !== a[i]) return null;
+    return s;
+  }
+
+  function unpackSeries(s) {
+    if (typeof s !== 'string') return null;
+    const bar = s.indexOf('|');
+    if (bar < 1) return null;
+    const k = +s.slice(0, bar);
+    if (!(k > 0)) return null;
+    const out = [];
+    let i = bar + 1, prev = 0;
+    while (i < s.length) {
+      let acc = 0, mul = 1;
+      for (;;) {
+        // Anything that is not one of the 64 digits -- including running off the end of a
+        // truncated string -- means this is not a series we wrote. Note that charCodeAt past the
+        // end gives NaN and a code above 127 is outside the table, so both are ruled out here
+        // rather than read as an undefined that would compare false against every test.
+        const c = i < s.length ? s.charCodeAt(i++) : -1;
+        const d = c >= 0 && c < 128 ? B64V[c] : -1;
+        if (d < 0) return null;
+        acc += (d & 31) * mul;
+        if (!(d & 32)) break;
+        mul *= 32;
+        if (mul > 2 ** 53) return null;
+      }
+      prev += acc % 2 ? -(acc + 1) / 2 : acc / 2;
+      out.push(prev / k);
+    }
+    // A series we wrote holds at least one close, so an empty one is a damaged string and not an
+    // empty history: saying so here keeps a caller from replacing a good `h` with nothing.
+    return out.length ? out : null;
+  }
+
+  /*
+   * The tape is a list of [unix second, price]: two series that each change by a little, so each
+   * packs the same way. The seconds are whole numbers already, hence a unit of one.
+   */
+  function packTape(a) {
+    if (!Array.isArray(a) || !a.length) return null;
+    const t = [], p = [];
+    for (const pt of a) {
+      if (!pt || !isFinite(pt[0]) || !isFinite(pt[1])) return null;
+      t.push(pt[0]); p.push(pt[1]);
+    }
+    let prev = 0;
+    const ts = [];
+    for (const sec of t) { if (sec !== Math.round(sec)) return null; putVarint(ts, sec - prev); prev = sec; }
+    const px = packSeries(p);
+    if (!px) return null;
+    const s = '1|' + ts.join('') + '~' + px;
+    const back = unpackTape(s);
+    if (!back || back.length !== a.length) return null;
+    for (let i = 0; i < a.length; i++) if (back[i][0] !== a[i][0] || back[i][1] !== a[i][1]) return null;
+    return s;
+  }
+
+  function unpackTape(s) {
+    if (typeof s !== 'string') return null;
+    const cut = s.indexOf('~');
+    if (cut < 0) return null;
+    const secs = unpackSeries(s.slice(0, cut));
+    const px = unpackSeries(s.slice(cut + 1));
+    if (!secs || !px || secs.length !== px.length) return null;
+    const out = [];
+    for (let i = 0; i < secs.length; i++) out.push([secs[i], px[i]]);
+    return out;
+  }
+
+  /*
+   * The packed form of the state. The packed series goes in beside `h` under its own name rather
+   * than replacing it, so the two can never be mistaken for one another: a save written before
+   * this change has `h` and no `hp`, and loads exactly as it always did.
+   *
+   * `h` is kept, cut down to the last two closes. That is for the other direction in time. This
+   * app installs a service worker, and a browser holding a cached copy of yesterday's scripts
+   * against today's save is a thing that has happened here before, so a save from a newer
+   * version has to be survivable by an older one: two closes are what `price` and `prevClose`
+   * read, which leaves such a browser with the right money, holdings, journal and trades and a
+   * chart cut short, rather than a product whose `h` is undefined and a page that will not open.
+   * It costs about 17k, which is a fair price for not losing somebody's game to a stale cache.
+   */
+  function packState() {
+    const out = {};
+    for (const k of Object.keys(S)) { if (k[0] !== '_') out[k] = S[k]; }
+    const sec = {};
+    for (const t of Object.keys(S.sec)) {
+      const st = S.sec[t];
+      if (!st) continue;
+      const hp = packSeries(st.h);
+      if (!hp) { sec[t] = st; continue; }
+      const e = {};
+      for (const k of Object.keys(st)) { if (k !== 'h') e[k] = st[k]; }
+      e.hp = hp;
+      e.h = st.h.slice(-2);
+      sec[t] = e;
+    }
+    out.sec = sec;
+    if (S.tape) {
+      const tape = {};
+      for (const t of Object.keys(S.tape)) {
+        const tp = packTape(S.tape[t]);
+        tape[t] = tp ? { tp } : S.tape[t];
+      }
+      out.tape = tape;
+    }
+    return out;
+  }
+
+  // Put a loaded save back into the shape the rest of the engine reads.
+  function unpackState() {
+    for (const t of Object.keys(S.sec || {})) {
+      const st = S.sec[t];
+      if (!st || st.hp == null) continue;
+      const h = unpackSeries(st.hp);   // the packed series wins over the two-close stub beside it
+      delete st.hp;
+      // A series that will not unpack is a corrupt save, not a reason to crash on the next
+      // chart: the product keeps whatever `h` it had, and ensureAllSecStates builds one if none.
+      if (h) st.h = h;
+      else if (!Array.isArray(st.h)) delete S.sec[t];
+    }
+    for (const t of Object.keys(S.tape || {})) {
+      const e = S.tape[t];
+      if (!e || Array.isArray(e)) continue;
+      const a = e.tp != null ? unpackTape(e.tp) : null;
+      if (a) S.tape[t] = a;
+      else { delete S.tape[t]; if (S.tapeSrc) delete S.tapeSrc[t]; }
+    }
+  }
+
+  /*
+   * The save. If packing itself ever went wrong the right outcome is the old, larger save rather
+   * than no save at all -- a game that cannot be written is the whole problem this is here to
+   * solve, and it would be a poor trade to introduce one while saving space.
+   */
   function serialize() {
-    return JSON.stringify(S);
+    try { return JSON.stringify(packState()); }
+    catch (e) { return JSON.stringify(S); }
   }
 
   window.Engine = {
