@@ -429,6 +429,7 @@
     if (!(sec > 0) || !isFinite(q.price)) return;
     if (!S.tape) S.tape = {};
     if (!S.tapeSrc) S.tapeSrc = {};
+    if (!S.reg) S.reg = { v: 0, d: 0, sec: {} };
     if (!S.tapeSrc) S.tapeSrc = {};
     /*
      * One tape, one source. Prices from a different provider -- or from the mock, which makes its
@@ -620,6 +621,7 @@
       lists: [],            // named watchlists; S.watch stays as the union of them all
       alerts: [],           // simulated price and event alerts, checked on the simulation clock
       drawings: {},           // per ticker: chart drawings, points as { d: game day, p: price }
+      reg: { v: 0, d: 0, sec: {} },  // the market's mood: how violent, and which way it leans
       tape: {},               // per ticker: [unix seconds, price] for every real quote received
       tapeSrc: {},            // per ticker: which provider those points came from
       pending: [],             // declared dividends awaiting payment
@@ -713,15 +715,67 @@
     return out;
   }
 
+  /*
+   * The market's mood, which is what makes a simulated chart look like a real one.
+   *
+   * Drawing every day from the same hat gives a price that wanders without ever doing anything:
+   * no calm stretches, no storms, no trend that lasts long enough to be worth following. Real
+   * markets are not like that. Big days cluster together -- a frightening week is made of
+   * frightening days -- and drift persists for weeks or months before turning.
+   *
+   * Two slow-moving states do that. `v` is how violent the market is feeling, `d` is which way
+   * it is leaning, and both carry over from yesterday with a little fresh noise. Neither is
+   * visible to the player and neither can be read off the chart in advance, so a strategy that
+   * works in a calm uptrend and fails in a choppy storm is behaving the way it would in life:
+   * it is not that the strategy is right or wrong, it is that the market changed underneath it.
+   */
+  const VOL_PHI = 0.94;          // how much of yesterday's mood carries over
+  const VOL_SD = 0.3;
+  const STORM_CHANCE = 0.012;    // a sudden squall, a few times a year
+  const DRIFT_PHI = 0.985;       // a lean that lasts a couple of months
+  const DRIFT_SD = 0.00012;
+  const SECTOR_PHI = 0.98;
+  const SECTOR_DRIFT_SD = 0.00009;
+  // E[exp(2v)] for the stationary mood, so the average day is as violent as it ever was.
+  const VOL_NORM = Math.exp((VOL_SD * VOL_SD) / (1 - VOL_PHI * VOL_PHI));
+
+  function regime() {
+    if (!S.reg) S.reg = { v: 0, d: 0, sec: {} };
+    if (!S.reg.sec) S.reg.sec = {};
+    return S.reg;
+  }
+
+  // Move the mood on a day. Returns how violent today is, as a multiple of a normal day.
+  function stepRegime(r) {
+    const g = regime();
+    g.v = VOL_PHI * g.v + VOL_SD * gauss(r);
+    if (r() < STORM_CHANCE) g.v += 0.8 + 0.7 * Math.abs(gauss(r));
+    g.v = clamp(g.v, -0.8, 1.7);
+    g.d = clamp(DRIFT_PHI * g.d + DRIFT_SD * gauss(r), -0.0025, 0.0025);
+    for (const s of SECTORS) {
+      const prev = g.sec[s] || 0;
+      g.sec[s] = clamp(SECTOR_PHI * prev + SECTOR_DRIFT_SD * gauss(r), -0.0022, 0.0022);
+    }
+    /*
+     * Dividing by the long-run average keeps the amount of movement the same as before: a share
+     * configured for a 28% year still gets one. What changes is how that movement is spread --
+     * bunched into storms with calm in between, instead of the same dose every day.
+     */
+    return Math.exp(g.v) / VOL_NORM;
+  }
+
   function drawFactors(r) {
-    const F = { mkt: MKT_MU + FACTOR_SD.mkt * gauss(r) };
-    for (const k of ['rate', 'uk', 'intl', 'gold', 'crypto']) F[k] = FACTOR_SD[k] * gauss(r);
-    for (const s of SECTORS) F[s] = SECTOR_SD * gauss(r);
+    const vol = stepRegime(r);
+    const g = regime();
+    const F = { mkt: MKT_MU + g.d + FACTOR_SD.mkt * vol * gauss(r), _vol: vol };
+    for (const k of ['rate', 'uk', 'intl', 'gold', 'crypto']) F[k] = FACTOR_SD[k] * vol * gauss(r);
+    for (const s of SECTORS) F[s] = (g.sec[s] || 0) + SECTOR_SD * vol * gauss(r);
     return F;
   }
 
   function factorReturn(m, F, z) {
-    let r = m.carry + m.beta * F.mkt + m.rate * F.rate + m.idio * z;
+    // A share's own ups and downs get wilder in a storm as well, not just the market's.
+    let r = m.carry + m.beta * F.mkt + m.rate * F.rate + m.idio * (F._vol || 1) * z;
     if (m.sec && F[m.sec] != null) r += F[m.sec];
     if (m.fac) r += F[m.fac];
     return clamp(r, -0.6, 1.5);
