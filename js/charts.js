@@ -270,7 +270,9 @@
     const slot = (R - L) / n;
     const xAt = (i) => L + slot * (i + 0.5);
     const yAt = (v) => PB - ((v - min) / (max - min)) * (PB - Top);
-    const bw = Math.max(1, Math.min(9, slot * 0.62));
+    // Body width follows the slot, so a chart with few bars gets chunky candles. The cap only
+    // stops a near-empty chart drawing slabs; a full chart is still limited by its slot.
+    const bw = Math.max(1, Math.min(32, slot * 0.62));
 
     // grid and price axis
     ctx.lineWidth = 1; ctx.strokeStyle = T.line; ctx.fillStyle = T.muted; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
@@ -299,7 +301,7 @@
         const up = d.c[i] >= d.o[i];
         const col = up ? T.gain : T.loss;
         const x = Math.round(xAt(i)) + 0.5;
-        ctx.strokeStyle = col; ctx.lineWidth = 1;
+        ctx.strokeStyle = col; ctx.lineWidth = bw >= 16 ? 2 : 1;
         ctx.beginPath(); ctx.moveTo(x, yAt(d.h[i])); ctx.lineTo(x, yAt(d.l[i])); ctx.stroke();
         const y1 = yAt(Math.max(d.o[i], d.c[i])), y2 = yAt(Math.min(d.o[i], d.c[i]));
         ctx.fillStyle = col;
