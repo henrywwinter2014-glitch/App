@@ -457,9 +457,17 @@
   function tapeBars(t, n) {
     const a = (S.tape && S.tape[t]) || [];
     if (a.length < 2) return null;
-    const want = Math.max(10, Math.min(n || 120, 160));
+    /*
+     * How wide a bar should be. The obvious answer -- as narrow as fits -- gives one price per
+     * bar, and a candle of one price has no high, no low and no body: a row of flat dashes.
+     * So aim for a handful of prices in each bar, which is what makes a candle mean something,
+     * while keeping enough bars on screen to show a shape.
+     */
+    const cap = Math.max(10, Math.min(n || 120, 160));
     const span = a[a.length - 1][0] - a[0][0];
-    const step = TAPE_STEPS.find((v) => span / v <= want) || TAPE_STEPS[TAPE_STEPS.length - 1];
+    const PER_BAR = 4;
+    const bars = Math.max(6, Math.min(Math.ceil(a.length / PER_BAR), cap));
+    const step = TAPE_STEPS.find((v) => span / v <= bars) || TAPE_STEPS[TAPE_STEPS.length - 1];
     const multiDay = span > 86400 || new Date(a[0][0] * 1000).toDateString() !== new Date(a[a.length - 1][0] * 1000).toDateString();
     const out = { o: [], h: [], l: [], c: [], v: [], labels: [], tape: true, step, points: a.length, from: a[0][0], to: a[a.length - 1][0] };
     let key = null;
