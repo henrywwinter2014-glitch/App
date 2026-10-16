@@ -679,6 +679,31 @@
          * the candles mean something again, and the chosen type comes back.
          */
         const oneEach = !!d0.tape && d0.c.every((c, i) => d0.o[i] === c && d0.h[i] === c && d0.l[i] === c);
+        /*
+         * If the drawing is forced to a line, the buttons must say so. Leaving Candles lit while
+         * a line is drawn makes the button look broken: you press it, it is already selected,
+         * and nothing changes. Mark it unavailable and say why, rather than ignoring the click.
+         */
+        const typeSeg = $('chType');
+        if (typeSeg) {
+          typeSeg.querySelectorAll('button').forEach((btn) => {
+            const ct = btn.dataset.ct;
+            btn.disabled = oneEach && ct === 'candles';
+            btn.title = oneEach && ct === 'candles'
+              ? 'Each bar holds a single price, so it has no high or low to draw. Candles become available once a bar covers more than one price.'
+              : '';
+            btn.classList.toggle('on', oneEach ? ct === 'line' : ct === ui.chartType);
+          });
+        }
+        // The range buttons pick a window of history. A tape has none: it is only what has
+        // arrived, so narrowing it is meaningless and the buttons would do nothing visible.
+        const rangeSeg = $('chRange');
+        if (rangeSeg) {
+          rangeSeg.querySelectorAll('button').forEach((btn) => {
+            btn.disabled = !!d0.tape;
+            btn.title = d0.tape ? 'The chart shows every price received so far, which is less than a month, so these make no difference yet.' : '';
+          });
+        }
         C.candles(host, Object.assign(d0, {
           timeAxis: false,
           // Tape bars are clock times of our own making, not trading dates.
@@ -702,6 +727,10 @@
     $('chDraw').innerHTML = `&#x270E; Draw${nd ? ` <span class="muted">(${nd})</span>` : ''}`;
     const d = ohlcFor(t, ui.chartRange);
     renderChartSource(null, t);
+    // Out of the tape case, every control is live again.
+    const ts = $('chType'), rs = $('chRange');
+    if (ts) ts.querySelectorAll('button').forEach((b) => { b.disabled = false; b.title = ''; b.classList.toggle('on', b.dataset.ct === ui.chartType); });
+    if (rs) rs.querySelectorAll('button').forEach((b) => { b.disabled = false; b.title = ''; });
     C.candles($('mainChart'), Object.assign(d, { timeAxis: true, drawings: drawingsFor(t, d.c.length), trades: tradesFor(t, d.c.length), type: ui.chartType, overlays: maOverlays(t, d.c.length), fmt: (v) => money(v, m.cur, v >= 1000 ? 0 : undefined).replace('$', '') }));
     const tr = window.Learn && window.Learn.trendOf(s.sec[t].h.slice(-126));
     const badge = $('chTrend');

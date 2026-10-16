@@ -1041,6 +1041,9 @@ sup { font-size: 0.62em; vertical-align: 0.5em; line-height: 0; }
 /* The auto-refresh toggle, lit while it is running. */
 #liveAuto.on { background: var(--surface-2); color: var(--fg); box-shadow: inset 0 -2px 0 var(--gain); }
 
+/* A control that cannot do anything right now should look like it, not like it is ignoring you. */
+.seg button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+
 /*
  * A canvas is sized in script from the width available at the moment it is drawn. If a vertical
  * scrollbar appears afterwards the page gets narrower and the canvas does not, which leaves the
