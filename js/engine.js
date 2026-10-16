@@ -76,7 +76,8 @@
     if (S && S.mode === 'real' && RD() && RD().ready) return RD().indexOf(ds) >= 0;
     return !isWeekend(ds) && !holidayOn(ds);
   }
-  function marketStatus(ds) {
+  // `t` names the product being looked at, so live mode can answer for its exchange.
+  function marketStatus(ds, t) {
     const d = ds || (S ? S.date : '');
     const ex = HD() ? HD().EXCHANGES[region()] : null;
     const base = { market: ex ? ex.market : '', hours: ex ? ex.hours : '', tz: ex ? ex.tz : '' };
@@ -87,9 +88,24 @@
      * minute, and a quote fetched at 3am is last night's close however fresh the fetch was.
      */
     if (liveOn() && HD()) {
-      const o = HD().openNow(region());
+      /*
+       * Which market, though? The one the share is listed on. Reporting the viewer's own
+       * exchange here told a Londoner at five in the afternoon that the market was shut, in the
+       * same breath as a real-time New York price -- true of London, and nothing to do with the
+       * share on screen.
+       */
+      const m = t && BY[t] ? BY[t] : null;
+      const code = (m && HD().codeForExchange(m.exch)) || '';
+      if (m && !code) {
+        // No calendar for that exchange: say so rather than quote another market's hours at it.
+        return Object.assign(base, { market: m.exch || 'That exchange', hours: '', open: false, phase: 'unknown', why: 'Hours unknown', unknown: true });
+      }
+      const use = code || region();
+      const ex2 = HD().EXCHANGES[use] || null;
+      const o = HD().openNow(use);
       return Object.assign(base, {
-        open: o.open, why: o.why, phase: o.phase, localTime: o.localTime,
+        market: ex2 ? ex2.market : base.market, hours: ex2 ? ex2.hours : base.hours, tz: ex2 ? ex2.tz : base.tz,
+        code: use, open: o.open, why: o.why, phase: o.phase, localTime: o.localTime,
         holiday: o.phase === 'closed-day' && o.why !== 'Weekend' ? o.why : null,
         national: nationalOn(d),
       });

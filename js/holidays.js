@@ -286,5 +286,27 @@
     return out;
   }
 
-  window.Holidays = { EXCHANGES, detect, exchange, national, exchangeTime, openNow, dayISO, easter, nth, last };
+  /*
+   * Which exchange calendar a product belongs to. A share is open or shut according to the
+   * exchange it is listed on, not according to where the person looking at it happens to live:
+   * a Londoner watching an American share at 5pm is watching an open market, however shut the
+   * LSE is. An exchange we hold no calendar for returns '', so the app can say it does not know
+   * rather than quote London's hours at a Tokyo listing.
+   */
+  const EXCH_CODES = [
+    [/nasdaq|nyse|arca|amex|bats|cboe|us\b|united states|mutual fund/i, 'us'],
+    [/lse|london|aim\b/i, 'uk'],
+    [/tsx|toronto|canada/i, 'ca'],
+    [/asx|australia|sydney/i, 'au'],
+    [/xetra|frankfurt|german|deutsche/i, 'de'],
+    [/euronext|paris|amsterdam|brussels|lisbon|milan|madrid/i, 'eu'],
+  ];
+  function codeForExchange(name) {
+    const s = String(name || '');
+    if (!s) return '';
+    for (const [re, code] of EXCH_CODES) if (re.test(s)) return code;
+    return '';
+  }
+
+  window.Holidays = { EXCHANGES, detect, exchange, national, exchangeTime, openNow, dayISO, easter, nth, last, codeForExchange };
 })();

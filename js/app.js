@@ -116,16 +116,20 @@
     const ds = E.divSpeed();
     // There is no day counter in live mode: the clock is the real one and no day has "passed".
     $('simDay').textContent = E.liveOn() ? '' : `Day ${s.day + 1}${ds !== 'normal' ? ` · dividends ${ds}` : ''}`;
-    const ms = E.marketStatus();
+    // In live mode the badge answers for the share on screen, not for where the viewer lives.
+    const ms = E.marketStatus(null, E.liveOn() ? ui.chartT : null);
     const mk = $('mktStatus');
     if (mk) {
       mk.hidden = false;
       mk.className = 'mkt-status ' + (ms.open ? 'open' : 'shut');
-      const now = window.Holidays.exchangeTime(E.region());
-      mk.textContent = ms.open ? `${ms.market.split(' and ')[0].split(',')[0]} open` : `Closed · ${ms.why}`;
-      mk.title = ms.open
-        ? `${ms.market}, ${ms.hours} local time${now ? ` (it is ${now} there now)` : ''}. Bullpen moves one whole trading day at a time.${ms.national ? ` Today is ${ms.national} where you are, but the market trades as usual.` : ''}`
-        : `No trading on this day: ${ms.why}.`;
+      const now = window.Holidays.exchangeTime(ms.code || E.region());
+      const where = String(ms.market || '').split(' and ')[0].split(',')[0];
+      mk.textContent = ms.unknown ? `${where} · hours unknown` : ms.open ? `${where} open` : `${where} closed · ${ms.why}`;
+      mk.title = ms.unknown
+        ? `Bullpen holds no trading calendar for ${ms.market}, so it will not guess at its hours. The price is still whatever the provider last sent, with the time it was sent.`
+        : ms.open
+          ? `${ms.market}, ${ms.hours} local time${now ? ` (it is ${now} there now)` : ''}.${E.liveOn() ? '' : ' Bullpen moves one whole trading day at a time.'}${ms.national ? ` Today is ${ms.national} where you are, but the market trades as usual.` : ''}`
+          : `${ms.market}: ${ms.why}. Hours are ${ms.hours || 'unknown'} local time${now ? `, and it is ${now} there now` : ''}.`;
       if (ms.open && ms.national) { mk.classList.add('note-day'); mk.textContent += ' · ' + ms.national; }
     }
     const badge = $('modeBadge');
@@ -295,8 +299,17 @@
   const ARROW_DN = '<svg class="arr" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3 L9 9 M9 4.5 V9 H4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 
   function chartTicker() {
-    // Never leave the chart on something that had not listed yet in a replay.
-    if (!ui.chartT || !E.BY[ui.chartT] || !E.listed(ui.chartT)) {
+    /*
+     * A product the viewer picked stays picked. In live mode "listed" means the provider sent a
+     * price, so a London share on a US-only plan is not listed -- and this used to swap the
+     * chart silently for SPY, which looks like the click did nothing and leaves the "not covered
+     * by your plan" message, written for exactly this, unreachable. Keep the choice and let the
+     * chart explain itself. A replay is different: a share that had not floated yet cannot be
+     * drawn at all, so there the fallback stands.
+     */
+    const chosen = ui.chartT && E.BY[ui.chartT];
+    if (chosen && (E.liveOn() || E.listed(ui.chartT))) return ui.chartT;
+    if (!chosen || !E.listed(ui.chartT)) {
       ui.chartT = S().watch.find((t) => E.BY[t] && E.listed(t))
         || (E.listed('SPY') ? 'SPY' : (E.U.find((m) => E.listed(m.t)) || { t: 'SPY' }).t);
     }
@@ -587,6 +600,17 @@
     const building = `<p class="note">${got
       ? `One price so far. Each refresh adds another, and the second one draws a chart of what ${esc(st.providerName)} has quoted since you started watching.`
       : `Refresh prices and the app charts what ${esc(st.providerName)} quotes from then on, even on a plan that sends no history.`}</p>`;
+    /*
+     * A share with no price of its own is its own case: the viewer clicked it deliberately, and
+     * "no history" does not tell them that the price is missing too, nor that their plan may
+     * simply not reach that exchange.
+     */
+    if (!err && !isFinite(E.price(t))) {
+      const m = E.BY[t];
+      return `<div class="data-empty"><b>No price for ${esc(t)} yet</b>
+        <p class="note">${esc(st.providerName)} has not sent a price for ${esc(m ? m.n : t)}${m && m.exch ? ` on ${esc(m.exch)}` : ''}. Refresh prices to ask for one — and if your plan does not reach that exchange, the answer will say so rather than inventing a price.</p>
+        <button class="btn btn-primary" id="loadHistBtn" type="button">Refresh ${esc(t)}</button></div>`;
+    }
     return `<div class="data-empty"><b>${err ? 'No chart from this provider' : 'No history fetched yet'}</b>
       <p class="note">${err
         ? `${esc(st.providerName)} refused the request: “${esc(err)}” Live prices still work; some plans serve quotes but not history.`
@@ -838,6 +862,8 @@
     ui.chartT = t;
     uiPref('chartT', t);
     renderWorkspace();
+    // The market badge belongs to the share on screen, so it has to follow the selection.
+    if (E.liveOn()) renderHeader();
     document.querySelectorAll('#marketBody tr[data-pick]').forEach((tr) => tr.classList.toggle('sel', tr.dataset.pick === t));
     if (window.innerWidth < 1000) document.querySelector('.pane-chart').scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
