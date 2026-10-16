@@ -1114,9 +1114,28 @@
       : 'which goes on your proxy as a secret and never into this page.'} ${esc(p.delayNote)} <a href="${esc(p.site)}" target="_blank" rel="noopener">Get one</a>.`;
   }
 
+  /*
+   * Which build is on screen. A browser serving a cached copy of the code looks exactly like a
+   * fix that did not work, and this is the quickest way to tell those apart.
+   */
+  function buildId() {
+    const m = document.querySelector('meta[name="build"]');
+    return (m && m.content) || 'dev';
+  }
+
+  function renderBuildLine() {
+    const el = $('buildLine');
+    if (!el) return;
+    const b = buildId();
+    el.innerHTML = b === 'dev'
+      ? 'Running from files on this device, not a deployed build.'
+      : `Build <code>${esc(b)}</code>. If something was just fixed and still looks wrong here, quote this — it says which code your browser is actually running.`;
+  }
+
   function renderDataState() {
     const el = $('dataState');
     if (!el) return;
+    renderBuildLine();
     const Q = window.Quotes, st = Q.state();
     const rows = [];
     if (!st.configured) {

@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Bullpen Trader</title>
+<!-- The deploy stamps the commit here, and the same stamp goes onto every script and
+     stylesheet below, so a browser cannot serve yesterday's code from its cache. -->
+<meta name="build" content="dev">
 <meta name="description" content="A stock and shares simulator with dividends, ETFs, bonds, REITs, preferreds, UK shares and penny stocks.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -542,6 +545,7 @@
           <p class="note" id="dataMsg" role="status" aria-live="polite"></p>
         </div>
         <div id="dataState" class="data-state"></div>
+        <p class="note" id="buildLine"></p>
         <!--
           Bringing the whole built-in list up to today's prices. The reference levels in data.js
           are approximate and they age; this replaces them with real ones for every product the

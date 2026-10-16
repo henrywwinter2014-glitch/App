@@ -35,6 +35,11 @@ jobs:
           rm -rf server scratchpad
           touch .nojekyll
 
+      - name: Stamp the build onto the page and its assets
+        # Without this a browser can keep serving an older js/app.js from its cache after a
+        # deploy, which looks exactly like a fix that did not work.
+        run: python3 tools/stamp-build.py "${GITHUB_SHA::7}" index.html
+
       - uses: actions/configure-pages@v5
         with:
           enablement: true
