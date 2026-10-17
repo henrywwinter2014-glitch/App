@@ -1226,6 +1226,23 @@
       }
     } catch (e) { /* a browser that refuses to list caches still works, it just cannot report */ }
     if (drop) drop.hidden = !shell;
+    // Ask the worker what it is actually holding, so a shortfall is reported rather than hidden.
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg && reg.active) {
+        const report = await new Promise((resolve) => {
+          const onMsg = (e) => { if (e.data && e.data.type === 'status') { navigator.serviceWorker.removeEventListener('message', onMsg); resolve(e.data); } };
+          navigator.serviceWorker.addEventListener('message', onMsg);
+          reg.active.postMessage({ type: 'status' });
+          setTimeout(() => { navigator.serviceWorker.removeEventListener('message', onMsg); resolve(null); }, 3000);
+        });
+        if (report && report.missed && report.missed.length) {
+          state.innerHTML = `<b>Saved, but ${report.missed.length} file${report.missed.length === 1 ? '' : 's'} could not be fetched.</b> The app will still open offline. Missing: <code>${esc(report.missed.slice(0, 4).join(', '))}</code>. Press Save for offline again on a better connection.`;
+          if (add) add.hidden = true;
+          return;
+        }
+      }
+    } catch (e) { /* a browser that will not answer still works, it just cannot report */ }
     state.innerHTML = shell
       ? `<b>Saved on this device.</b> The app opens with no connection. ${bulk >= 5
         ? 'Recorded history for replay mode is saved too.'

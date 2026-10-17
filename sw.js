@@ -55,8 +55,23 @@ const isBulk = (p) => BULK_FILES.some((f) => p.endsWith(f));
 // Only the app's own code is stamped; the history is addressed plainly so it survives a deploy.
 const stamped = (f) => (BUILD === 'dev' || f === './' || isBulk(f) ? f : f + '?v=' + BUILD);
 
+/*
+ * Fetch each file on its own. cache.addAll is all or nothing: one file that 404s -- an icon
+ * left out of the deploy, say -- throws away every other file with it, the install fails, and
+ * the app simply never works offline with nothing on screen to say why. A missing file should
+ * cost you that file, not the whole app.
+ */
+async function fill(cache, files) {
+  const missed = [];
+  await Promise.all(files.map((f) => cache.add(stamped(f)).catch(() => missed.push(f))));
+  return missed;
+}
+
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL).then((c) => c.addAll(SHELL_FILES.map(stamped))).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL)
+    .then((c) => fill(c, SHELL_FILES))
+    .then((missed) => { if (missed.length) self.__missed = missed; })
+    .then(() => self.skipWaiting()));
 });
 
 // A new build gets new cache names, so the old ones are dropped rather than accumulating.
@@ -82,6 +97,15 @@ self.addEventListener('message', (e) => {
       }
       for (const client of await self.clients.matchAll()) client.postMessage({ type: 'bulk-done', done, total: BULK_FILES.length });
     }));
+  }
+  // What is actually held, so the page can report a shortfall instead of claiming success.
+  if (e.data && e.data.type === 'status') {
+    e.waitUntil((async () => {
+      const shell = await caches.open(SHELL), bulk = await caches.open(BULK);
+      const held = (await shell.keys()).length;
+      const reply = { type: 'status', build: BUILD, held, want: SHELL_FILES.length, bulk: (await bulk.keys()).length, bulkWant: BULK_FILES.length, missed: self.__missed || [] };
+      for (const client of await self.clients.matchAll()) client.postMessage(reply);
+    })());
   }
 });
 

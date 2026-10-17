@@ -1,1 +1,4 @@
 *.png
+# ...but the app's own icons are part of the app, not screenshots: the service worker
+# fetches them on install, and a missing one used to fail the whole install silently.
+!icon-*.png
