@@ -45,6 +45,48 @@
   color-scheme: dark;
 }
 
+/*
+ * Trading desk: the palette of a professional terminal. Near-black navy panels with hairline
+ * borders, price direction in the bright green and red those platforms use, and a cyan accent
+ * rather than a web blue. Everything is a token, so the whole app follows without a single
+ * component knowing which theme is on.
+ */
+:root[data-theme="desk"] {
+  --bg: #05080f; --surface: #0b111c; --surface-2: #111a28; --line: #1c2838; --line-strong: #2b3a4e;
+  --fg: #d7e0ea; --muted: #72839a; --accent: #29b6d8; --accent-fg: #04121a; --accent-soft: #0c2733;
+  --gain: #26d07c; --gain-soft: #07291a; --loss: #ff4d4d; --loss-soft: #2c0e11;
+  --buy: #2f8fff; --sell: #ff9f2e;
+  --warn: #ffc44d; --chart-b: #4b586a; --chart-c: #ffc44d; --shadow: 0 14px 44px rgba(0, 0, 0, 0.75);
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-mono: "SF Mono", "IBM Plex Mono", "Consolas", "Roboto Mono", ui-monospace, monospace;
+  --r: 3px;
+  color-scheme: dark;
+}
+/* A terminal is dense: numbers in a monospace column so digits line up, and tighter rows. */
+:root[data-theme="desk"] .num,
+:root[data-theme="desk"] .grid td,
+:root[data-theme="desk"] .r,
+:root[data-theme="desk"] .ch-stats { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+:root[data-theme="desk"] .grid th { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+:root[data-theme="desk"] .grid td, :root[data-theme="desk"] .grid th { padding-top: 5px; padding-bottom: 5px; }
+:root[data-theme="desk"] .pane, :root[data-theme="desk"] .card { border-color: var(--line); }
+:root[data-theme="desk"] .pane-head, :root[data-theme="desk"] .card > h3 {
+  background: var(--surface-2); border-bottom: 1px solid var(--line);
+  text-transform: uppercase; letter-spacing: 0.07em; font-size: 11px;
+}
+
+/*
+ * Heat on the change column, the way a gainers board does it: the further a share has moved,
+ * the stronger the wash behind it. It turns a column of numbers into something you can read at
+ * a glance without reading any of them.
+ */
+.heat { display: inline-block; padding: 1px 5px; border-radius: 2px; }
+.heat.up { background: color-mix(in srgb, var(--gain) calc(var(--heat) * 60%), transparent); }
+.heat.down { background: color-mix(in srgb, var(--loss) calc(var(--heat) * 60%), transparent); }
+:root[data-theme="desk"] .heat { color: var(--fg); }
+:root[data-theme="desk"] .heat.up { background: color-mix(in srgb, var(--gain) calc(var(--heat) * 85%), transparent); }
+:root[data-theme="desk"] .heat.down { background: color-mix(in srgb, var(--loss) calc(var(--heat) * 85%), transparent); }
+
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {

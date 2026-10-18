@@ -850,6 +850,16 @@
     toast(`${res.m.n} (${res.m.t}) is now listed, priced in ${res.m.cur} on ${res.m.exch}.`);
   }
 
+  /*
+   * How strongly to wash the change cell. A gainers board on a trading desk shades the big
+   * movers so the eye finds them without reading a single number; this is the same idea, scaled
+   * so an ordinary day is barely tinted and a 5% move is unmistakable.
+   */
+  function heatOf(chg) {
+    if (!isFinite(chg)) return 0;
+    return Math.min(1, Math.abs(chg) / 0.05).toFixed(2);
+  }
+
   function renderMarkets() {
     const rows = marketRows();
     $('resultCount').textContent = `${rows.length.toLocaleString()} ${rows.length === 1 ? 'product' : 'products'}`;
@@ -881,7 +891,7 @@
       html += `<tr data-pick="${m.t}"${m.t === cur ? ' class="sel"' : ''}>
         <td class="star-col"><button type="button" class="star${w ? ' on' : ''}" data-watch="${m.t}" aria-label="${w ? 'Remove from' : 'Add to'} watchlist">${w ? '★' : '☆'}</button></td>
         <td><div class="sec-cell"><b>${esc(m.t)}${s.holdings[m.t] ? '<span class="held-dot" title="You own this"></span>' : ''}</b><span>${esc(m.n)}</span></div></td>
-        <td class="r ${cls(r.chg)}">${r.chg == null || !isFinite(r.chg) ? dash : `<span class="chg-cell">${r.chg >= 0 ? ARROW_UP : ARROW_DN}${pct(r.chg).replace('+', '')}</span>${isFinite(abs) ? `<small class="muted">${(abs >= 0 ? '' : '-') + Math.abs(abs).toFixed(r.p >= 1 ? 2 : 4)}</small>` : ''}`}</td>
+        <td class="r ${cls(r.chg)}">${r.chg == null || !isFinite(r.chg) ? dash : `<span class="chg-cell heat ${r.chg >= 0 ? 'up' : 'down'}" style="--heat:${heatOf(r.chg)}">${r.chg >= 0 ? ARROW_UP : ARROW_DN}${pct(r.chg).replace('+', '')}</span>${isFinite(abs) ? `<small class="muted">${(abs >= 0 ? '' : '-') + Math.abs(abs).toFixed(r.p >= 1 ? 2 : 4)}</small>` : ''}`}</td>
         <td class="hide-sm">${spark}</td>
         <td class="hide-md range-cell">${lo == null || hi == null ? dash : `<span>L: ${money(lo, m.cur)}</span><span>H: ${money(hi, m.cur)}</span>`}</td>
         <td class="hide-md">${sent == null ? dash : `<div class="sent"><span class="sent-l">${sentTxt} ${sent >= 50 ? ARROW_UP : ARROW_DN}</span><div class="sent-bar"><i style="width:${sent}%"></i></div></div>`}</td>
@@ -2917,9 +2927,10 @@
 
   /* ---------- boot ---------- */
   /* ---------- theme ---------- */
-  function getTheme() { const t = uiPref('theme'); return t === 'light' || t === 'dark' ? t : 'system'; }
+  const THEMES = ['light', 'dark', 'desk'];
+  function getTheme() { const t = uiPref('theme'); return THEMES.includes(t) ? t : 'system'; }
   function setTheme(t) {
-    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    if (THEMES.includes(t)) document.documentElement.setAttribute('data-theme', t);
     else document.documentElement.removeAttribute('data-theme');
     uiPref('theme', t);
     if ($('setTheme')) $('setTheme').value = t;

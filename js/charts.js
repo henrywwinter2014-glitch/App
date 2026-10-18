@@ -327,7 +327,8 @@
     for (let i = 0; i < n; i++) {
       const up = d.c[i] >= (i ? d.c[i - 1] : d.o[i]);
       const vh = (d.v[i] / vmax) * volH;
-      ctx.fillStyle = hexA(up ? T.buy : T.sell, 0.85);
+      // Green and red, matching the candle above it, which is what every trading platform does.
+      ctx.fillStyle = hexA(up ? T.gain : T.loss, 0.8);
       ctx.fillRect(Math.round(xAt(i) - bw / 2), XB - vh, Math.max(1, Math.round(bw)), vh);
     }
 
