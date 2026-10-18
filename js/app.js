@@ -2011,6 +2011,7 @@
   }
 
   const MAX_SKIP = 252 * 25;
+  // Still used by the Skip to... panel, which takes a number of days, weeks, months or years.
   function skipBy(n, unit) {
     const steps = unit === 'd' ? n : E.tradingDaysUntil(addCalendar(S().date, unit, n));
     runSkip(steps);
@@ -2606,8 +2607,6 @@
 
     $('playBtn').addEventListener('click', () => setPlaying(!ui.playing));
     $('speedSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-speed]'); if (b) setSpeed(+b.dataset.speed); });
-    const SKIPS = { '1d': [1, 'd'], '1w': [1, 'w'], '1m': [1, 'm'], '3m': [3, 'm'], '1y': [1, 'y'] };
-    document.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('click', () => skipBy(...SKIPS[b.dataset.skip])));
     $('nextPayBtn').addEventListener('click', skipToNextPayout);
     $('skipMoreBtn').addEventListener('click', () => {
       const open = $('skipPanel').hidden;
