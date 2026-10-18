@@ -26,7 +26,12 @@
   // Daily standard deviation of each shared factor.
   const FACTOR_SD = { mkt: 0.0095, rate: 0.0035, uk: 0.006, intl: 0.006, gold: 0.009, crypto: 0.025 };
   const SECTOR_SD = 0.0065;
+  // A broad index's daily standard deviation, the yardstick beta is quoted against.
+  const INDEX_SD = 0.16 / Math.sqrt(252);
   const MKT_MU = 0.0003;       // ~7.5% a year
+  const EARNING_TYPES = ['Stock', 'REIT', 'BDC', 'MLP', 'International', 'UK Share', 'Penny Stock'];
+  const EARN_EVERY = 63;       // trading days between one set of results and the next
+  const EARN_JUMP_SD = 3.2;    // how big a reporting day is, in ordinary days
 
   /* ---------- random helpers ---------- */
   function hash(str) {
@@ -164,11 +169,62 @@
     m.rate = m.rate || 0;
     m.carry = (m.y / 100) / TD;
     if (!m.track) {
+      /*
+       * How much of this product's risk is shared with everything else, and how much is its own.
+       *
+       * The shares are fractions of the product's own variance, not fixed amounts. A flat
+       * sector shock in pounds per day is most of an 18%-volatility staple's movement and
+       * noise against a 65%-volatility chip stock, which left every holding far too
+       * independent: two big technology names correlated at 0.32 where real ones sit near
+       * 0.65, and a share against its own index at 0.48 where 0.70 is normal. In fractions
+       * the correlation is whatever we choose it to be, at any level of volatility, because
+       * correlation IS the shared fraction: two products in one sector move together by
+       * (market share + sector share), and two in different sectors by the market share alone.
+       */
       const d = m.vol / Math.sqrt(TD);
-      let sys = Math.pow(m.beta * FACTOR_SD.mkt, 2) + Math.pow(m.rate * FACTOR_SD.rate, 2);
-      if (m.sec && SECTOR_BETA[m.sec] != null) sys += SECTOR_SD * SECTOR_SD;
-      if (m.fac) sys += Math.pow(FACTOR_SD[m.fac], 2);
-      m.idio = Math.sqrt(Math.max(d * d - sys, Math.pow(0.15 * d, 2)));
+      /*
+       * A company that reports has four days a year that are nothing like the others. That is
+       * real, but the jump has to be part of its risk rather than piled on top of it: left
+       * outside the budget it pushed every reporting share 8 to 18 per cent above the
+       * volatility it was configured for, and diluted its correlation with everything else,
+       * because the extra movement belonged to no one but itself.
+       */
+      const hasEarn = EARNING_TYPES.includes(m.type);
+      const wEarn = hasEarn ? (TD / EARN_EVERY) * Math.pow(EARN_JUMP_SD, 2) / TD : 0;
+      /*
+       * The market loading IS the beta. The app quotes a beta for every product, the risk tools
+       * work in it and the course teaches it, so the prices have to deliver the number on the
+       * screen: a share quoted at 1.2 must actually move 1.2% for the market's 1%. Setting the
+       * market share of variance independently and scaling it by the share's own volatility
+       * broke that -- NVIDIA was quoted at 1.62 and behaved like 2.73, and a long bond quoted
+       * at -0.1 moved WITH the market at +0.27, which is the opposite of the thing it is held
+       * for. Taking the loading straight from beta makes the quoted figure true by construction,
+       * sign and all, and the share of variance it accounts for simply follows.
+       */
+      m.lMkt = m.beta * INDEX_SD;
+      /*
+       * A broad index fund is the market and nothing else. Leaving it a slice of its own noise
+       * made it a slightly wrong yardstick, and every beta measured against it came out low.
+       */
+      const broad = m.cat === 'Index ETF' && !m.sec && !m.fac && m.beta >= 0.9;
+      const wMkt = broad ? 0.995 : Math.min(Math.pow(m.lMkt / d, 2), 0.94);
+      if (broad) m.lMkt = d * Math.sqrt(wMkt) * Math.sign(m.beta || 1);
+      // The sector is a second shared force, independent of the market, so it lifts how much
+      // two shares in one industry move together without disturbing either one's beta.
+      let wSec = m.sec && SECTOR_BETA[m.sec] != null ? 0.22 : 0;
+      if (wMkt + wSec > 0.94) wSec = Math.max(0, 0.94 - wMkt);
+      const wRate = m.rate ? clamp(Math.pow(m.rate, 2) * 0.55, 0, 0.8) : 0;
+      const wFac = m.fac ? 0.62 : 0;
+      // Everything else shares out what the market has not already claimed.
+      const room = Math.max(0, (broad ? 0.998 : 0.94) - wMkt);
+      const other = wSec + wRate + wFac;
+      const sc = other > room && other > 0 ? room / other : 1;
+      m.lSec = d * Math.sqrt(wSec * sc);
+      m.lRate = d * Math.sqrt(wRate * sc);
+      m.lFac = d * Math.sqrt(wFac * sc);
+      const shared = wMkt + other * sc;
+      m.idio = d * Math.sqrt(Math.max(1 - shared - wEarn, broad ? 0.002 : 0.04));
+      m.betaEff = m.beta;
     }
     // Dividend schedule, derived from the ticker so it is stable between sessions.
     const hh = m.h;
@@ -180,9 +236,9 @@
     else m.exMonths = [];
     m.payLag = m.cur === 'GBP' ? 20 : 10;
     m.exWd = 1 + ((hh >>> 5) % 5);   // weekday used when dividends are paid weekly
-    m.earnOff = hh % 63;
+    m.earnOff = hh % EARN_EVERY;
     m.divOff = (hh >>> 3) % TD;
-    m.hasEarnings = ['Stock', 'REIT', 'BDC', 'MLP', 'International', 'UK Share', 'Penny Stock'].includes(m.type);
+    m.hasEarnings = EARNING_TYPES.includes(m.type);
     m.tags = buildTags(m);
     U.push(m);
     BY[m.t] = m;
@@ -736,6 +792,11 @@
   const DRIFT_SD = 0.00012;
   const SECTOR_PHI = 0.98;
   const SECTOR_DRIFT_SD = 0.00009;
+  const LEVERAGE = 0.22;         // how much yesterday's fall adds to today's nerves
+  const CRASH_CHANCE = 0.014;    // a day that gaps down on no warning
+  const CRASH_SIZE = 1.3;
+  // E[mz^2] with those jumps in it, so the market day is still one standard deviation.
+  const CRASH_NORM = Math.sqrt(1 + CRASH_CHANCE * (CRASH_SIZE * CRASH_SIZE) * (0.36 + 2 * 0.6 * 0.7979 + 1));
   // E[exp(2v)] for the stationary mood, so the average day is as violent as it ever was.
   const VOL_NORM = Math.exp((VOL_SD * VOL_SD) / (1 - VOL_PHI * VOL_PHI));
 
@@ -749,6 +810,18 @@
   function stepRegime(r) {
     const g = regime();
     g.v = VOL_PHI * g.v + VOL_SD * gauss(r);
+    /*
+     * The leverage effect: a market that fell yesterday is jumpier today. It is one of the most
+     * reliable things about real equities, and it is why a chart's violent stretches sit under
+     * the falls rather than the rallies.
+     *
+     * It has to move volatility about rather than add it. Yesterday's fall measured in standard
+     * deviations averages 0.4 when it is a fall at all, so subtracting that leaves the long-run
+     * level alone: louder after a drop, quieter after a rise, the same overall. Adding it raw
+     * put every share at nearly twice its intended volatility.
+     */
+    const dn = Math.max(0, -(g.mz || 0));
+    g.v += LEVERAGE * (Math.min(dn, 3) - 0.4);
     if (r() < STORM_CHANCE) g.v += 0.8 + 0.7 * Math.abs(gauss(r));
     g.v = clamp(g.v, -0.8, 1.7);
     g.d = clamp(DRIFT_PHI * g.d + DRIFT_SD * gauss(r), -0.0025, 0.0025);
@@ -764,20 +837,36 @@
     return Math.exp(g.v) / VOL_NORM;
   }
 
+  /*
+   * The factors are now unit-variance: each is "how many standard deviations did this force move
+   * today", and each product multiplies them by its own loading. That is what lets a staple and
+   * a chip stock share the same market day in proportion to their own size of movement.
+   */
   function drawFactors(r) {
     const vol = stepRegime(r);
     const g = regime();
-    const F = { mkt: MKT_MU + g.d + FACTOR_SD.mkt * vol * gauss(r), _vol: vol };
-    for (const k of ['rate', 'uk', 'intl', 'gold', 'crypto']) F[k] = FACTOR_SD[k] * vol * gauss(r);
-    for (const s of SECTORS) F[s] = (g.sec[s] || 0) + SECTOR_SD * vol * gauss(r);
+    /*
+     * A market day is mostly ordinary, but the bad ones are worse than the good ones are good.
+     * Without this the simulated index was symmetrical -- a skew of 0.03, where real indices sit
+     * between -0.3 and -1.0 -- which quietly teaches that a crash is just a rally upside down.
+     */
+    let mz = gauss(r);
+    if (r() < CRASH_CHANCE) mz -= CRASH_SIZE * (0.6 + Math.abs(gauss(r)));
+    mz /= CRASH_NORM;   // the jumps add variance of their own; take it back out
+    const F = { mkt: vol * mz, _vol: vol, _drift: g.d, _mu: MKT_MU };
+    g.mz = mz;          // remembered in standard deviations, so tomorrow can be jumpier after a fall
+    for (const k of ['rate', 'uk', 'intl', 'gold', 'crypto']) F[k] = vol * gauss(r);
+    for (const s of SECTORS) F[s] = vol * gauss(r) + (g.sec[s] || 0) / Math.max(1e-9, INDEX_SD);
     return F;
   }
 
   function factorReturn(m, F, z) {
-    // A share's own ups and downs get wilder in a storm as well, not just the market's.
-    let r = m.carry + m.beta * F.mkt + m.rate * F.rate + m.idio * (F._vol || 1) * z;
-    if (m.sec && F[m.sec] != null) r += F[m.sec];
-    if (m.fac) r += F[m.fac];
+    // Each shared force moves this product by its own loading; its own noise feels the weather too.
+    const drift = (F._mu + F._drift) * (m.betaEff != null ? m.betaEff : 1);
+    let r = m.carry + drift + m.lMkt * F.mkt + m.idio * (F._vol || 1) * z;
+    if (m.lSec && m.sec && F[m.sec] != null) r += m.lSec * F[m.sec];
+    if (m.lRate) r += m.lRate * F.rate;
+    if (m.lFac && m.fac) r += m.lFac * F[m.fac];
     return clamp(r, -0.6, 1.5);
   }
 
@@ -1201,8 +1290,8 @@
     for (const m of U) {
       if (m.track) continue;
       let r = factorReturn(m, F, gauss(rnd));
-      if (m.hasEarnings && (S.day % 63) === m.earnOff) {
-        const jump = 0.004 + gauss(rnd) * (m.vol / Math.sqrt(TD)) * 3.2;
+      if (m.hasEarnings && (S.day % EARN_EVERY) === m.earnOff) {
+        const jump = 0.004 + gauss(rnd) * (m.vol / Math.sqrt(TD)) * EARN_JUMP_SD;
         r = clamp(r + jump, -0.6, 1.5);
         const mine = S.holdings[m.t] || S.watch.includes(m.t);
         if (Math.abs(jump) > 0.05 || mine) {
