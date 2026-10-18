@@ -508,13 +508,23 @@
    * month is nearly flat and a violent one fills the row. The scale is compressive rather than
    * clipped: a huge move still fits in the box, and still looks bigger than a large one.
    */
-  const SPARK_FULL = 0.14;        // a swing of about 14% uses most of the height
-  function sparkSVG(vals, up) {
+  /*
+   * A swing of about 14% over a month uses most of the height. Over longer stretches prices
+   * naturally travel further -- a year's move is roughly five times a month's -- so the scale
+   * grows with the span. Without that every yearly line would be pinned to the top or bottom
+   * of its row and they would all look the same again, which is the fault this drawing was
+   * changed to fix.
+   */
+  const SPARK_FULL = 0.14;
+  const SPARK_DAYS = 30;
+  function sparkSVG(vals, up, days) {
+    const span = days || vals.length || SPARK_DAYS;
+    const full = SPARK_FULL * Math.sqrt(Math.max(span, 5) / SPARK_DAYS);
     const w = 84, h = 24, mid = h / 2, room = h / 2 - 2;
     const base = vals.find((v) => v > 0) || 1;
     const pts = vals.map((v, i) => {
       const rel = v / base - 1;
-      const y = mid - Math.tanh(rel / SPARK_FULL) * room;
+      const y = mid - Math.tanh(rel / full) * room;
       return `${((i / (vals.length - 1)) * w).toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
     return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`

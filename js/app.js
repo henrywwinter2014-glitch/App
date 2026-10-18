@@ -861,7 +861,14 @@
     for (const r of shown) {
       const m = r.m;
       const h = s.sec[m.t].h;
-      const spark = h.length > 2 ? C.sparkSVG(h.slice(-30), h[h.length - 1] >= h[h.length - 30]) : '';
+      /*
+       * The row's little chart covers the same stretch as the chart beside it. It used to be
+       * fixed at a month however the range was set, so picking 1Y changed the big chart and
+       * left the column of small ones showing something else entirely.
+       */
+      const span = Math.max(5, Math.min(ui.chartRange || 126, h.length));
+      const cut = h.slice(-span);
+      const spark = cut.length > 2 ? C.sparkSVG(cut, cut[cut.length - 1] >= cut[0], span) : '';
       const w = s.watch.includes(m.t);
       const q = E.quote(m.t, 'buy', 1);
       const { lo, hi } = dayRange(m.t);
@@ -887,6 +894,11 @@
       html = `<tr><td colspan="9" class="empty">${ui.filter === 'watch' ? 'Your watchlist is empty. Tap the star next to any product to add it.' : ui.filter === 'owned' ? 'You do not own anything yet. Click Buy next to any product.' : 'Nothing matches. Try a different search or filter, or list it yourself in Settings.'}</td></tr>`;
     }
     $('marketBody').innerHTML = html;
+    const th = $('trendHead');
+    if (th) {
+      const n = ui.chartRange || 126;
+      th.textContent = `Trend · ${n <= 21 ? '1M' : n <= 63 ? '3M' : n <= 126 ? '6M' : '1Y'}`;
+    }
     $('moreBtn').hidden = rows.length <= ui.limit;
     $('moreBtn').textContent = `Show more (${(rows.length - ui.limit).toLocaleString()} left)`;
     document.querySelectorAll('#marketTable th[data-sort]').forEach((th) => {
@@ -2663,6 +2675,8 @@
       ui.chartRange = +b.dataset.r; uiPref('chartRange', ui.chartRange);
       $('chRange').querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
       renderMainChart();
+      // The row charts cover the same stretch, so they have to be redrawn with it.
+      renderMarkets();
     });
     $('chType').addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
