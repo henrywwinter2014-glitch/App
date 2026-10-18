@@ -495,13 +495,31 @@
     return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
   }
 
+  /*
+   * A month of prices, small enough to sit in a table row.
+   *
+   * The obvious way to draw one -- stretch the lowest price to the bottom and the highest to the
+   * top -- makes every line the same size whatever happened. A share that drifted half a per
+   * cent and one that swung forty draw the same squiggle, so the picture says nothing except
+   * "prices wobbled", and a column of them is a column of identical scribbles.
+   *
+   * Here the height is the size of the move instead. The line starts at the middle and rises or
+   * falls with the distance from where it began, measured against a full-scale move, so a quiet
+   * month is nearly flat and a violent one fills the row. The scale is compressive rather than
+   * clipped: a huge move still fits in the box, and still looks bigger than a large one.
+   */
+  const SPARK_FULL = 0.14;        // a swing of about 14% uses most of the height
   function sparkSVG(vals, up) {
-    const w = 84, h = 24;
-    let min = Infinity, max = -Infinity;
-    for (const v of vals) { if (v < min) min = v; if (v > max) max = v; }
-    const span = max - min || 1;
-    const pts = vals.map((v, i) => `${((i / (vals.length - 1)) * w).toFixed(1)},${(h - 2 - ((v - min) / span) * (h - 4)).toFixed(1)}`).join(' ');
-    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(${up ? '--gain' : '--loss'})" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
+    const w = 84, h = 24, mid = h / 2, room = h / 2 - 2;
+    const base = vals.find((v) => v > 0) || 1;
+    const pts = vals.map((v, i) => {
+      const rel = v / base - 1;
+      const y = mid - Math.tanh(rel / SPARK_FULL) * room;
+      return `${((i / (vals.length - 1)) * w).toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`
+      + `<line x1="0" y1="${mid}" x2="${w}" y2="${mid}" stroke="currentColor" stroke-width="0.5" opacity="0.18"/>`
+      + `<polyline points="${pts}" fill="none" stroke="var(${up ? '--gain' : '--loss'})" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
   }
 
   // Convert between canvas pixels and chart data ({ x: bar index, p: price }) for the last-drawn candles chart.
