@@ -793,8 +793,14 @@
   const SECTOR_PHI = 0.98;
   const SECTOR_DRIFT_SD = 0.00009;
   const LEVERAGE = 0.22;         // how much yesterday's fall adds to today's nerves
-  const CRASH_CHANCE = 0.014;    // a day that gaps down on no warning
-  const CRASH_SIZE = 1.3;
+  /*
+   * A day that gaps down on no warning, a few times a year. These have to be big enough and
+   * frequent enough to tilt the whole distribution: milder ones left the skew swinging between
+   * +0.2 and -0.5 from one sample to the next, which is another way of saying the market was
+   * very nearly symmetrical and the asymmetry was noise.
+   */
+  const CRASH_CHANCE = 0.020;
+  const CRASH_SIZE = 1.7;
   // E[mz^2] with those jumps in it, so the market day is still one standard deviation.
   const CRASH_NORM = Math.sqrt(1 + CRASH_CHANCE * (CRASH_SIZE * CRASH_SIZE) * (0.36 + 2 * 0.6 * 0.7979 + 1));
   // E[exp(2v)] for the stationary mood, so the average day is as violent as it ever was.
