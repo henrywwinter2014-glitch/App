@@ -239,7 +239,16 @@
       }
       const h = S().sec[m.t].h;
       const p = h[h.length - 1];
-      rows.push({ m, p, chg: p / h[h.length - 2] - 1, y1: p / h[0] - 1, yld: E.fwdYield(m.t), sent: sentiment(m.t), exact: q && m.t.toLowerCase() === q });
+      /*
+       * The change is measured over the range the list is set to, so the number and the little
+       * chart beside it describe the same stretch of time. They used to disagree: the figure was
+       * always today's move while the drawing covered months, which is two different answers to
+       * one question sitting in the same row.
+       */
+      const back = Math.max(1, Math.min(ui.chartRange || 126, h.length - 1));
+      const from = h[h.length - 1 - back];
+      rows.push({ m, p, chg: from > 0 ? p / from - 1 : null, abs: from > 0 ? p - from : null, span: back,
+        y1: p / h[0] - 1, yld: E.fwdYield(m.t), sent: sentiment(m.t), exact: q && m.t.toLowerCase() === q });
     }
     const dir = ui.asc ? 1 : -1;
     const key = {
@@ -855,9 +864,11 @@
    * movers so the eye finds them without reading a single number; this is the same idea, scaled
    * so an ordinary day is barely tinted and a 5% move is unmistakable.
    */
-  function heatOf(chg) {
+  function heatOf(chg, span) {
     if (!isFinite(chg)) return 0;
-    return Math.min(1, Math.abs(chg) / 0.05).toFixed(2);
+    // 5% in a day is a big move; over a year it is nothing, so the scale grows with the stretch.
+    const full = 0.05 * Math.sqrt(Math.max(span || 1, 1));
+    return Math.min(1, Math.abs(chg) / full).toFixed(2);
   }
 
   function renderMarkets() {
@@ -884,14 +895,14 @@
       const { lo, hi } = dayRange(m.t);
       const sent = r.sent;
       const sentTxt = sent == null ? '' : sent >= 50 ? `${sent}% Bought` : `${100 - sent}% Sold`;
-      const abs = E.liveOn() ? (E.liveOf(m.t) || {}).change : r.p - h[h.length - 2];
+      const abs = E.liveOn() ? (E.liveOf(m.t) || {}).change : r.abs;
       // A dash, not a zero: in live mode several of these columns have no answer rather than an
       // answer of nothing, and printing 0.00% would be a statement we cannot make.
       const dash = '<span class="muted">—</span>';
       html += `<tr data-pick="${m.t}"${m.t === cur ? ' class="sel"' : ''}>
         <td class="star-col"><button type="button" class="star${w ? ' on' : ''}" data-watch="${m.t}" aria-label="${w ? 'Remove from' : 'Add to'} watchlist">${w ? '★' : '☆'}</button></td>
         <td><div class="sec-cell"><b>${esc(m.t)}${s.holdings[m.t] ? '<span class="held-dot" title="You own this"></span>' : ''}</b><span>${esc(m.n)}</span></div></td>
-        <td class="r ${cls(r.chg)}">${r.chg == null || !isFinite(r.chg) ? dash : `<span class="chg-cell heat ${r.chg >= 0 ? 'up' : 'down'}" style="--heat:${heatOf(r.chg)}">${r.chg >= 0 ? ARROW_UP : ARROW_DN}${pct(r.chg).replace('+', '')}</span>${isFinite(abs) ? `<small class="muted">${(abs >= 0 ? '' : '-') + Math.abs(abs).toFixed(r.p >= 1 ? 2 : 4)}</small>` : ''}`}</td>
+        <td class="r ${cls(r.chg)}">${r.chg == null || !isFinite(r.chg) ? dash : `<span class="chg-cell heat ${r.chg >= 0 ? 'up' : 'down'}" style="--heat:${heatOf(r.chg, r.span)}">${r.chg >= 0 ? ARROW_UP : ARROW_DN}${pct(r.chg).replace('+', '')}</span>${isFinite(abs) ? `<small class="muted">${(abs >= 0 ? '' : '-') + Math.abs(abs).toFixed(r.p >= 1 ? 2 : 4)}</small>` : ''}`}</td>
         <td class="hide-sm">${spark}</td>
         <td class="hide-md range-cell">${lo == null || hi == null ? dash : `<span>L: ${money(lo, m.cur)}</span><span>H: ${money(hi, m.cur)}</span>`}</td>
         <td class="hide-md">${sent == null ? dash : `<div class="sent"><span class="sent-l">${sentTxt} ${sent >= 50 ? ARROW_UP : ARROW_DN}</span><div class="sent-bar"><i style="width:${sent}%"></i></div></div>`}</td>
@@ -904,11 +915,13 @@
       html = `<tr><td colspan="9" class="empty">${ui.filter === 'watch' ? 'Your watchlist is empty. Tap the star next to any product to add it.' : ui.filter === 'owned' ? 'You do not own anything yet. Click Buy next to any product.' : 'Nothing matches. Try a different search or filter, or list it yourself in Settings.'}</td></tr>`;
     }
     $('marketBody').innerHTML = html;
+    const n = ui.chartRange || 126;
+    const label = n <= 21 ? '1M' : n <= 63 ? '3M' : n <= 126 ? '6M' : '1Y';
     const th = $('trendHead');
-    if (th) {
-      const n = ui.chartRange || 126;
-      th.textContent = `Trend · ${n <= 21 ? '1M' : n <= 63 ? '3M' : n <= 126 ? '6M' : '1Y'}`;
-    }
+    if (th) th.textContent = `Trend · ${label}`;
+    const ch = $('changeHead');
+    // In real-market mode the provider gives today's move and no history to compare against.
+    if (ch) ch.textContent = E.liveOn() ? 'Change · today' : `Change · ${label}`;
     $('moreBtn').hidden = rows.length <= ui.limit;
     $('moreBtn').textContent = `Show more (${(rows.length - ui.limit).toLocaleString()} left)`;
     document.querySelectorAll('#marketTable th[data-sort]').forEach((th) => {
